@@ -22,7 +22,8 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   else if (
     m.method === 'thread/start' &&
     (!m.params.config?.['skills.config']?.every((s) => s.enabled === false) ||
-      m.params.config?.['project_doc_max_bytes'] !== 0)
+      m.params.config?.['project_doc_max_bytes'] !== 0 ||
+      m.params.config?.web_search !== 'live')
   )
     send({ id: m.id, error: { message: 'Isolation missing' } });
   else if (m.method === 'thread/start') reply({ thread: { id: 'session-' + ++session } });
@@ -30,10 +31,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     m.params.threadId === 'missing'
       ? send({ id: m.id, error: { message: 'not found' } })
       : reply({ thread: { id: m.params.threadId } });
+  else if (m.method === 'turn/start' && m.params.sandboxPolicy?.networkAccess !== true)
+    send({ id: m.id, error: { message: 'Web access is disabled' } });
   else if (
     m.method === 'turn/start' &&
-    Object.keys(JSON.parse(m.params.input[0].text)).join(',') !==
-      'noteText,selectedPassage,conversationHistory,question'
+    ![
+      'noteText,selectedPassage,conversationHistory,question',
+      'noteText,selectedPassage,conversationHistory,quotedReply,question',
+    ].includes(Object.keys(JSON.parse(m.params.input[0].text)).join(','))
   )
     send({ id: m.id, error: { message: 'Context order is not canonical' } });
   else if (m.method === 'turn/start') {

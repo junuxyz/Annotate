@@ -581,6 +581,73 @@ if (only.includes('markdown'))
       });
     }
 
+if (only.includes('quote'))
+  for (const theme of themes)
+    for (const m of modes) {
+      await step(`quote [${m}/${theme}]: selected reply, remove, save and reload`, async () => {
+        await ev(`app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`);
+        await resetThreads();
+        await createComment(m, 'Before **quoted section** after');
+        await until(
+          `return document.querySelector('.annotate-message-body strong')?.textContent==='quoted section'`,
+          'rendered quote source',
+        );
+        await ev(
+          `const b=document.querySelector('.annotate-message-body'),n=b.querySelector('strong').firstChild,r=document.createRange();r.setStart(n,0);r.setEnd(n,6);const s=getSelection();s.removeAllRanges();s.addRange(r);b.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))`,
+        );
+        const pt = await until(
+          `const b=document.querySelector('.annotate-selection-reply');if(!b||b.hidden)return null;const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+          'selected reply action',
+        );
+        await clickAt(pt);
+        await until(
+          `return !document.querySelector('.annotate-reply-preview').hidden&&document.querySelector('.annotate-reply-preview blockquote').textContent==='quoted'&&document.activeElement===document.querySelector('.annotate-composer textarea')`,
+          'quote preview and composer focus',
+        );
+        await type('reply to this section');
+        await shot(`${theme}-${m}-quote-composer`);
+        await press('Enter');
+        await until(
+          `return document.querySelectorAll('.annotate-message').length===2`,
+          'reply appended',
+        );
+        assert(
+          await ev(
+            `${P}return p.data.threads.length===1&&p.data.threads[0].comments[1].quote.text==='quoted'&&p.data.threads[0].comments[1].quote.messageId===p.data.threads[0].comments[0].id&&document.querySelector('.annotate-message:nth-child(2) .annotate-reply-quote').textContent==='quoted'&&document.querySelector('.annotate-reply-preview').hidden`,
+          ),
+          'reply stays in original thread with selected quote',
+        );
+        await shot(`${theme}-${m}-quote-thread`);
+        await ev(`document.querySelector('.annotate-message-reply').click()`);
+        assert(
+          await ev(
+            `return document.querySelector('.annotate-reply-preview blockquote').textContent==='Before **quoted section** after'`,
+          ),
+          'whole-message reply is available',
+        );
+        await ev(
+          `document.querySelector('.annotate-reply-preview [aria-label="Remove quote"]').click()`,
+        );
+        await type('without quote');
+        await press('Enter');
+        await until(`${P}return p.data.threads[0].comments.length===3`, 'unquoted reply appended');
+        assert(
+          await ev(`${P}return !p.data.threads[0].comments[2].quote`),
+          'removing quote does not attach it',
+        );
+        await ev(
+          `${P}await p.persist();p.closePopup();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate');app.plugins.plugins['annotate'].openThread(app.plugins.plugins['annotate'].data.threads[0])`,
+        );
+        assert(
+          await ev(
+            `${P}return p.data.threads.length===1&&p.data.threads[0].comments[1].quote.text==='quoted'&&document.querySelector('.annotate-message:nth-child(2) .annotate-reply-quote').textContent==='quoted'`,
+          ),
+          'quote survives plugin reload',
+        );
+        await ev(`${P}p.closePopup()`);
+      });
+    }
+
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});
 await resetThreads().catch(() => {});

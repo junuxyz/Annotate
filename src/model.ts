@@ -10,11 +10,17 @@ const anchorSchema = z
     orphaned: z.boolean(),
   })
   .refine((a) => a.to > a.from, 'Invalid text range');
+export const replyQuoteSchema = z.object({
+  messageId: z.string().min(1),
+  text: z.string().min(1),
+});
+export type ReplyQuote = z.infer<typeof replyQuoteSchema>;
 const commentSchema = z
   .object({
     id: z.string().min(1),
     author: z.string(),
     body: z.string(),
+    quote: replyQuoteSchema.optional(),
     role: z.enum(['user', 'assistant']).optional(),
     status: z
       .enum(['pending', 'streaming', 'completed', 'cancelled', 'failed', 'unknown'])

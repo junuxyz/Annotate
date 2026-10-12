@@ -44,6 +44,7 @@ import {
   type Anchor,
   type PluginData,
   type Thread,
+  type ReplyQuote,
 } from './model';
 import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
@@ -73,7 +74,20 @@ const ICONS = {
   stop: 'square',
   refresh: 'refresh-cw',
   undo: 'undo-2',
+  reply: 'reply',
 } as const;
+const OPENAI_MARK =
+  'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.066 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z';
+function openaiIcon(doc: Document): SVGSVGElement {
+  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('annotate-openai-icon');
+  path.setAttribute('d', OPENAI_MARK);
+  svg.append(path);
+  return svg;
+}
 function icon(doc: Document, name: keyof typeof ICONS): HTMLElement {
   const element = doc.createElement('span');
   element.className = 'annotate-icon';
@@ -182,6 +196,7 @@ export default class Annotate extends Plugin {
   backend: CodexBackend | null = null;
   connectionLabel: HTMLElement | null = null;
   private openThreadId: string | null = null;
+  private quoteReply: ((quote: ReplyQuote) => void) | null = null;
   private markdown = new CommentMarkdown();
   private submissions = new Set<string>();
   private cancellations = new Set<string>();
@@ -210,7 +225,7 @@ export default class Annotate extends Plugin {
     item.className = ai ? 'annotate-message annotate-message-ai' : 'annotate-message';
     avatar.className = ai ? 'annotate-avatar annotate-avatar-ai' : 'annotate-avatar';
     avatar.setAttribute('aria-hidden', 'true');
-    if (ai) avatar.append(icon(owner, 'sparkle'));
+    if (ai) avatar.append(openaiIcon(owner));
     else avatar.textContent = initial(comment.author);
     author.textContent = ai ? 'ChatGPT' : comment.author;
     time.dateTime = new Date(comment.createdAt).toISOString();
@@ -222,7 +237,54 @@ export default class Annotate extends Plugin {
     actions.className = 'annotate-message-actions';
     const edit = iconButton(owner, 'edit', 'Edit comment', 'annotate-message-edit');
     const remove = iconButton(owner, 'trash', 'Remove comment', 'annotate-message-remove');
-    actions.append(edit, remove);
+    const reply = iconButton(owner, 'reply', 'Quote and reply', 'annotate-message-reply');
+    reply.hidden = thread.resolved;
+    let selectedText = '';
+    const selectedReply = owner.createElement('button');
+    selectedReply.type = 'button';
+    selectedReply.className = 'annotate-selection-reply annotate-pill';
+    selectedReply.textContent = 'Quote and reply';
+    selectedReply.hidden = true;
+    const captureSelection = () => {
+      const selection = owner.getSelection();
+      selectedText =
+        selection &&
+        !selection.isCollapsed &&
+        body.contains(selection.anchorNode) &&
+        body.contains(selection.focusNode)
+          ? selection.toString().trim()
+          : '';
+      selectedReply.hidden = !selectedText || thread.resolved;
+      if (!selectedReply.hidden && selection?.rangeCount) {
+        const rect = selection.getRangeAt(0).getBoundingClientRect();
+        const width = owner.defaultView?.innerWidth ?? 800;
+        const height = owner.defaultView?.innerHeight ?? 600;
+        selectedReply.style.left = `${Math.max(12, Math.min(rect.left, width - 160))}px`;
+        selectedReply.style.top = `${Math.max(12, Math.min(rect.bottom + 4, height - 40))}px`;
+      }
+    };
+    owner.addEventListener('selectionchange', captureSelection);
+    const dispose = this.disposePopup;
+    this.disposePopup = () => {
+      owner.removeEventListener('selectionchange', captureSelection);
+      dispose?.();
+    };
+    body.addEventListener('mouseup', captureSelection);
+    body.addEventListener('keyup', captureSelection);
+    const startReply = (text: string) => {
+      if (!text || thread.resolved || !thread.comments.includes(comment)) return;
+      this.quoteReply?.({ messageId: comment.id, text });
+      selectedReply.hidden = true;
+      owner.getSelection()?.removeAllRanges();
+    };
+    for (const button of [reply, selectedReply])
+      button.addEventListener('mousedown', (event) => event.preventDefault());
+    reply.addEventListener('click', () => {
+      captureSelection();
+      startReply(selectedText || comment.body);
+    });
+    selectedReply.addEventListener('click', () => startReply(selectedText));
+    actions.append(reply, edit, remove);
     heading.append(actions);
     edit.addEventListener('click', () => {
       if (this.threadBusy(thread) || item.querySelector('.annotate-message-editor')) return;
@@ -326,7 +388,15 @@ export default class Annotate extends Plugin {
       void this.app.workspace.openLinkText(href, thread.path, event.metaKey || event.ctrlKey);
     });
     this.paintBody(body, comment, thread.path);
-    item.append(heading, body);
+    item.append(heading);
+    if (comment.quote) {
+      const quoted = owner.createElement('blockquote');
+      quoted.className = 'annotate-reply-quote';
+      quoted.textContent = comment.quote.text;
+      quoted.title = comment.quote.text;
+      item.append(quoted);
+    }
+    item.append(body, selectedReply);
     list.append(item);
   }
   private threadBusy(thread: Thread): boolean {
@@ -423,6 +493,7 @@ export default class Annotate extends Plugin {
     thread: Thread,
     question: string,
     history: ConversationMessage[],
+    quote?: ReplyQuote,
   ): Promise<void> {
     const backend = this.backend;
     if (!backend || !this.data.codex.enabled) return;
@@ -473,7 +544,13 @@ export default class Annotate extends Plugin {
       this.paintCodex();
       await backend.ask(
         sessionId,
-        questionContext(content, thread.anchor.quote, question, isNewConversation ? history : []),
+        questionContext(
+          content,
+          thread.anchor.quote,
+          question,
+          isNewConversation ? history : [],
+          quote,
+        ),
         (delta) => {
           if (!thread.codex) return;
           message.body += delta;
@@ -510,7 +587,7 @@ export default class Annotate extends Plugin {
       this.paintCodex();
     }
   }
-  private async record(thread: Thread, body: string): Promise<boolean> {
+  private async record(thread: Thread, body: string, quote?: ReplyQuote): Promise<boolean> {
     const question = invocation(body);
     if (question !== null) {
       if (!question) {
@@ -910,6 +987,7 @@ export default class Annotate extends Plugin {
     return write;
   }
   closePopup(): void {
+    this.quoteReply = null;
     this.markdown.clear();
     this.disposePopup?.();
     this.disposePopup = null;
@@ -997,7 +1075,8 @@ export default class Annotate extends Plugin {
   private composer(
     panel: HTMLElement,
     label: string,
-    submit: (body: string) => Promise<boolean>,
+    submit: (body: string, quote?: ReplyQuote) => Promise<boolean>,
+    allowQuote = false,
   ): void {
     const doc = panel.ownerDocument,
       form = doc.createElement('form'),
@@ -1030,7 +1109,33 @@ export default class Annotate extends Plugin {
     });
     const inputContainer = doc.createElement('div');
     inputContainer.className = 'annotate-composer-input';
-    inputContainer.append(input);
+    let replyQuote: ReplyQuote | undefined;
+    const preview = doc.createElement('div');
+    preview.className = 'annotate-reply-preview';
+    preview.hidden = true;
+    const quoted = doc.createElement('blockquote');
+    quoted.className = 'annotate-reply-quote';
+    const clearQuote = iconButton(doc, 'x', 'Remove quote');
+    preview.append(quoted, clearQuote);
+    const clearReply = () => {
+      replyQuote = undefined;
+      preview.hidden = true;
+      quoted.textContent = '';
+    };
+    clearQuote.addEventListener('click', () => {
+      clearReply();
+      input.focus({ preventScroll: true });
+    });
+    if (allowQuote)
+      this.quoteReply = (quote) => {
+        if (pending) return;
+        replyQuote = quote;
+        quoted.textContent = quote.text;
+        quoted.title = quote.text;
+        preview.hidden = false;
+        input.focus({ preventScroll: true });
+      };
+    inputContainer.append(preview, input);
     mentionMenu(input, inputContainer);
     form.append(inputLabel, avatar, inputContainer, button);
     panel.append(form);
@@ -1040,9 +1145,10 @@ export default class Annotate extends Plugin {
       if (pending || !input.value.trim()) return;
       pending = true;
       button.disabled = true;
-      void submit(input.value.trim())
+      void submit(input.value.trim(), replyQuote)
         .then((success) => {
           if (success) {
+            clearReply();
             input.value = '';
             input.dispatchEvent(new Event('input', { bubbles: true }));
           }
@@ -1224,12 +1330,13 @@ export default class Annotate extends Plugin {
       this.composer(
         panel,
         this.data.codex.enabled ? 'Reply, or @chatgpt to ask…' : 'Reply…',
-        async (body) => {
+        async (body, quote) => {
           if (!this.data.threads.includes(thread)) return false;
-          if (!(await this.record(thread, body))) return false;
+          if (!(await this.record(thread, body, quote))) return false;
           if (!this.disposed && this.data.threads.includes(thread)) this.paintCodex();
           return true;
         },
+        true,
       );
     this.paintCodex();
     list.scrollTop = list.scrollHeight;

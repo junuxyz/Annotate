@@ -448,6 +448,12 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
     await tick();
     assert.equal(thread.comments[1].body, 'Hello world');
     assert.equal(document.querySelectorAll('.annotate-messages article').length, 2);
+    const assistantLogo = document.querySelector('.annotate-message-ai .annotate-openai-icon');
+    assert.equal(assistantLogo?.getAttribute('viewBox'), '0 0 24 24');
+    assert.equal(
+      assistantLogo?.querySelector('path')?.getAttribute('d')?.startsWith('M22.2819'),
+      true,
+    );
     assert.equal(
       document.querySelectorAll('.annotate-messages .annotate-message-body')[1].textContent,
       'Hello world',
@@ -742,6 +748,87 @@ test('posting a reply keeps an open comment edit and saves it against the same m
       plugin.saved.threads[0].comments.map((c) => c.body),
       ['unsaved edit', 'reply while editing'],
     );
+  } finally {
+    plugin.onunload();
+    await tick();
+  }
+});
+
+test('selected reply quotes stay in the thread, survive reload, and reach resumed Codex turns', async () => {
+  globalThis.require = createRequire(import.meta.url);
+  const plugin = new Plugin();
+  isolatedFactory(plugin);
+  plugin.source = 'synthetic note';
+  plugin.loadData = async () => ({
+    version: 1,
+    author: 'You',
+    threads: [],
+    codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
+  });
+  await plugin.onload();
+  try {
+    await plugin.backend.connect();
+    const requests = [];
+    const ask = plugin.backend.ask.bind(plugin.backend);
+    plugin.backend.ask = (id, content, ...rest) => {
+      requests.push(JSON.parse(content));
+      return ask(id, content, ...rest);
+    };
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 9, quote: 'synthetic', prefix: '', suffix: '', orphaned: false },
+      text: () => 'synthetic note',
+    });
+    await send('@chatgpt explain');
+    await tick();
+    await tick();
+    const thread = plugin.data.threads[0];
+    const session = thread.codex.sessionId;
+    const body = document.querySelector('.annotate-message-ai .annotate-message-body');
+    const node = document.createTreeWalker(body, 4).nextNode();
+    const range = document.createRange();
+    range.setStart(node, 6);
+    range.setEnd(node, 11);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    body.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    const reply = body.closest('article').querySelector('.annotate-selection-reply');
+    assert.equal(reply.hidden, false);
+    click(reply);
+    assert.equal(document.querySelector('.annotate-reply-preview blockquote').textContent, 'world');
+    await send('@chatgpt explain that part');
+    await tick();
+    await tick();
+    assert.equal(plugin.data.threads.length, 1);
+    assert.equal(thread.codex.sessionId, session);
+    assert.equal(thread.codex.status, 'completed');
+    const quote = { messageId: thread.comments[1].id, text: 'world' };
+    assert.deepEqual(thread.comments[2].quote, quote);
+    assert.deepEqual(requests[1].quotedReply, quote);
+    assert.equal(requests[1].question, 'explain that part');
+    assert.deepEqual(requests[1].conversationHistory, []);
+    assert.equal(document.querySelector('.annotate-reply-preview').hidden, true);
+    await plugin.persist();
+    const saved = structuredClone(plugin.saved);
+    plugin.onunload();
+    const restored = new Plugin();
+    restored.loadData = async () => ({ ...saved, codex: { ...saved.codex, enabled: false } });
+    await restored.onload();
+    try {
+      restored.openThread(restored.data.threads[0]);
+      assert.equal(
+        document.querySelector('.annotate-message .annotate-reply-quote').textContent,
+        'world',
+      );
+      click(document.querySelector('.annotate-message-reply'));
+      click(document.querySelector('.annotate-reply-preview [aria-label="Remove quote"]'));
+      await send('ordinary reply');
+      assert.equal(restored.data.threads[0].comments.at(-1).quote, undefined);
+    } finally {
+      restored.onunload();
+    }
   } finally {
     plugin.onunload();
     await tick();

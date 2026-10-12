@@ -144,3 +144,13 @@ test('GUI environment locates Node beside the configured executable', async () =
   }
 });
 test.after(() => rmSync(temp, { recursive: true, force: true }));
+
+test('reply quotes identify the latest target and survive conversation reconstruction', () => {
+  const quote = { messageId: 'answer-1', text: 'selected passage of the answer' };
+  const history = [{ role: 'user', content: 'explain this part', quote }];
+  const payload = JSON.parse(questionContext('note', 'anchor', 'followup', history, quote));
+  assert.deepEqual(payload.quotedReply, quote);
+  assert.deepEqual(payload.conversationHistory, history);
+  assert.equal(payload.question, 'followup');
+  assert.equal(Object.keys(payload).at(-1), 'question');
+});
