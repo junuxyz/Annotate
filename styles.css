@@ -1,0 +1,746 @@
+/* Annotate */
+body {
+  --annotate-mark: rgba(255, 212, 0, 0.14);
+  --annotate-mark-hover: rgba(255, 212, 0, 0.28);
+  --annotate-mark-line: rgba(255, 212, 0, 0.8);
+  --annotate-radius: 10px;
+  --annotate-surface: var(--background-primary);
+  --annotate-text: rgb(55, 53, 47);
+  --annotate-text-2: rgba(55, 53, 47, 0.65);
+  --annotate-text-3: rgba(55, 53, 47, 0.45);
+  --annotate-hover: rgba(55, 53, 47, 0.06);
+  --annotate-hairline: rgba(55, 53, 47, 0.09);
+  --annotate-field: rgba(55, 53, 47, 0.04);
+  --annotate-shadow:
+    rgba(15, 15, 15, 0.05) 0 0 0 1px, rgba(15, 15, 15, 0.1) 0 3px 6px,
+    rgba(15, 15, 15, 0.2) 0 9px 24px;
+  --annotate-blue: #2383e2;
+  --annotate-ai: #7c5cff;
+  --annotate-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+body.theme-dark {
+  --annotate-mark: rgba(255, 212, 0, 0.1);
+  --annotate-mark-hover: rgba(255, 212, 0, 0.2);
+  --annotate-mark-line: rgba(255, 212, 0, 0.55);
+  --annotate-surface: #252525;
+  --annotate-text: rgba(255, 255, 255, 0.9);
+  --annotate-text-2: rgba(255, 255, 255, 0.6);
+  --annotate-text-3: rgba(255, 255, 255, 0.4);
+  --annotate-hover: rgba(255, 255, 255, 0.055);
+  --annotate-hairline: rgba(255, 255, 255, 0.094);
+  --annotate-field: rgba(255, 255, 255, 0.035);
+  --annotate-shadow:
+    rgba(255, 255, 255, 0.094) 0 0 0 1px, rgba(0, 0, 0, 0.3) 0 3px 6px,
+    rgba(0, 0, 0, 0.4) 0 9px 24px;
+  --annotate-ai: #a78bfa;
+}
+
+/* ---------- In-text highlight ---------- */
+.annotate-highlight,
+.annotate-draft-selection {
+  background: var(--annotate-mark);
+  border-bottom: 2px solid var(--annotate-mark-line);
+  padding-bottom: 1px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.annotate-highlight:hover {
+  background: var(--annotate-mark-hover);
+}
+.annotate-draft-selection {
+  background: var(--annotate-mark-hover);
+  cursor: text;
+}
+
+.annotate-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+/* ---------- Count badge ---------- */
+button.annotate-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0 2px 0 6px;
+  padding: 0 5px;
+  height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--annotate-text-3);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  vertical-align: 1px;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+button.annotate-count .annotate-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+button.annotate-count:hover {
+  background: var(--annotate-hover);
+  color: var(--annotate-text-2);
+}
+
+/* ---------- Popover ---------- */
+.annotate-popover {
+  position: fixed;
+  z-index: var(--layer-popover, 1000);
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(560px, calc(100vh - 24px));
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-radius: var(--annotate-radius);
+  overflow: hidden;
+  background: var(--annotate-surface);
+  color: var(--annotate-text);
+  box-shadow: var(--annotate-shadow);
+  font-family: var(--font-interface);
+  font-size: 14px;
+  line-height: 1.5;
+  animation: annotate-pop 160ms var(--annotate-ease);
+  transform-origin: top left;
+}
+@keyframes annotate-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .annotate-popover,
+  .annotate-message,
+  .annotate-mention-menu {
+    animation: none;
+  }
+}
+.annotate-popover [hidden] {
+  display: none !important;
+}
+.annotate-popover button {
+  box-shadow: none;
+}
+
+.annotate-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 8px 4px 14px;
+}
+.annotate-quote {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 3px solid var(--annotate-mark-line);
+  color: var(--annotate-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.annotate-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.annotate-popover .annotate-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--annotate-text-3);
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+.annotate-popover .annotate-icon-button .annotate-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+}
+.annotate-popover .annotate-icon-button:hover {
+  background: var(--annotate-hover);
+  color: var(--annotate-text);
+}
+.annotate-popover .annotate-resolve:hover {
+  color: #2f9e6e;
+}
+.annotate-popover .annotate-delete.annotate-armed {
+  background: rgba(235, 87, 87, 0.1);
+  color: #eb5757;
+}
+.annotate-orphaned {
+  margin: 6px 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--annotate-field);
+  font-size: 12.5px;
+  color: var(--annotate-text-2);
+}
+
+.annotate-resolved-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 14px;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #2f9e6e;
+  background: none;
+}
+.annotate-resolved-banner .annotate-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- Messages ---------- */
+.annotate-messages {
+  overflow-y: auto;
+  padding: 4px 6px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.annotate-messages:empty {
+  display: none;
+}
+.annotate-message {
+  position: relative;
+  padding: 8px 8px;
+  border-radius: 6px;
+  animation: annotate-fade 180ms var(--annotate-ease);
+}
+@keyframes annotate-fade {
+  from {
+    opacity: 0;
+  }
+}
+.annotate-message-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 24px;
+}
+.annotate-message-heading strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--annotate-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.annotate-message-heading time {
+  font-size: 12px;
+  color: var(--annotate-text-3);
+  white-space: nowrap;
+}
+.annotate-messages .annotate-message-body {
+  margin: 2px 0 0 32px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  user-select: text;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--annotate-text);
+}
+.annotate-markdown-content > :first-child {
+  margin-top: 0;
+}
+.annotate-markdown-content > :last-child {
+  margin-bottom: 0;
+}
+.annotate-message-body p {
+  margin: 0 0 0.6em;
+}
+.annotate-message-body pre,
+.annotate-message-body .table-wrapper,
+.annotate-message-body .math-block {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.annotate-message-body .math-block {
+  display: block;
+}
+.annotate-message-body pre {
+  white-space: pre;
+}
+.annotate-message-body img {
+  max-width: 100%;
+}
+.annotate-message-body ul,
+.annotate-message-body ol {
+  padding-inline-start: 1.5em;
+}
+.annotate-message-note {
+  color: var(--annotate-text-3);
+  font-style: italic;
+}
+.annotate-streaming::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 15px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  border-radius: 1px;
+  background: var(--annotate-text-2);
+  animation: annotate-blink 1s steps(2) infinite;
+}
+@keyframes annotate-blink {
+  50% {
+    opacity: 0;
+  }
+}
+.annotate-typing {
+  height: 22px;
+}
+.annotate-typing::before {
+  content: '';
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 8px 0 0 2px;
+  border-radius: 50%;
+  background: var(--annotate-text-3);
+  box-shadow:
+    9px 0 0 var(--annotate-text-3),
+    18px 0 0 var(--annotate-text-3);
+  animation: annotate-dots 1.2s ease-in-out infinite;
+}
+@keyframes annotate-dots {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.annotate-avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  background: var(--annotate-hover);
+  color: var(--annotate-text-2);
+  box-shadow: inset 0 0 0 1px var(--annotate-hairline);
+}
+.annotate-avatar-ai {
+  background: var(--annotate-text);
+  color: var(--annotate-surface);
+  box-shadow: none;
+}
+.annotate-avatar-ai .annotate-icon {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+}
+
+/* ---------- AI status bar ---------- */
+.annotate-ai-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 14px 8px 46px;
+}
+.annotate-codex-status {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--annotate-text-2);
+  overflow-wrap: anywhere;
+}
+.annotate-codex-status.annotate-status-error {
+  color: #eb5757;
+}
+.annotate-pill,
+.annotate-popover .annotate-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--annotate-hairline);
+  background: transparent;
+  color: var(--annotate-text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease,
+    color 100ms ease;
+}
+.annotate-pill .annotate-icon {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+}
+.annotate-pill:hover,
+.annotate-popover .annotate-pill:hover {
+  background: var(--annotate-hover);
+  color: var(--annotate-text);
+}
+.annotate-codex-cancel .annotate-icon {
+  display: inline-flex;
+  fill: none;
+  stroke: currentColor;
+}
+
+/* ---------- Composer ---------- */
+.annotate-composer {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 10px 10px 14px;
+  border-top: 1px solid var(--annotate-hairline);
+}
+.annotate-header + .annotate-composer {
+  border-top: 0;
+  padding-top: 6px;
+}
+.annotate-composer .annotate-avatar {
+  margin-top: 2px;
+}
+.annotate-composer-input {
+  position: relative;
+  flex: 1;
+  width: 0;
+  min-width: 0;
+}
+.annotate-popover .annotate-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  max-height: 160px;
+  resize: none;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--annotate-text);
+  outline: none;
+}
+.annotate-popover .annotate-composer textarea::placeholder {
+  color: var(--annotate-text-3);
+}
+.annotate-popover .annotate-composer textarea:focus,
+.annotate-popover .annotate-composer textarea:focus-visible {
+  border: 0;
+  box-shadow: none;
+  outline: none;
+}
+.annotate-popover .annotate-send {
+  flex: none;
+  align-self: flex-end;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--annotate-hover);
+  color: var(--annotate-text-3);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.annotate-send .annotate-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.25;
+}
+.annotate-send:disabled {
+  cursor: default;
+}
+.annotate-popover .annotate-has-text .annotate-send {
+  background: var(--annotate-blue);
+  color: #fff;
+}
+.annotate-popover .annotate-has-text .annotate-send:hover {
+  background: #0077d4;
+}
+.annotate-popover .annotate-asking-ai .annotate-send {
+  background: var(--annotate-ai);
+  color: #fff;
+}
+
+/* Compact composer for a new comment */
+.annotate-new-comment {
+  width: min(420px, calc(100vw - 24px));
+}
+.annotate-new-comment .annotate-header {
+  display: none;
+}
+.annotate-new-comment .annotate-composer {
+  border-top: 0;
+  padding: 8px 8px 8px 12px;
+}
+
+/* ---------- @mention menu ---------- */
+.annotate-mention-menu {
+  margin: 6px 0 2px -6px;
+  max-width: 260px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--annotate-surface);
+  box-shadow: var(--annotate-shadow);
+  animation: annotate-pop 120ms var(--annotate-ease);
+}
+.annotate-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  background: var(--annotate-hover);
+  color: var(--annotate-text);
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+}
+.annotate-mention-option::before {
+  content: '✦';
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--annotate-text);
+  color: var(--annotate-surface);
+  font-size: 10px;
+}
+.annotate-mention-option strong {
+  font-weight: 500;
+}
+.annotate-mention-option span {
+  margin-left: auto;
+  color: var(--annotate-text-3);
+  font-size: 12px;
+}
+
+/* ---------- Thread list modal ---------- */
+.annotate-thread-modal {
+  width: min(520px, calc(100vw - 32px));
+  border-radius: 12px;
+}
+.annotate-empty {
+  color: var(--text-muted);
+}
+.annotate-thread-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 -10px;
+  padding: 10px;
+  border-radius: 6px;
+  transition: background-color 100ms ease;
+}
+.annotate-thread-row + .annotate-thread-row {
+  margin-top: 1px;
+}
+.annotate-thread-row:hover {
+  background: var(--annotate-hover);
+}
+.annotate-thread-row.annotate-is-resolved {
+  opacity: 0.55;
+}
+.annotate-thread-row blockquote {
+  flex: 1 1 100%;
+  margin: 0;
+  padding: 0 0 0 10px;
+  border: 0;
+  border-left: 3px solid var(--annotate-mark-line);
+  color: var(--annotate-text-2);
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.annotate-thread-preview {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+}
+.annotate-thread-snippet {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--annotate-text);
+}
+.annotate-thread-row p {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--annotate-text-3);
+}
+.annotate-thread-row .annotate-pill {
+  opacity: 0;
+  transition:
+    opacity 100ms ease,
+    background-color 100ms ease;
+}
+.annotate-thread-row:hover .annotate-pill,
+.annotate-thread-row:focus-within .annotate-pill {
+  opacity: 1;
+}
+@media (hover: none) {
+  .annotate-thread-row .annotate-pill {
+    opacity: 1;
+  }
+}
+.annotate-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Message controls stay quiet until their own comment is hovered or focused. */
+.annotate-message-actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--annotate-surface);
+  box-shadow: var(--annotate-shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.annotate-message:hover .annotate-message-actions,
+.annotate-message:focus-within .annotate-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.annotate-message.annotate-is-editing .annotate-message-actions {
+  display: none;
+}
+.annotate-popover .annotate-message-actions .annotate-icon-button {
+  width: 24px;
+  height: 24px;
+  padding: 4px;
+  border-radius: 4px;
+}
+.annotate-popover .annotate-message-actions .annotate-icon {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+}
+.annotate-popover .annotate-message-remove.annotate-armed {
+  color: #eb5757;
+  background: rgba(235, 87, 87, 0.1);
+}
+.annotate-header .annotate-delete {
+  opacity: 0;
+  pointer-events: none;
+}
+.annotate-header:hover .annotate-delete,
+.annotate-header:focus-within .annotate-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.annotate-message-editor {
+  margin: 6px 0 0 32px;
+}
+.annotate-popover .annotate-message-editor textarea {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  max-height: 240px;
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 0;
+  background: var(--annotate-field);
+  box-shadow: inset 0 0 0 1px var(--annotate-hairline);
+}
+.annotate-popover .annotate-message-editor textarea:focus {
+  box-shadow:
+    inset 0 0 0 1px var(--annotate-blue),
+    0 0 0 3px rgba(35, 131, 226, 0.2);
+}
+.annotate-message-editor > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 6px;
+}
+.annotate-message-editor button {
+  font-size: 12.5px;
+  padding: 0 10px;
+  height: 26px;
+  border-radius: 6px;
+}
+.annotate-message-editor button.mod-cta {
+  background: var(--annotate-blue);
+  color: #fff;
+}
+
+.annotate-icon > svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: inherit;
+}
