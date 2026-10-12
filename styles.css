@@ -259,6 +259,9 @@ button.annotate-count:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.annotate-message-ai .annotate-message-heading strong {
+  color: var(--annotate-ai);
+}
 .annotate-message-heading time {
   font-size: 12px;
   color: var(--annotate-text-3);
@@ -281,6 +284,13 @@ button.annotate-count:hover {
 }
 .annotate-message-body p {
   margin: 0 0 0.6em;
+}
+.annotate-chatgpt-mention {
+  color: var(--annotate-ai);
+  background: color-mix(in srgb, var(--annotate-ai) 18%, transparent);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-weight: 700;
 }
 .annotate-message-body pre,
 .annotate-message-body .table-wrapper,

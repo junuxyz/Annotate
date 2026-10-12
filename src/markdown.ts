@@ -3,6 +3,30 @@ import { mathParts } from './math';
 
 type Render = { text: string; path: string; component: Component };
 
+function highlightMentions(root: HTMLElement): void {
+  const doc = root.ownerDocument;
+  const walker = doc.createTreeWalker(root, 4);
+  const nodes: Text[] = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    if (node.parentElement?.closest('code, pre')) continue;
+    if (/@chatgpt\b/i.test(node.data)) nodes.push(node);
+  }
+  for (const node of nodes) {
+    const fragment = doc.createDocumentFragment();
+    const parts = node.data.split(/(@chatgpt\b)/gi);
+    for (const part of parts) {
+      if (/^@chatgpt\b$/i.test(part)) {
+        const mention = doc.createElement('span');
+        mention.className = 'annotate-chatgpt-mention';
+        mention.textContent = part;
+        fragment.append(mention);
+      } else fragment.append(doc.createTextNode(part));
+    }
+    node.replaceWith(fragment);
+  }
+}
+
 export class CommentMarkdown {
   private renders = new Map<HTMLElement, Render>();
 
@@ -30,6 +54,7 @@ export class CommentMarkdown {
           render.component.unload();
           return;
         }
+        highlightMentions(content);
         const list = body.closest('.annotate-messages');
         const pinned = list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
         body.replaceChildren(content);

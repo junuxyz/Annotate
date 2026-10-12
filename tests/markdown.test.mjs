@@ -30,18 +30,20 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
     },
   };
   renderer.paint(app, body, '**old**', 'Fixtures/Annotations.md');
-  renderer.paint(app, body, '**latest**', 'Fixtures/Annotations.md');
+  renderer.paint(app, body, '@chatgpt **latest**', 'Fixtures/Annotations.md');
   assert.equal(calls[0].component.loaded, false);
   assert.equal(calls[1].path, 'Fixtures/Annotations.md');
-  assert.equal(calls[1].text, '**latest**');
-  calls[1].el.innerHTML = '<p><strong>latest</strong></p>';
+  assert.equal(calls[1].text, '@chatgpt **latest**');
+  calls[1].el.innerHTML = '<p>@chatgpt <strong>latest</strong> <code>@chatgpt</code></p>';
   calls[1].resolve();
   await new Promise((r) => setTimeout(r, 0));
   calls[0].el.textContent = 'old';
   calls[0].resolve();
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(body.querySelector('strong').textContent, 'latest');
-  renderer.paint(app, body, '**latest**', 'Fixtures/Annotations.md');
+  assert.equal(body.querySelector('.annotate-chatgpt-mention').textContent, '@chatgpt');
+  assert.equal(body.querySelector('code .annotate-chatgpt-mention'), null);
+  renderer.paint(app, body, '@chatgpt **latest**', 'Fixtures/Annotations.md');
   assert.equal(calls.length, 2, 'unchanged content does not restart rendering');
   renderer.paint(
     app,
