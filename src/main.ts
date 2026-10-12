@@ -611,21 +611,51 @@ export default class Annotate extends Plugin {
       .map((c) => ({
         role: c.role === 'assistant' ? 'assistant' : 'user',
         content: c.role === 'assistant' ? c.body : (invocation(c.body) ?? c.body),
+        quote: c.quote,
       }));
     thread.comments.push({
       id: crypto.randomUUID(),
       author: this.data.author || 'You',
       body,
+      ...(quote ? { quote } : {}),
       createdAt: Date.now(),
     });
     this.changed();
     await this.persistOrThrow();
-    if (question !== null) void this.requestCodex(thread, question, history);
+    if (question !== null) void this.requestCodex(thread, question, history, quote);
     return true;
   }
 
   async onload(): Promise<void> {
-    const raw: unknown = await this.loadData();
+    let raw: unknown = await this.loadData();
+    if (raw === null || raw === undefined) {
+      const adapter = this.app.vault.adapter;
+      const legacyPath = `${this.app.vault.configDir}/plugins/selection-comments/data.json`;
+      if (adapter?.exists && (await adapter.exists(legacyPath))) {
+        try {
+          const legacy = dataSchema.safeParse(JSON.parse(await adapter.read(legacyPath)));
+          if (legacy.success) {
+            raw = legacy.data;
+            for (const thread of legacy.data.threads)
+              if (thread.codex) {
+                thread.codex.sessionId = undefined;
+                thread.codex.contextVersion = undefined;
+                if (!['pending', 'streaming'].includes(thread.codex.status))
+                  thread.codex.status = 'idle';
+              }
+            new Notice('Annotate imported your comments from Selection Comments.');
+          } else {
+            new Notice(
+              'Annotate could not read old comments. Keep Selection Comments installed to preserve them.',
+            );
+          }
+        } catch {
+          new Notice(
+            'Annotate could not read old comments. Keep Selection Comments installed to preserve them.',
+          );
+        }
+      }
+    }
     if (raw !== null && raw !== undefined) {
       const parsed = dataSchema.safeParse(raw);
       if (!parsed.success) {
@@ -1416,7 +1446,9 @@ class CommentsSettings extends PluginSettingTab {
     this.containerEl.empty();
     new Setting(this.containerEl)
       .setName('Enable Codex')
-      .setDesc('Uses your local Codex CLI ChatGPT login. Prefix a question with @chatgpt.')
+      .setDesc(
+        'Uses your local Codex CLI ChatGPT login. Answers use the note first and can search the web when helpful. Prefix a question with @chatgpt.',
+      )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
           this.plugin.data.codex.enabled = value;

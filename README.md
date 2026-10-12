@@ -19,6 +19,21 @@ Copy `main.js`, `manifest.json`, and `styles.css` into
 `<vault>/.obsidian/plugins/annotate/`. Enable **Annotate** in
 **Settings → Community plugins**.
 
+To replace **Selection Comments**, disable it, install Annotate in
+`.obsidian/plugins/annotate/`, and enable Annotate. On first launch, it imports
+comments from the old plugin automatically and keeps the old data file untouched.
+Codex threads keep their comment history, but start a fresh Codex conversation.
+
+## Fast development updates
+
+For a dedicated development vault, install the [Hot-Reload plugin](https://github.com/pjeby/hot-reload) once, then run:
+
+```sh
+npm run dev:vault -- "/absolute/path/to/your/vault"
+```
+
+Leave it running while you edit. Annotate rebuilds and copies the three plugin files into the vault after each successful change; Hot-Reload applies them in Obsidian. The vault must already have an `.obsidian` folder. The first run enables Annotate and disables Selection Comments in Obsidian’s plugin list; reload Obsidian to apply the switch.
+
 ## Use
 
 - Select text and press **Cmd+Shift+M** on macOS or **Ctrl+Shift+M** on Windows/Linux.
@@ -53,7 +68,9 @@ Use **Start new conversation** to recover an interrupted or unavailable session.
 Editing or removing a message starts a fresh Codex conversation on the next question.
 
 When you ask ChatGPT, the complete current note, selected passage, question, and
-thread history are sent to OpenAI through Codex. Ordinary comments stay local.
+thread history are sent to OpenAI through Codex. Answers use the note as their primary
+context; Codex can search the web when current or specialized information would help.
+Ordinary comments stay local.
 The backend uses `~/.annotate-codex` for its configuration and sessions,
 links to the CLI's login file, and disables tools and global instructions.
 Codex is off by default and is not available on mobile.

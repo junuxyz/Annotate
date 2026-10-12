@@ -97,3 +97,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## OpenAI logo
+
+The ChatGPT mention icon uses the OpenAI SVG from [Simple Icons v13.0.0](https://github.com/simple-icons/simple-icons/blob/13.0.0/icons/openai.svg), distributed under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The OpenAI logo is a trademark of OpenAI and is subject to its [brand guidelines](https://openai.com/brand/).

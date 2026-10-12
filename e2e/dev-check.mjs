@@ -435,6 +435,9 @@ if (only.includes('ui'))
           'compact composer focused',
         );
         await hoverComposer();
+        const composerWidth = await ev(
+          `return document.querySelector('.annotate-popover').getBoundingClientRect().width`,
+        );
         await type(`Looks good in ${m} ${theme}`);
         await until(
           `return document.querySelector('.annotate-composer')?.classList.contains('annotate-has-text')`,
@@ -450,6 +453,12 @@ if (only.includes('ui'))
           `const a=document.querySelector('.annotate-message');return {av:a.querySelector('.annotate-avatar')?.textContent,name:a.querySelector('strong')?.textContent,time:a.querySelector('time')?.textContent}`,
         );
         assert(v.av && v.name && v.time === 'Just now', JSON.stringify(v));
+        assert(
+          await ev(
+            `const r=document.querySelector('.annotate-popover').getBoundingClientRect();return Math.abs(r.width-${composerWidth})<1&&Math.abs(r.width-Math.min(720,innerWidth-24))<1&&r.left>=0&&r.right<=innerWidth`,
+          ),
+          'composer and thread keep the same wide, viewport-safe width',
+        );
         await hoverComposer();
         await type('ask @ch');
         await until(

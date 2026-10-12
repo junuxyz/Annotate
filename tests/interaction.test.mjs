@@ -81,6 +81,41 @@ const send = async (text) => {
   await tick();
 };
 
+test('imports Selection Comments data once and resets obsolete Codex sessions', async () => {
+  const legacy = {
+    version: 1,
+    author: 'You',
+    threads: [
+      {
+        id: 'thread-1',
+        path: 'note.md',
+        anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+        comments: [{ id: 'comment-1', author: 'You', body: 'saved comment', createdAt: 1 }],
+        resolved: false,
+        codex: { sessionId: 'old-session', contextVersion: 2, status: 'completed' },
+      },
+    ],
+    codex: { enabled: false, executable: 'codex' },
+  };
+  const plugin = new Plugin();
+  plugin.app.vault.configDir = '.obsidian';
+  plugin.app.vault.adapter = {
+    exists: async (path) => path === '.obsidian/plugins/selection-comments/data.json',
+    read: async () => JSON.stringify(legacy),
+  };
+  isolatedFactory(plugin);
+  await plugin.onload();
+  try {
+    assert.equal(plugin.data.threads[0].comments[0].body, 'saved comment');
+    assert.equal(plugin.data.threads[0].codex.sessionId, undefined);
+    assert.equal(plugin.data.threads[0].codex.status, 'idle');
+    await plugin.persist();
+    assert.equal(plugin.saved.threads[0].comments[0].body, 'saved comment');
+  } finally {
+    plugin.onunload();
+  }
+});
+
 test('ChatGPT mention picker completes with keyboard and mouse without submitting, including replies', async () => {
   const plugin = new Plugin();
   await plugin.onload();
