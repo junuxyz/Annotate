@@ -322,12 +322,12 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     assert.equal(plugin.data.threads[0].comments[1].body, 'a reply\nsecond line');
     assert.equal(document.querySelectorAll('.annotate-messages article').length, 2);
     assert.equal(document.querySelector('.annotate-count').textContent, '2');
-    click(document.querySelector('.annotate-actions button'));
+    click(document.querySelector('.annotate-resolve'));
     await tick();
     assert.equal(plugin.data.threads[0].resolved, true);
     assert.equal(document.querySelector('.annotate-highlight'), null);
     assert.equal(document.querySelector('.annotate-composer'), null);
-    click(document.querySelector('.annotate-actions button'));
+    click(document.querySelector('.annotate-resolve'));
     await tick();
     assert.ok(document.querySelector('.annotate-highlight'));
     click(document.querySelector('.annotate-close'));
@@ -424,7 +424,7 @@ test('reading mode: existing highlights, shortcut, Enter save, reply counts and 
       document.querySelector('.annotate-messages .annotate-message-body').textContent,
       'saved in editing mode',
     );
-    click(document.querySelector('.annotate-actions button'));
+    click(document.querySelector('.annotate-resolve'));
     await tick();
     assert.equal(first.querySelector('.annotate-highlight'), null);
     assert.ok(second.querySelector('.annotate-highlight'));
@@ -868,5 +868,74 @@ test('selected reply quotes stay in the thread, survive reload, and reach resume
   } finally {
     plugin.onunload();
     await tick();
+  }
+});
+
+test('copy message and entire thread preserve Markdown and read the latest conversation', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const clipboard = win.navigator.clipboard;
+  const original = clipboard.writeText;
+  const copied = [];
+  clipboard.writeText = async (text) => {
+    copied.push(text);
+  };
+  const thread = {
+    id: 'copy-thread',
+    path: 'test.md',
+    resolved: false,
+    anchor: { from: 0, to: 8, quote: 'selected\npassage', prefix: '', suffix: '', orphaned: false },
+    comments: [
+      {
+        id: 'first',
+        author: 'You',
+        body: '**Question**\n\n```js\nconst x = 1;\n```',
+        createdAt: 1,
+      },
+      {
+        id: 'second',
+        author: 'Assistant',
+        role: 'assistant',
+        body: 'Partial',
+        status: 'streaming',
+        createdAt: 2,
+        quote: { messageId: 'first', text: 'Question\ncode' },
+      },
+    ],
+  };
+  plugin.data.threads = [thread];
+  try {
+    plugin.openThread(thread);
+    const buttons = document.querySelectorAll('.annotate-message-copy');
+    assert.equal(buttons.length, 2);
+    click(buttons[0]);
+    await tick();
+    assert.equal(copied[0], thread.comments[0].body);
+    assert.equal(buttons[0].getAttribute('aria-label'), 'Copied');
+    thread.comments[1].body = 'Finished **answer**';
+    click(buttons[1]);
+    await tick();
+    assert.equal(copied[1], 'Finished **answer**');
+    thread.comments.push({ id: 'third', author: 'You', body: 'Follow-up', createdAt: 3 });
+    click(document.querySelector('.annotate-copy-thread'));
+    await tick();
+    assert.equal(
+      copied[2],
+      '> selected\n> passage\n\n---\n\nYou:\n\n**Question**\n\n```js\nconst x = 1;\n```\n\n---\n\nAssistant:\n\n> Question\n> code\n\nFinished **answer**\n\n---\n\nYou:\n\nFollow-up',
+    );
+    thread.resolved = true;
+    plugin.openThread(thread);
+    assert.equal(document.querySelectorAll('.annotate-message-copy').length, 3);
+    clipboard.writeText = async () => {
+      throw new Error('Clipboard denied');
+    };
+    const failed = document.querySelector('.annotate-copy-thread');
+    click(failed);
+    await tick();
+    assert.equal(failed.getAttribute('aria-label'), 'Copy entire thread');
+    assert.equal(plugin.data.threads[0], thread);
+  } finally {
+    clipboard.writeText = original;
+    plugin.onunload();
   }
 });

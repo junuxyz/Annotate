@@ -764,6 +764,62 @@ if (only.includes('quote'))
       });
     }
 
+if (only.includes('copy'))
+  for (const theme of themes)
+    for (const mode of modes) {
+      await step(`copy [${mode}/${theme}]: message and entire thread`, async () => {
+        await ev(`app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`);
+        await resetThreads();
+        const markdown = '**Copy this**\n\n```js\nconst value = 42;\n```';
+        await createComment(mode, markdown);
+        // Capture Clipboard API writes without replacing the user's system clipboard.
+        await ev(
+          `window.__annotateCopyWrites=[];window.__annotateCopyOriginal=navigator.clipboard.writeText;navigator.clipboard.writeText=async text=>window.__annotateCopyWrites.push(text)`,
+        );
+        try {
+          const buttonPoint = async (selector) => {
+            await ev(`await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`);
+            const pt = await ev(
+              `const b=document.querySelector(${JSON.stringify(selector)}),r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+            );
+            await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt[0], y: pt[1] });
+            return pt;
+          };
+          await clickAt(await buttonPoint('.annotate-message-copy'));
+          await until(`return window.__annotateCopyWrites.length===1`, 'message copied');
+          assert(
+            await ev(
+              `return window.__annotateCopyWrites[0]===${JSON.stringify(markdown)}&&document.querySelector('.annotate-message-copy').getAttribute('aria-label')==='Copied'`,
+            ),
+            'copy message preserves Markdown and confirms success',
+          );
+          await ev(`document.querySelector('.annotate-composer textarea').focus()`);
+          await type('Second message');
+          await press('Enter');
+          await until(
+            `return document.querySelectorAll('.annotate-message-copy').length===2`,
+            'each message has a copy button',
+          );
+          await clickAt(await buttonPoint('.annotate-copy-thread'));
+          await until(`return window.__annotateCopyWrites.length===2`, 'thread copied');
+          const expected =
+            '> ' + QUOTE + '\n\n---\n\nYou:\n\n' + markdown + '\n\n---\n\nYou:\n\nSecond message';
+          assert(
+            await ev(
+              `return window.__annotateCopyWrites[1]===${JSON.stringify(expected)}&&document.querySelector('.annotate-copy-thread').getAttribute('aria-label')==='Copied'`,
+            ),
+            'entire thread includes passage, authors and all messages in order',
+          );
+          await shot(`${theme}-${mode}-copy-thread`);
+        } finally {
+          await ev(
+            `navigator.clipboard.writeText=window.__annotateCopyOriginal;delete window.__annotateCopyOriginal;delete window.__annotateCopyWrites;${P}p.closePopup()`,
+          );
+        }
+      });
+    }
+
+
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});
 await resetThreads().catch(() => {});
