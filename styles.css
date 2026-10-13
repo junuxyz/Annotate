@@ -96,8 +96,8 @@ button.annotate-count:hover {
 .annotate-popover {
   position: fixed;
   z-index: var(--layer-popover, 1000);
-  width: min(720px, calc(100vw - 24px));
-  max-height: min(560px, calc(100vh - 24px));
+  width: min(640px, 52vw, calc(100vw - 24px));
+  max-height: min(420px, 50vh, calc(100vh - 24px));
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -111,6 +111,11 @@ button.annotate-count:hover {
   line-height: 1.5;
   animation: annotate-pop 160ms var(--annotate-ease);
   transform-origin: top left;
+}
+@media (max-width: 600px) {
+  .annotate-popover {
+    width: calc(100vw - 24px);
+  }
 }
 @keyframes annotate-pop {
   from {

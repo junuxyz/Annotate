@@ -455,9 +455,9 @@ if (only.includes('ui'))
         assert(v.av && v.name && v.time === 'Just now', JSON.stringify(v));
         assert(
           await ev(
-            `const r=document.querySelector('.annotate-popover').getBoundingClientRect();return Math.abs(r.width-${composerWidth})<1&&Math.abs(r.width-Math.min(720,innerWidth-24))<1&&r.left>=0&&r.right<=innerWidth`,
+            `const r=document.querySelector('.annotate-popover').getBoundingClientRect();return Math.abs(r.width-${composerWidth})<1&&Math.abs(r.width-(innerWidth<=600?innerWidth-24:Math.min(640,innerWidth*.52,innerWidth-24)))<1&&r.height<=Math.min(420,innerHeight*.5,innerHeight-24)+1&&r.left>=0&&r.right<=innerWidth`,
           ),
-          'composer and thread keep the same wide, viewport-safe width',
+          'composer and thread keep the same compact, viewport-safe dimensions',
         );
         await hoverComposer();
         await type('ask @ch');
