@@ -368,6 +368,30 @@ const hoverComposer = async () => {
 };
 
 // ---------- scenarios ----------
+if (only.includes('ui'))
+  for (const theme of themes) {
+    await step(`branding [${theme}]: ribbon and settings logo`, async () => {
+      await ev(
+        `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+      );
+      try {
+        await until(
+          `return document.querySelector('.vertical-tab-content .annotate-brand-heading img')`,
+          'settings branding rendered',
+        );
+        assert(
+          await ev(
+            `const images=[document.querySelector('.annotate-ribbon img'),document.querySelector('.vertical-tab-content .annotate-brand-heading img')];await Promise.all(images.map(image=>image?.decode()));return images.every(image=>image?.naturalWidth>0&&image.src.startsWith('data:image/png;base64,')&&getComputedStyle(image).width!=='0px')`,
+          ),
+          'embedded logos load in the ribbon and settings',
+        );
+        await shot(`branding-${theme}`);
+      } finally {
+        await ev('app.setting.close()');
+      }
+    });
+  }
+
 if (only.includes('smoke')) {
   await step('smoke: plugin loaded, Codex disabled, no load errors', async () => {
     const s = await ev(

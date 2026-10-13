@@ -15,6 +15,7 @@ if (vault && !existsSync(resolve(vault, '.obsidian')))
 const options = {
   entryPoints: ['src/main.ts'],
   bundle: true,
+  loader: { '.png': 'dataurl' },
   outfile: 'main.js',
   format: 'cjs',
   target: 'es2022',

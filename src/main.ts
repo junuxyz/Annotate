@@ -49,6 +49,17 @@ import {
 import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
 
+import logoUrl from '../assets/annotate-logo.png';
+
+function pluginLogo(doc: Document): HTMLImageElement {
+  const image = doc.createElement('img');
+  image.className = 'annotate-logo';
+  image.src = logoUrl;
+  image.alt = '';
+  image.setAttribute('aria-hidden', 'true');
+  return image;
+}
+
 const refresh = StateEffect.define<null>();
 type Target = {
   kind: 'editor' | 'reading';
@@ -815,7 +826,11 @@ export default class Annotate extends Plugin {
       name: 'Show comments for current note',
       callback: () => new ThreadList(this).open(),
     });
-    this.addRibbonIcon('message-square', 'Annotate', () => new ThreadList(this).open());
+    const ribbon = this.addRibbonIcon('message-square', 'Annotate', () =>
+      new ThreadList(this).open(),
+    );
+    ribbon?.replaceChildren(pluginLogo(ribbon.ownerDocument));
+    ribbon?.addClass('annotate-ribbon');
     this.addSettingTab(new CommentsSettings(this));
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
@@ -1382,6 +1397,8 @@ class ThreadList extends Modal {
     const path = this.app.workspace.getActiveFile()?.path;
     this.modalEl.addClass('annotate-thread-modal');
     this.titleEl.setText('Comments');
+    this.titleEl.addClass('annotate-brand-heading');
+    this.titleEl.prepend(pluginLogo(this.titleEl.ownerDocument));
     const threads = this.plugin.data.threads
       .filter((t) => t.path === path)
       .sort((x, y) => Number(x.resolved) - Number(y.resolved));
@@ -1444,6 +1461,11 @@ class CommentsSettings extends PluginSettingTab {
   }
   display(): void {
     this.containerEl.empty();
+    const heading = this.containerEl.createEl('h2', {
+      cls: 'annotate-brand-heading',
+      text: 'Annotate',
+    });
+    heading.prepend(pluginLogo(this.containerEl.ownerDocument));
     new Setting(this.containerEl)
       .setName('Enable Codex')
       .setDesc(

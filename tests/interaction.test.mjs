@@ -13,6 +13,7 @@ const output = new URL('./.integration-plugin.mjs', import.meta.url);
 await build({
   entryPoints: ['src/main.ts'],
   bundle: true,
+  loader: { '.png': 'dataurl' },
   outfile: output.pathname,
   platform: 'node',
   format: 'esm',
