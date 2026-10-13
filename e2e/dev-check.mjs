@@ -295,11 +295,11 @@ const openMode = (m) =>
   await new Promise(r=>setTimeout(r,300));return leaf.view.getMode()`,
     `open ${m}`,
   );
-const select = (m) =>
+const select = (m, quote = QUOTE) =>
   ev(
     m === 'reading'
-      ? `const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(QUOTE)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${QUOTE.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}throw new Error('quote not in reading view')`
-      : `const e=app.workspace.activeLeaf.view.editor,i=e.getValue().indexOf(${JSON.stringify(QUOTE)});if(i<0)throw new Error('quote not in note');e.focus();e.setSelection(e.offsetToPos(i),e.offsetToPos(i+${QUOTE.length}));return true`,
+      ? `const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}throw new Error('quote not in reading view')`
+      : `const e=app.workspace.activeLeaf.view.editor,i=e.getValue().indexOf(${JSON.stringify(quote)});if(i<0)throw new Error('quote not in note');e.focus();e.setSelection(e.offsetToPos(i),e.offsetToPos(i+${quote.length}));return true`,
     'select quote',
   );
 const threads = () =>
@@ -310,11 +310,17 @@ const resetThreads = () =>
   ev(
     `${P}p.closePopup();p.data.threads=[];await p.saveData(p.data);app.workspace.activeLeaf?.view?.previewMode?.rerender?.(true);app.workspace.activeLeaf?.view?.editor?.cm?.dispatch({})`,
   );
-const openComposer = async (m) => {
+const openComposer = async (m, quote = QUOTE) => {
   await openMode(m);
+  if (m === 'reading')
+    await until(
+      `return app.workspace.activeLeaf.view.previewMode.containerEl.textContent.includes(${JSON.stringify(quote)})`,
+      'reading note rendered',
+      5000,
+    );
   // Right after a plugin reload the editor can drop focus once, so reselect until the selection holds.
   for (let i = 0; ; i++) {
-    await select(m);
+    await select(m, quote);
     if (m === 'reading') break;
     try {
       await until(
@@ -332,8 +338,8 @@ const openComposer = async (m) => {
   }
   await press('m', 4 | 8);
 };
-const createComment = async (m, text) => {
-  await openComposer(m);
+const createComment = async (m, text, quote = QUOTE) => {
+  await openComposer(m, quote);
   await until(
     `return document.activeElement===document.querySelector('.annotate-new-comment .annotate-composer textarea')`,
     'compact composer focused',
@@ -498,6 +504,67 @@ if (only.includes('ui'))
         await ev(`${P}p.closePopup()`);
       });
     }
+if (only.includes('highlight'))
+  for (const theme of themes) {
+    await step(`highlight [${theme}]: one wrapped highlight across inline formatting`, async () => {
+      await ev(`app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`);
+      await resetThreads();
+      const quote = await ev(
+        `const text=await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}));return text.split('\\n').find(l=>l.startsWith('This paragraph'))`,
+      );
+      await createComment('live', 'One highlight across formatted text', quote);
+      await ev(`${P}p.closePopup()`);
+      for (const mode of modes) {
+        await openMode(mode);
+        // Move the caret away so Live Preview hides Markdown delimiters.
+        if (mode !== 'reading')
+          await ev(`app.workspace.activeLeaf.view.editor.setCursor({line:0,ch:0})`);
+        await until(
+          `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};return !!root.querySelector('code .annotate-highlight, .cm-inline-code .annotate-highlight, .cm-inline-code.annotate-highlight')`,
+          `inline code highlight in ${mode}`,
+        );
+        const geometry = await ev(`
+          const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'},
+            code=root.querySelector('code:has(.annotate-highlight), .cm-inline-code:has(.annotate-highlight), .cm-inline-code.annotate-highlight'),
+            mark=code.matches('.annotate-highlight')?code:code.querySelector('.annotate-highlight'),
+            marks=[...root.querySelectorAll('.annotate-highlight')],
+            plain=marks.find(n=>n.textContent.startsWith('This paragraph')),
+            style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain),
+            rects=[...plain.getClientRects()], cr=mark.getBoundingClientRect();
+          return {font:cs.fontSize,plainFont:ps.fontSize,background:cs.backgroundColor,plainBackground:ps.backgroundColor,
+            padding:style.padding,margin:style.margin,codeBackground:style.backgroundColor,
+            codeFont:cs.fontFamily,plainFamily:ps.fontFamily,
+            height:cr.height,plainHeight:rects[0].height,
+            ids:[...new Set(marks.map(n=>n.dataset.annotateThread))],
+            badges:root.querySelectorAll('.annotate-count').length,
+            wrapped:marks.some(n=>n.getClientRects().length>1)};
+        `);
+        assert(
+          geometry.font === geometry.plainFont,
+          `${mode}: code shrinks the highlight ${JSON.stringify(geometry)}`,
+        );
+        assert(
+          geometry.background === geometry.plainBackground,
+          `${mode}: mismatched highlight colors`,
+        );
+        assert(
+          geometry.padding === '0px' && geometry.margin === '0px',
+          `${mode}: code pill leaves gaps`,
+        );
+        assert(geometry.codeBackground === 'rgba(0, 0, 0, 0)', `${mode}: separate code background`);
+        assert(
+          Math.abs(geometry.height - geometry.plainHeight) < 1,
+          `${mode}: mismatched highlight heights`,
+        );
+        assert(geometry.codeFont !== geometry.plainFamily, `${mode}: preserve the code typeface`);
+        assert(
+          geometry.ids.length === 1 && geometry.badges === 1 && geometry.wrapped,
+          `${mode}: one wrapped thread ${JSON.stringify(geometry)}`,
+        );
+        await shot(`${theme}-${mode}-highlight`);
+      }
+    });
+  }
 if (only.includes('list'))
   await step('list: thread list modal shows threads', async () => {
     await resetThreads();
@@ -709,12 +776,28 @@ if (only.includes('quote'))
           'rendered quote source',
         );
         await ev(
-          `const b=document.querySelector('.annotate-message-body'),n=b.querySelector('strong').firstChild,r=document.createRange();r.setStart(n,0);r.setEnd(n,6);const s=getSelection();s.removeAllRanges();s.addRange(r);b.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))`,
+          `const b=document.querySelector('.annotate-message-body');b.style.fontSize='24px';b.style.maxWidth='280px';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const n=b.querySelector('strong').firstChild,r=document.createRange();r.setStart(n,0);r.setEnd(n,6);const s=getSelection();s.removeAllRanges();s.addRange(r);b.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}))`,
         );
         const pt = await until(
           `const b=document.querySelector('.annotate-selection-reply');if(!b||b.hidden)return null;const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
           'selected reply action',
         );
+        await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt[0], y: pt[1] });
+        const floating = await ev(`
+          const b=document.querySelector('.annotate-selection-reply'),r=b.getBoundingClientRect(),
+            selected=getSelection().getRangeAt(0).getBoundingClientRect(),s=getComputedStyle(b);
+          return {hover:b.matches(':hover'),background:s.backgroundColor,
+            outside:r.bottom<=selected.top-4||r.top>=selected.bottom+4,
+            inView:r.left>=12&&r.right<=innerWidth-12&&r.top>=12&&r.bottom<=innerHeight-12};
+        `);
+        assert(
+          floating.hover &&
+            /^rgb\(/.test(floating.background) &&
+            floating.outside &&
+            floating.inView,
+          `quote action stays opaque and outside the selection: ${JSON.stringify(floating)}`,
+        );
+        await shot(`${theme}-${m}-quote-action`);
         await clickAt(pt);
         await until(
           `return !document.querySelector('.annotate-reply-preview').hidden&&document.querySelector('.annotate-reply-preview blockquote').textContent==='quoted'&&document.activeElement===document.querySelector('.annotate-composer textarea')`,

@@ -21,7 +21,7 @@ body {
   --annotate-mark-hover: rgba(255, 212, 0, 0.28);
   --annotate-mark-line: rgba(255, 212, 0, 0.8);
   --annotate-radius: 10px;
-  --annotate-surface: var(--background-primary);
+  --annotate-surface: color-mix(in srgb, var(--background-primary) 94%, var(--text-normal));
   --annotate-text: var(--text-normal);
   --annotate-text-2: var(--text-muted);
   --annotate-text-3: var(--text-faint);
@@ -62,6 +62,26 @@ body.theme-dark {
 .annotate-draft-selection {
   background: var(--annotate-mark-hover);
   cursor: text;
+}
+
+/* Inline code shares the surrounding highlight's size and has no separate pill. */
+.markdown-source-view.mod-cm6
+  .cm-inline-code:has(:is(.annotate-highlight, .annotate-draft-selection)),
+.markdown-source-view.mod-cm6 .cm-inline-code:is(.annotate-highlight, .annotate-draft-selection),
+.markdown-preview-view :not(pre) > code:has(:is(.annotate-highlight, .annotate-draft-selection)) {
+  font-size: 1em;
+  line-height: inherit;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+}
+.markdown-source-view.mod-cm6
+  .cm-inline-code:has(:is(.annotate-highlight, .annotate-draft-selection)):not(
+    .annotate-highlight,
+    .annotate-draft-selection
+  ),
+.markdown-preview-view :not(pre) > code:has(:is(.annotate-highlight, .annotate-draft-selection)) {
+  background: transparent;
 }
 
 .annotate-icon {
@@ -458,6 +478,7 @@ button.annotate-count:hover {
 /* ---------- Composer ---------- */
 .annotate-composer {
   display: flex;
+  background: color-mix(in srgb, var(--annotate-surface) 97%, var(--text-normal));
   align-items: flex-start;
   gap: 8px;
   margin: 0;
@@ -801,6 +822,10 @@ button.annotate-count:hover {
   z-index: 1;
   background: var(--background-primary);
   box-shadow: var(--shadow-s);
+}
+.annotate-popover .annotate-selection-reply:hover {
+  background: var(--background-secondary);
+  color: var(--annotate-text);
 }
 .annotate-selection-reply[hidden],
 .annotate-reply-preview[hidden] {

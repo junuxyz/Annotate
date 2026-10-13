@@ -318,8 +318,10 @@ export default class Annotate extends Plugin {
         const rect = selection.getRangeAt(0).getBoundingClientRect();
         const width = owner.defaultView?.innerWidth ?? 800;
         const height = owner.defaultView?.innerHeight ?? 600;
-        selectedReply.style.left = `${Math.max(12, Math.min(rect.left, width - 160))}px`;
-        selectedReply.style.top = `${Math.max(12, Math.min(rect.bottom + 4, height - 40))}px`;
+        const button = selectedReply.getBoundingClientRect();
+        const above = rect.top - button.height - 8;
+        selectedReply.style.left = `${Math.max(12, Math.min(rect.left, width - button.width - 12))}px`;
+        selectedReply.style.top = `${Math.max(12, Math.min(above >= 12 ? above : rect.bottom + 8, height - button.height - 12))}px`;
       }
     };
     owner.addEventListener('selectionchange', captureSelection);
