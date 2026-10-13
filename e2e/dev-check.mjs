@@ -590,6 +590,89 @@ if (only.includes('markdown'))
       });
     }
 
+if (only.includes('math'))
+  for (const theme of themes)
+    for (const m of modes) {
+      await step(
+        `math [${m}/${theme}]: multiline delimiters, lists, streaming, reopen`,
+        async () => {
+          await ev(
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+          );
+          await resetThreads();
+          const text = String.raw`- **Scalar/head-wise gate:**
+
+  \[
+  \alpha_{t,h} \in \mathbb{R}
+  \]
+
+  One decay value scales the whole memory matrix:
+
+  \[
+  S_{t,h}=\alpha_{t,h}S_{t-1,h}+\text{update}
+  \]
+
+- **Channel-wise gate:**
+
+  \[
+  \boldsymbol{\alpha}_{t,h} \in \mathbb{R}^{d_{\text{head}}}
+  \]
+
+  Each feature dimension gets its own decay rate:
+
+  \[
+  S_{t,h}=\boldsymbol{\alpha}_{t,h}\odot S_{t-1,h}+\text{update}
+  \]
+
+  with broadcasting across the relevant axis of $S$.`;
+          await createComment(m, text);
+          const valid = `const b=document.querySelector('.annotate-message-body');return b?.querySelectorAll('mjx-container').length===5&&b.querySelectorAll('.math-block').length===4&&!b.querySelector('mjx-merror')&&b.querySelectorAll('strong').length===2&&[...b.querySelectorAll('p')].some(p=>p.textContent.includes('One decay value scales the whole memory matrix:')&&!p.querySelector('mjx-container'))&&[...b.querySelectorAll('p')].some(p=>p.textContent.includes('Each feature dimension gets its own decay rate:')&&!p.querySelector('mjx-container'))`;
+          await until(valid, 'equations render while prose stays Markdown');
+          await ev(`${P}const t=p.data.threads[0];p.closePopup();p.openThread(t)`);
+          await until(valid, 'reopened multiline math');
+          const mixed =
+            String.raw`Inline \(a+b\).
+
+\[
+\begin{aligned}
+x &= y \\
+y &= z
+\end{aligned}
+\]
+
+Native dollars:
+$$
+z^2
+$$
+
+` + '```latex\n\\[literal\\]\n```';
+          await ev(
+            `${P}p.data.threads[0].comments.push({id:'math-mixed',author:'You',body:${JSON.stringify(mixed)},createdAt:Date.now()});p.paintCodex()`,
+          );
+          await until(
+            `const b=document.querySelector('[data-message-id="math-mixed"] .annotate-message-body');return b?.querySelectorAll('mjx-container').length===3&&b.querySelectorAll('.math-block').length===2&&!b.querySelector('mjx-merror')&&b.querySelector('pre code')?.textContent.includes('literal')`,
+            'aligned equations, native dollars, inline math, literal code',
+          );
+          await ev(
+            `${P}const t=p.data.threads[0];t.comments.push({id:'math-stream',author:'ChatGPT',role:'assistant',status:'streaming',body:${JSON.stringify(text.slice(0, text.lastIndexOf('\\]')))},createdAt:Date.now()});p.paintCodex()`,
+          );
+          await until(
+            `return !!document.querySelector('[data-message-id="math-stream"] mjx-container')`,
+            'partial streamed math',
+          );
+          await ev(
+            `${P}const c=p.data.threads[0].comments.at(-1);c.body=${JSON.stringify(text)};c.status='completed';p.paintCodex()`,
+          );
+          await until(
+            `const b=document.querySelector('[data-message-id="math-stream"] .annotate-message-body');return b?.querySelectorAll('mjx-container').length===5&&b.querySelectorAll('strong').length===2&&!b.querySelector('mjx-merror')`,
+            'completed streamed multiline math',
+          );
+          await shot(`${theme}-${m}-math-thread`);
+          await ev(`${P}p.closePopup()`);
+        },
+      );
+    }
+
 if (only.includes('quote'))
   for (const theme of themes)
     for (const m of modes) {

@@ -43,7 +43,7 @@ export class CommentMarkdown {
     const markdown = mathParts(text)
       .map((part) =>
         part.kind === 'math' && part.text.startsWith('\\')
-          ? `${part.display ? '$$\n' : '$'}${part.source}${part.display ? '\n$$' : '$'}`
+          ? `${part.display ? '$$' : '$'}${part.display ? part.source.trim() : part.source}${part.display ? '$$' : '$'}`
           : part.text,
       )
       .join('');

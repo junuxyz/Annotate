@@ -51,7 +51,7 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
     String.raw`\(x\) and \[y\] and ` + '`$literal$`',
     'Fixtures/Annotations.md',
   );
-  assert.equal(calls[2].text, '$x$ and $$\ny\n$$ and `$literal$`');
+  assert.equal(calls[2].text, '$x$ and $$y$$ and `$literal$`');
   renderer.clear();
   assert.equal(calls[2].component.loaded, false);
   calls[2].el.textContent = 'closed';
@@ -68,5 +68,59 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
   assert.equal(body.textContent, 'fallback <script>');
   assert.equal(body.querySelector('script'), null);
   assert.equal(calls[3].component.loaded, false);
+  await window.happyDOM.close();
+});
+
+test('display delimiter conversion adds no blank lines and preserves list indentation', async () => {
+  const window = new Window();
+  const body = window.document.createElement('div');
+  const renderer = new CommentMarkdown();
+  const calls = [];
+  const app = {
+    async renderMarkdown(text) {
+      calls.push(text);
+    },
+  };
+  const text =
+    String.raw`- **Gate:**
+
+  \[
+  \alpha_{t,h} \in \mathbb{R}
+  \]
+
+  One decay value scales the whole memory matrix.
+
+  \[
+  S_{t,h}=\alpha_{t,h}S_{t-1,h}+\text{update}
+  \]
+
+\[
+\begin{aligned}
+x &= y \\
+y &= z
+\end{aligned}
+\]
+
+` + '```latex\n\\[literal\\]\n```';
+  renderer.paint(app, body, text, 'Fixtures/Annotations.md');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(
+    calls[0],
+    String.raw`- **Gate:**
+
+  $$\alpha_{t,h} \in \mathbb{R}$$
+
+  One decay value scales the whole memory matrix.
+
+  $$S_{t,h}=\alpha_{t,h}S_{t-1,h}+\text{update}$$
+
+$$\begin{aligned}
+x &= y \\
+y &= z
+\end{aligned}$$
+
+` + '```latex\n\\[literal\\]\n```',
+  );
+  renderer.clear();
   await window.happyDOM.close();
 });
