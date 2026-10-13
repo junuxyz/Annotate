@@ -1,0 +1,11 @@
+.git
+node_modules
+main.js
+release
+backup-*
+diagnostics
+e2e/evidence
+e2e/shots
+.DS_Store
+test-vault/.obsidian
+test-vault/Validation results.md

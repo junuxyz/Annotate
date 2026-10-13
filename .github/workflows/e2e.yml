@@ -1,0 +1,25 @@
+name: Obsidian E2E
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build and validate in real Obsidian on Xvfb
+        run: node e2e/run-linux.mjs --only smoke,ui,list,highlight,quote,copy --modes live,source,reading --shots --record
+      - name: Save validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: obsidian-e2e-evidence
+          path: e2e/evidence/
+          if-no-files-found: warn

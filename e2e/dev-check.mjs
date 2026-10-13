@@ -1,4 +1,4 @@
-// One-command development check in an isolated, hidden Obsidian.
+// One-command development check in an isolated Obsidian on a Linux virtual display.
 // usage: node e2e/dev-check.mjs [--only smoke,ui,list] [--modes live,source,reading] [--themes light,dark]
 //                               [--shots] [--record] [--stop] [--profile <dir>] [--port <n>]
 // Sets up (or reuses) its own profile, syncs test-vault + current build, resets fixtures and comment data,
@@ -13,13 +13,15 @@ import {
   writeFileSync,
   appendFileSync,
   readdirSync,
+  openSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
+if (process.platform !== 'linux') throw new Error('Use npm run check to run E2E through Docker.');
 const HERE = dirname(fileURLToPath(import.meta.url)),
   PLUGIN = resolve(HERE, '..'),
   VAULT_SRC = existsSync(resolve(PLUGIN, '../test-vault'))
@@ -42,7 +44,7 @@ const port = Number(
 );
 const root = dirname(profile),
   vault = join(root, 'test-vault'),
-  shotsDir = join(root, 'shots');
+  shotsDir = join(process.env.E2E_OUTPUT || root, 'shots');
 const stop = () => {
   try {
     execFileSync('pkill', ['-f', `remote-debugging-port=${port}( |$)`]);
@@ -79,12 +81,6 @@ const hashes = { 'main.js': sha('main.js'), 'styles.css': sha('styles.css') };
 const { version, name: pluginName } = JSON.parse(readFileSync(join(PLUGIN, 'manifest.json')));
 
 mkdirSync(profile, { recursive: true });
-const asarDir = join(homedir(), 'Library/Application Support/obsidian');
-const asar = readdirSync(asarDir)
-  .filter((f) => /^obsidian-[\d.]+\.asar$/.test(f))
-  .sort()
-  .at(-1);
-if (asar && !existsSync(join(profile, asar))) cpSync(join(asarDir, asar), join(profile, asar));
 writeFileSync(
   join(profile, 'obsidian.json'),
   JSON.stringify({ vaults: { annotate0dev0check: { path: vault, ts: 1, open: true } } }),
@@ -119,40 +115,47 @@ writeFileSync(
 rmSync(shotsDir, { recursive: true, force: true });
 mkdirSync(shotsDir, { recursive: true });
 
-// On-screen sampler: the instance pid must never appear once it is hidden.
-const onscreenBin = join(root, 'onscreen');
-if (!existsSync(onscreenBin))
-  execFileSync('swiftc', ['-O', join(HERE, 'onscreen.swift'), '-o', onscreenBin], {
-    stdio: 'ignore',
-  });
-const launch = spawn(process.execPath, [join(HERE, 'launch-hidden.mjs'), profile], {
-  env: { ...process.env, CDP_PORT: String(port) },
+const display = process.env.DISPLAY;
+const executable = process.env.OBSIDIAN_BIN;
+if (!display || !executable) throw new Error('Run E2E with Docker or OBSIDIAN_BIN under Xvfb.');
+const displays = execFileSync('pgrep', ['-a', 'Xvfb'], { encoding: 'utf8' });
+if (!displays.split('\n').some((line) => line.split(/\s+/).includes(display)))
+  throw new Error('The test display must be owned by Xvfb.');
+const startupLog = join(process.env.E2E_OUTPUT || profile, 'obsidian-startup.log');
+const output = openSync(startupLog, 'a');
+const obsidian = spawn(
+  executable,
+  [
+    `--user-data-dir=${profile}`,
+    `--remote-debugging-port=${port}`,
+    '--disable-gpu',
+    '--password-store=basic',
+    ...(process.getuid() === 0 ? ['--no-sandbox'] : []),
+  ],
+  { stdio: ['ignore', output, output] },
+);
+let startupError, page;
+obsidian.on('error', (error) => {
+  startupError = error;
 });
-let launchOut = '';
-launch.stdout.on('data', (d) => (launchOut += d));
-await withTimeout(new Promise((r) => launch.on('exit', r)), 60_000, 'launch hidden Obsidian');
-const pid = execFileSync('pgrep', ['-f', `remote-debugging-port=${port}( |$)`])
-  .toString()
-  .trim()
-  .split('\n')[0];
-const seen = new Set();
-let sampling = true;
-(async () => {
-  while (sampling) {
-    try {
-      for (const m of execFileSync(onscreenBin)
-        .toString()
-        .matchAll(/pid (\d+)/g))
-        seen.add(m[1]);
-    } catch {}
-    await sleep(400);
-  }
-})();
+const deadline = Date.now() + 45_000;
+while (Date.now() < deadline) {
+  if (startupError || obsidian.exitCode !== null || obsidian.signalCode !== null)
+    throw new Error(
+      `Obsidian launch failed: ${startupError || readFileSync(startupLog, 'utf8').slice(-4000)}`,
+    );
+  try {
+    page = (await (await fetch(`http://localhost:${port}/json`)).json()).find(
+      (p) => p.type === 'page' && p.url.startsWith('app://') && p.title.includes('test-vault'),
+    );
+  } catch {}
+  if (page) break;
+  await sleep(100);
+}
+if (!page)
+  throw new Error(`Obsidian startup timed out: ${readFileSync(startupLog, 'utf8').slice(-4000)}`);
 
 // ---------- CDP ----------
-const page = (await (await fetch(`http://localhost:${port}/json`)).json()).find(
-  (p) => p.type === 'page' && p.url.startsWith('app://') && p.title.includes('test-vault'),
-);
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 let id = 0;
 const pending = new Map(),
@@ -253,6 +256,7 @@ const step = async (name, fn) => {
   } catch (e) {
     results.push({ name, ok: false, err: e.message });
     console.log(`FAIL ${name} — ${e.message}`);
+    await shot(`failure-${name.replaceAll(/[^a-zA-Z0-9]+/g, '-')}`);
     try {
       await press('Escape');
       await ev(`${P}p.closePopup()`);
@@ -276,6 +280,10 @@ const closeModals = async () => {
 
 // ---------- prepare app ----------
 await send('Runtime.enable');
+await ev(
+  'await new Promise(resolve=>app.workspace.onLayoutReady(resolve))',
+  'workspace layout ready',
+);
 await closeModals();
 // Screenshots should show settled UI, not a frame from an entrance animation.
 await ev(
@@ -336,7 +344,7 @@ const openComposer = async (m, quote = QUOTE) => {
         );
     }
   }
-  await press('m', 4 | 8);
+  await press('m', 8 | 2);
 };
 const createComment = async (m, text, quote = QUOTE) => {
   await openComposer(m, quote);
@@ -519,6 +527,10 @@ if (only.includes('highlight'))
         // Move the caret away so Live Preview hides Markdown delimiters.
         if (mode !== 'reading')
           await ev(`app.workspace.activeLeaf.view.editor.setCursor({line:0,ch:0})`);
+        // Wrapping must be explicit, independent of platform fonts and window size.
+        await ev(
+          `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};for(const node of root.querySelectorAll('.cm-line, p'))node.style.maxWidth='320px';await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
+        );
         await until(
           `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};return !!root.querySelector('code .annotate-highlight, .cm-inline-code .annotate-highlight, .cm-inline-code.annotate-highlight')`,
           `inline code highlight in ${mode}`,
@@ -537,7 +549,7 @@ if (only.includes('highlight'))
             height:cr.height,plainHeight:rects[0].height,
             ids:[...new Set(marks.map(n=>n.dataset.annotateThread))],
             badges:root.querySelectorAll('.annotate-count').length,
-            wrapped:marks.some(n=>n.getClientRects().length>1)};
+            wrapped:new Set(marks.flatMap(n=>[...n.getClientRects()].map(r=>Math.round(r.top)))).size>1};
         `);
         assert(
           geometry.font === geometry.plainFont,
@@ -562,6 +574,9 @@ if (only.includes('highlight'))
           `${mode}: one wrapped thread ${JSON.stringify(geometry)}`,
         );
         await shot(`${theme}-${mode}-highlight`);
+        await ev(
+          `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};for(const node of root.querySelectorAll('.cm-line, p'))node.style.removeProperty('max-width')`,
+        );
       }
     });
   }
@@ -866,7 +881,13 @@ if (only.includes('copy'))
               `const b=document.querySelector(${JSON.stringify(selector)}),r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
             );
             await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt[0], y: pt[1] });
-            return pt;
+            await until(
+              `const b=document.querySelector(${JSON.stringify(selector)}),r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return b===hit||b.contains(hit)`,
+              'copy button receives pointer input',
+            );
+            return await ev(
+              `const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+            );
           };
           await clickAt(await buttonPoint('.annotate-message-copy'));
           await until(`return window.__annotateCopyWrites.length===1`, 'message copied');
@@ -902,14 +923,10 @@ if (only.includes('copy'))
       });
     }
 
-
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});
 await resetThreads().catch(() => {});
-sampling = false;
-await sleep(450);
-const onscreen = seen.has(pid);
-results.push({ name: 'hidden: instance never on screen during checks', ok: !onscreen });
+results.push({ name: 'display: isolated Linux virtual display', ok: true });
 if (errors.length)
   results.push({
     name: 'no console errors during run',
@@ -918,9 +935,10 @@ if (errors.length)
   });
 const failed = results.filter((r) => !r.ok),
   secs = ((Date.now() - t0) / 1000).toFixed(1);
-const env = `Obsidian ${asar?.match(/[\d.]+\d/)?.[0] ?? '?'}, macOS ${execFileSync('sw_vers', ['-productVersion']).toString().trim()}`;
+const appVersion = await ev("return require('@electron/remote').app.getVersion()");
+const env = `Obsidian ${appVersion}, Linux / Xvfb`;
 console.log(
-  `\n${failed.length ? 'FAILED' : 'OK'} ${results.length - failed.length}/${results.length} in ${secs}s · ${env} · port ${port}${launchOut.includes('first hide') ? ' · ' + launchOut.trim().split('\n').at(-1) : ''}`,
+  `\n${failed.length ? 'FAILED' : 'OK'} ${results.length - failed.length}/${results.length} in ${secs}s · ${env} · port ${port}`,
 );
 if (flag('shots')) console.log(shotNote || `shots: ${shotsDir}`);
 if (flag('record')) {
@@ -933,8 +951,9 @@ if (flag('record')) {
     ...(shotNote ? [`- ${shotNote}`] : []),
     `- Duration: ${secs}s. Development validation only; release validation pending.`,
   ].join('\n');
-  appendFileSync(join(VAULT_SRC, 'Validation results.md'), md + '\n');
-  console.log('recorded to test-vault/Validation results.md');
+  const report = join(process.env.E2E_OUTPUT || VAULT_SRC, 'Validation results.md');
+  appendFileSync(report, md + '\n');
+  console.log(`recorded to ${report}`);
 }
 ws.close();
 process.exit(failed.length ? 1 : 0);

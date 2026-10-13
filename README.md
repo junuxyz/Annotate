@@ -110,8 +110,8 @@ Reading mode mapping (`reading.ts`), mentions (`mentions.ts`), comment Markdown 
 and the Codex app-server connection (`codex.ts`). Obsidian and CodeMirror are
 provided by the host and excluded from the bundle.
 
-Unit and interaction tests use a substituted Obsidian host. On macOS with Obsidian
-installed, run the real-app development checks in an isolated hidden instance:
+Unit and interaction tests use a substituted Obsidian host. With Docker running,
+run real-app development checks in a disposable Linux container with a virtual display:
 
 ```sh
 npm run check -- --modes live,source,reading --shots --record
@@ -120,6 +120,7 @@ npm run check -- --modes live,source,reading --shots --record
 The runner uses the adjacent `../test-vault/` when present, otherwise the included
 `test-vault/`. It creates fresh settings and synthetic comment data when needed.
 See [the E2E checklist](test-vault/E2E%20checklist.md) for full release validation.
+See [Linux E2E setup](e2e/README-linux.md) for prerequisites and evidence output.
 Development checks alone do not certify a release. The older `e2e/run-*.mjs`
 scripts require the isolated instance's `CDP_PORT` and run from `e2e/`.
 
