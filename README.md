@@ -1,8 +1,8 @@
+# Annotate
+
 <p align="center">
   <img src="assets/annotate-logo.png" alt="Annotate logo" width="160" height="160">
 </p>
-
-# Annotate
 
 Threaded comments on selected text in Obsidian. Select a passage, leave a comment,
 and click its highlight to continue the conversation. Works in Live Preview,
