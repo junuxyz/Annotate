@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { providerSchema } from './ai';
 import type { ChangeDesc } from '@codemirror/state';
 const anchorSchema = z
   .object({
@@ -22,6 +23,7 @@ const commentSchema = z
     body: z.string(),
     quote: replyQuoteSchema.optional(),
     role: z.enum(['user', 'assistant']).optional(),
+    provider: providerSchema.optional(),
     status: z
       .enum(['pending', 'streaming', 'completed', 'cancelled', 'failed', 'unknown'])
       .optional(),
@@ -40,6 +42,7 @@ const threadSchema = z.object({
   codex: z
     .object({
       sessionId: z.string().optional(),
+      provider: providerSchema.optional(),
       contextVersion: z.literal(2).optional(),
       status: z.enum([
         'idle',
@@ -56,14 +59,39 @@ const threadSchema = z.object({
     })
     .optional(),
 });
+/** Short aliases saved by older settings, mapped to the full model name they meant. */
+const claudeAliases: Record<string, string> = {
+  fable: 'claude-fable-5-1',
+  opus: 'claude-opus-5-5',
+  sonnet: 'claude-sonnet-5-5',
+  haiku: 'claude-haiku-5-5',
+};
 export const dataSchema = z.object({
   version: z.literal(1),
   localBuildDirectory: z.string().default(''),
   author: z.string(),
   threads: z.array(threadSchema),
+  assistant: z
+    .object({
+      provider: providerSchema.default('chatgpt'),
+      claude: z
+        .object({
+          executable: z.string(),
+          model: z.string().transform((model) => claudeAliases[model] ?? model),
+        })
+        .default({ executable: 'claude', model: 'claude-sonnet-5-5' }),
+    })
+    .default({
+      provider: 'chatgpt',
+      claude: { executable: 'claude', model: 'claude-sonnet-5-5' },
+    }),
   codex: z
-    .object({ enabled: z.boolean().default(false), executable: z.string().default('codex') })
-    .default({ enabled: false, executable: 'codex' }),
+    .object({
+      enabled: z.boolean().default(false),
+      executable: z.string().default('codex'),
+      model: z.string().default(''),
+    })
+    .default({ enabled: false, executable: 'codex', model: '' }),
 });
 export type Anchor = z.infer<typeof anchorSchema>;
 export type Thread = z.infer<typeof threadSchema>;
@@ -73,7 +101,11 @@ export const emptyData = (): PluginData => ({
   localBuildDirectory: '',
   author: 'You',
   threads: [],
-  codex: { enabled: false, executable: 'codex' },
+  codex: { enabled: false, executable: 'codex', model: '' },
+  assistant: {
+    provider: 'chatgpt',
+    claude: { executable: 'claude', model: 'claude-sonnet-5-5' },
+  },
 });
 export function makeAnchor(text: string, from: number, to: number): Anchor {
   if (from < 0 || to > text.length || to <= from) throw new Error('Select a text range first.');

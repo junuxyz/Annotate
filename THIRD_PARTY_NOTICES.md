@@ -101,3 +101,7 @@ SOFTWARE.
 ## OpenAI logo
 
 The ChatGPT mention icon uses the OpenAI SVG from [Simple Icons v13.0.0](https://github.com/simple-icons/simple-icons/blob/13.0.0/icons/openai.svg), distributed under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The OpenAI logo is a trademark of OpenAI and is subject to its [brand guidelines](https://openai.com/brand/).
+
+## Claude logo
+
+The Claude mention icon and assistant avatar use the Claude SVG from [Simple Icons](https://github.com/simple-icons/simple-icons/blob/7a6199a2ac7d20b529f863b6aceb20d2c6529207/icons/claude.svg), distributed under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/). The Claude logo is a trademark of Anthropic.

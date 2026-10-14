@@ -552,7 +552,7 @@ button.annotate-count:hover {
   background: #000;
   color: #fff;
 }
-.annotate-openai-icon {
+.annotate-assistant-icon {
   width: 14px;
   height: 14px;
   fill: currentColor;
@@ -796,9 +796,12 @@ button.annotate-count:hover {
   text-align: left;
   font-size: var(--annotate-text-m);
 }
-.annotate-mention-option .annotate-openai-icon {
+.annotate-mention-option .annotate-assistant-icon {
   width: 18px;
   height: 18px;
+}
+.annotate-claude-icon {
+  color: #d97757;
 }
 .annotate-mention-option strong {
   font-weight: 500;
@@ -1101,7 +1104,36 @@ button.annotate-count:hover {
     background: none;
   }
 }
-
+.annotate-settings .annotate-settings-codex-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-normal);
+}
+.annotate-settings .annotate-settings-codex-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+.annotate-settings .annotate-settings-codex-status[data-state='ready']::before {
+  background: var(--color-green);
+}
+.annotate-settings .annotate-settings-codex-status[data-state='checking']::before {
+  background: var(--color-yellow);
+}
+.annotate-settings .annotate-settings-codex-status[data-state='error']::before {
+  background: var(--color-red);
+}
+.annotate-settings .annotate-settings-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+.annotate-settings .annotate-settings-codex-status[data-state='ready'] + .annotate-settings-hint {
+  display: none;
+}
 .annotate-settings-advanced {
   margin-top: 24px;
 }

@@ -107,6 +107,10 @@ const data = {
   author: 'You',
   threads: [],
   codex: { enabled: false, executable: 'codex' },
+  assistant: {
+    provider: 'chatgpt',
+    claude: { executable: 'claude', model: 'claude-sonnet-5-5' },
+  },
 };
 writeFileSync(
   join(pdir, 'data.json'),
@@ -512,6 +516,42 @@ if (only.includes('ui'))
         await ev(`${P}p.closePopup()`);
       });
     }
+if (only.includes('logos'))
+  for (const theme of themes)
+    for (const mode of modes) {
+      await step(
+        `logos [${mode}/${theme}]: distinct assistant avatars and mention icons`,
+        async () => {
+          await resetThreads();
+          await ev(
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+          );
+          await createComment(mode, 'Assistant logo fixture');
+          await ev(
+            `${P}const t=p.data.threads.at(-1);for(const provider of ['chatgpt','claude'])t.comments.push({id:crypto.randomUUID(),author:provider,role:'assistant',provider,body:'Synthetic '+provider+' reply',status:'completed',createdAt:Date.now()});p.openThread(t)`,
+          );
+          assert(
+            await ev(
+              `const icons=[...document.querySelectorAll('.annotate-avatar-ai svg')];return icons.length===2&&icons[0].classList.contains('annotate-openai-icon')&&icons[1].classList.contains('annotate-claude-icon')&&icons[0].querySelector('path').getAttribute('d')!==icons[1].querySelector('path').getAttribute('d')&&getComputedStyle(icons[1]).color==='rgb(217, 119, 87)'`,
+            ),
+            'assistant avatars use different marks',
+          );
+          await shot(`logos-${mode}-${theme}-thread`);
+          await ev(`document.querySelector('.annotate-composer textarea').focus()`);
+          await type('@');
+          assert(
+            await ev(
+              `const menu=document.querySelector('.annotate-mention-menu');return !menu.hidden&&menu.querySelectorAll('.annotate-assistant-icon').length===2&&getComputedStyle(menu.querySelector('.annotate-claude-icon')).color==='rgb(217, 119, 87)'`,
+            ),
+            'mention menu shows both provider logos',
+          );
+          await shot(`logos-${mode}-${theme}-mention`);
+          await press('Escape');
+          await ev(`${P}p.closePopup()`);
+        },
+      );
+    }
+
 if (only.includes('highlight'))
   for (const theme of themes) {
     await step(`highlight [${theme}]: one wrapped highlight across inline formatting`, async () => {
@@ -979,6 +1019,27 @@ if (only.includes('copy'))
         }
       });
     }
+
+if (only.includes('providers') || only.includes('claude-live')) {
+  const { checkProviders } = await import('./provider-checks.mjs');
+  await checkProviders({
+    only,
+    modes,
+    themes,
+    root,
+    plugin: PLUGIN,
+    ev,
+    step,
+    until,
+    resetThreads,
+    createComment,
+    openComposer,
+    type,
+    press,
+    assert,
+    shot,
+  });
+}
 
 if (only.includes('sync')) {
   await step('sync: settings button reloads local build and preserves comments', async () => {

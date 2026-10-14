@@ -147,8 +147,13 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
     let menu = document.querySelector('.annotate-mention-menu');
     type(input, '@');
     assert.equal(menu.hidden, false);
-    assert.equal(menu.querySelectorAll('[role="option"]').length, 1);
+    assert.equal(menu.querySelectorAll('[role="option"]').length, 2);
     assert.equal(menu.querySelector('strong').textContent, 'ChatGPT');
+    const claudeLogo = menu.querySelector('.annotate-claude-icon path');
+    const chatgptLogo = menu.querySelector('.annotate-openai-icon path');
+    assert.ok(claudeLogo && chatgptLogo);
+    assert.notEqual(claudeLogo.getAttribute('d'), chatgptLogo.getAttribute('d'));
+
     assert.equal(input.getAttribute('aria-expanded'), 'true');
     assert.equal(key(input, 'ArrowDown').defaultPrevented, true);
     assert.equal(key(input, 'Enter').defaultPrevented, true);
@@ -172,6 +177,19 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
       'completion replaces only the token and preserves the suffix',
     );
     assert.equal(input.selectionStart, 'Please @chatgpt '.length);
+    assert.equal(plugin.data.threads.length, 0);
+    type(input, '@cl');
+    const claudeOption = [...menu.querySelectorAll('button')].find((b) =>
+      b.textContent.includes('@claude'),
+    );
+    assert.equal(claudeOption.hidden, false);
+    click(claudeOption);
+    assert.equal(input.value, '@claude ');
+    type(input, '@');
+    key(input, 'ArrowDown');
+    key(input, 'ArrowDown');
+    key(input, 'Enter');
+    assert.equal(input.value, '@claude ');
     assert.equal(plugin.data.threads.length, 0);
     type(input, '@unknown');
     assert.equal(menu.hidden, true);
@@ -454,7 +472,7 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   isolatedFactory(plugin);
   plugin.source = 'complete note content';
   const settingsWindow = new Window();
-  plugin.connectionLabel = settingsWindow.document.createElement('p');
+  plugin.connectionLabels.set('chatgpt', settingsWindow.document.createElement('p'));
   plugin.loadData = async () => ({
     version: 1,
     author: 'You',
@@ -465,8 +483,8 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   try {
     await plugin.backend.connect();
     assert.match(
-      plugin.connectionLabel.textContent,
-      /ready/,
+      plugin.connectionLabels.get('chatgpt').textContent,
+      /Ready/,
       'a separate settings window receives connection changes',
     );
     plugin.compose({
@@ -938,7 +956,7 @@ test('copy message and entire thread preserve Markdown and read the latest conve
     await tick();
     assert.equal(
       copied[2],
-      '> selected\n> passage\n\n---\n\nYou:\n\n**Question**\n\n```js\nconst x = 1;\n```\n\n---\n\nAssistant:\n\n> Question\n> code\n\nFinished **answer**\n\n---\n\nYou:\n\nFollow-up',
+      '> selected\n> passage\n\n---\n\nYou:\n\n**Question**\n\n```js\nconst x = 1;\n```\n\n---\n\nChatGPT:\n\n> Question\n> code\n\nFinished **answer**\n\n---\n\nYou:\n\nFollow-up',
     );
     thread.resolved = true;
     plugin.openThread(thread);
@@ -954,5 +972,101 @@ test('copy message and entire thread preserve Markdown and read the latest conve
   } finally {
     clipboard.writeText = original;
     plugin.onunload();
+  }
+});
+
+test('Claude mentions route without changing settings first and connection probes preserve the live backend', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const asked = [];
+  plugin.createBackend = (provider = plugin.data.assistant.provider) => {
+    return {
+      state: 'disabled',
+      detail: '',
+      model: 'test',
+      retainsHistory: false,
+      async enable() {
+        this.state = 'ready';
+      },
+      async connect() {
+        this.state = 'ready';
+      },
+      async session() {
+        return crypto.randomUUID();
+      },
+      async ask(id, text, delta, finish) {
+        asked.push({ provider, text: JSON.parse(text.slice(text.indexOf('{'))) });
+        delta(`${provider} answer`);
+        finish('completed');
+      },
+      async interrupt() {},
+      disable() {
+        this.state = 'disabled';
+      },
+    };
+  };
+  try {
+    plugin.data.codex.enabled = true;
+    plugin.configureCodex();
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    await send('@claude explain');
+    await tick();
+    assert.equal(plugin.data.assistant.provider, 'claude');
+    assert.equal(asked[0].provider, 'claude');
+    assert.equal(plugin.data.threads[0].comments.at(-1).provider, 'claude');
+    assert.ok(document.querySelector('.annotate-avatar-ai .annotate-claude-icon'));
+    assert.equal(
+      document.querySelector('.annotate-avatar-ai .annotate-openai-icon') === null,
+      true,
+    );
+
+    const live = plugin.backend;
+    assert.equal(await plugin.checkConnection(), true);
+    same(plugin.backend, live);
+    assert.equal(live.state, 'ready');
+    const originalProvider = plugin.data.assistant.provider;
+    assert.equal(await plugin.checkConnection('chatgpt'), true);
+    same(plugin.backend, live);
+    assert.equal(plugin.data.assistant.provider, originalProvider);
+    assert.equal(live.state, 'ready');
+    await send('@chatgpt follow up');
+    await tick();
+    assert.equal(asked.at(-1).provider, 'chatgpt');
+    assert.equal(asked.at(-1).text.conversationHistory.length, 2);
+    const current = plugin.backend;
+    const factory = plugin.createBackend;
+    plugin.connectionLabels.set('claude', document.createElement('p'));
+    plugin.createBackend = (provider = plugin.data.assistant.provider) => {
+      const probe = factory(provider);
+      if (provider === 'claude')
+        probe.enable = async () => {
+          throw new Error('Subscription login required');
+        };
+      return probe;
+    };
+    assert.equal(await plugin.checkConnection('claude'), false);
+    assert.match(
+      plugin.connectionLabels.get('claude').textContent,
+      /Not connected.*Subscription login required/,
+    );
+    same(plugin.backend, current);
+    assert.equal(plugin.data.assistant.provider, 'chatgpt');
+    plugin.createBackend = factory;
+    assert.equal(await plugin.checkConnection('claude'), true);
+    assert.match(plugin.connectionLabels.get('claude').textContent, /^Ready/);
+    same(plugin.backend, current);
+    plugin.data.codex.enabled = false;
+    plugin.configureCodex();
+    assert.equal(await plugin.checkConnection(), true);
+    assert.equal(plugin.data.codex.enabled, false);
+    same(plugin.backend, null);
+  } finally {
+    plugin.onunload();
+    await tick();
   }
 });

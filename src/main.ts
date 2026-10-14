@@ -1,9 +1,18 @@
+import { assistantIcon } from './logos';
 import { defaultBuildDirectory, syncLocalBuild } from './sync';
 import {
-  CodexBackend,
+  createAssistant,
+  assistantInvocation,
+  providers,
+  providerSchema,
+  cachedChatgptModels,
+  claudeModels,
+  type AssistantBackend,
+  type ProviderId,
+} from './ai';
+import {
   SessionUnavailable,
   OutcomeUnknown,
-  invocation,
   questionContext,
   type ConversationMessage,
 } from './codex';
@@ -50,7 +59,6 @@ import {
 } from './model';
 import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
-
 import logoUrl from '../assets/annotate-logo.png';
 
 function pluginLogo(doc: Document): HTMLImageElement {
@@ -90,18 +98,6 @@ const ICONS = {
   reply: 'reply',
   copy: 'copy',
 } as const;
-const OPENAI_MARK =
-  'M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.066 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z';
-function openaiIcon(doc: Document): SVGSVGElement {
-  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.classList.add('annotate-openai-icon');
-  path.setAttribute('d', OPENAI_MARK);
-  svg.append(path);
-  return svg;
-}
 function icon(doc: Document, name: keyof typeof ICONS): HTMLElement {
   const element = doc.createElement('span');
   element.className = 'annotate-icon';
@@ -162,7 +158,7 @@ function threadText(thread: Thread): string {
     quote(thread.anchor.quote),
     ...thread.comments.map((comment) =>
       [
-        `${comment.author}:`,
+        `${comment.role === 'assistant' ? providers[comment.provider ?? 'chatgpt'].name : comment.author}:`,
         ...(comment.quote ? [quote(comment.quote.text)] : []),
         comment.body,
       ].join('\n\n'),
@@ -262,8 +258,18 @@ export default class Annotate extends Plugin {
   private disposed = false;
   syncing = false;
   private storageHealthy = true;
-  backend: CodexBackend | null = null;
-  connectionLabel: HTMLElement | null = null;
+  backend: AssistantBackend | null = null;
+  connectionLabels = new Map<ProviderId, HTMLElement>();
+  chatgptModels: Record<string, string> = {};
+  private connectionProbes = new Map<ProviderId, AssistantBackend>();
+  private connectionChecks = new Map<
+    ProviderId,
+    {
+      state: 'checking' | 'ready' | 'error';
+      model: string | null;
+      detail: string;
+    }
+  >();
   private openThreadId: string | null = null;
   private quoteReply: ((quote: ReplyQuote) => void) | null = null;
   private markdown = new CommentMarkdown();
@@ -275,10 +281,16 @@ export default class Annotate extends Plugin {
   private pulseId: string | null = null;
   private pulseTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshPending = false;
-  createBackend(): CodexBackend {
-    return new CodexBackend(this.data.codex.executable, () => this.paintCodex());
+  createBackend(provider: ProviderId = this.data.assistant.provider): AssistantBackend {
+    const update = () => this.paintCodex();
+    if (provider === 'chatgpt') return createAssistant({ provider, ...this.data.codex }, update);
+    return createAssistant({ provider, ...this.data.assistant.claude }, update);
+  }
+  private assistantName(): string {
+    return providers[this.data.assistant.provider].name;
   }
   configureCodex(): void {
+    this.connectionChecks.delete(this.data.assistant.provider);
     this.backend?.disable();
     this.backend = null;
     if (this.data.codex.enabled) {
@@ -286,6 +298,50 @@ export default class Annotate extends Plugin {
       void this.backend.enable().catch(() => this.paintCodex());
     }
     this.paintCodex();
+  }
+  paintConnections(): void {
+    for (const [provider, label] of this.connectionLabels) {
+      const checked = this.connectionChecks.get(provider);
+      const active = provider === this.data.assistant.provider ? this.backend : null;
+      const connection = checked && checked.state !== 'ready' ? checked : (active ?? checked);
+      const state = connection?.state ?? 'disabled';
+      const tone =
+        state === 'ready' || state === 'error' ? state : state === 'disabled' ? 'idle' : 'checking';
+      label.dataset.state = tone;
+      const text = {
+        ready: 'Ready',
+        error: 'Not connected',
+        idle: 'Not checked',
+        checking: 'Checking…',
+      }[tone];
+      label.textContent = [text, connection?.detail].filter(Boolean).join(' · ');
+    }
+  }
+  async checkConnection(provider: ProviderId = this.data.assistant.provider): Promise<boolean> {
+    if (this.connectionProbes.has(provider)) return false;
+    const name = providers[provider].name;
+    const probe = this.createBackend(provider);
+    this.connectionProbes.set(provider, probe);
+    this.connectionChecks.set(provider, { state: 'checking', model: null, detail: '' });
+    this.paintConnections();
+    try {
+      await probe.enable();
+      if (probe.state !== 'ready') throw new Error('Connection did not become ready.');
+      if (provider === 'chatgpt' && probe.models && Object.keys(probe.models).length)
+        this.chatgptModels = probe.models;
+      this.connectionChecks.set(provider, { state: 'ready', model: probe.model, detail: '' });
+      new Notice(`${name} connection is ready.`);
+      return true;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.connectionChecks.set(provider, { state: 'error', model: null, detail });
+      new Notice(`${name} connection failed: ${detail}`, 10000);
+      return false;
+    } finally {
+      probe.disable();
+      this.connectionProbes.delete(provider);
+      this.paintConnections();
+    }
   }
   private messageElement(list: Element, thread: Thread, comment: Thread['comments'][number]): void {
     const owner = list.ownerDocument,
@@ -300,9 +356,9 @@ export default class Annotate extends Plugin {
     item.className = ai ? 'annotate-message annotate-message-ai' : 'annotate-message';
     avatar.className = ai ? 'annotate-avatar annotate-avatar-ai' : 'annotate-avatar';
     avatar.setAttribute('aria-hidden', 'true');
-    if (ai) avatar.append(openaiIcon(owner));
+    if (ai) avatar.append(assistantIcon(owner, comment.provider ?? 'chatgpt'));
     else avatar.textContent = initial(comment.author);
-    author.textContent = ai ? 'ChatGPT' : comment.author;
+    author.textContent = ai ? providers[comment.provider ?? 'chatgpt'].name : comment.author;
     time.dateTime = new Date(comment.createdAt).toISOString();
     time.textContent = relativeTime(comment.createdAt);
     time.title = new Date(comment.createdAt).toLocaleString();
@@ -508,8 +564,8 @@ export default class Annotate extends Plugin {
     );
   }
   private paintCodex(): void {
-    for (const status of this.connectionLabel ? [this.connectionLabel] : [])
-      status.textContent = `Codex: ${this.backend?.state ?? 'disabled'}${this.backend?.model ? ' · ' + this.backend.model : ''}${this.backend?.detail ? ' — ' + this.backend.detail : ''}`;
+    const name = this.assistantName();
+    this.paintConnections();
     const thread = this.data.threads.find((t) => t.id === this.openThreadId),
       panel = this.popup;
     if (!panel || !thread) return;
@@ -520,15 +576,15 @@ export default class Annotate extends Plugin {
       const error = thread.codex?.error ?? (state !== 'ready' ? this.backend?.detail : undefined);
       const text =
         turn === 'pending'
-          ? 'ChatGPT is reading the note…'
+          ? `${name} is reading the note…`
           : turn === 'streaming'
-            ? 'ChatGPT is writing…'
+            ? `${name} is writing…`
             : ['failed', 'unknown', 'unavailable'].includes(turn)
-              ? (error ?? 'ChatGPT could not finish this response.')
+              ? (error ?? `${name} could not finish this response.`)
               : state === 'disabled'
-                ? 'ChatGPT is off. Enable Codex in settings to ask questions.'
+                ? `${name} is off. Enable the assistant in settings to ask questions.`
                 : state !== 'ready'
-                  ? `ChatGPT is ${state}${error ? ' — ' + error : '…'}`
+                  ? `${name} is ${state}${error ? ' — ' + error : '…'}`
                   : '';
       status.textContent = text;
       status.hidden = !text;
@@ -537,7 +593,7 @@ export default class Annotate extends Plugin {
         'annotate-status-error',
         ['failed', 'unknown', 'unavailable'].includes(turn) || state === 'error',
       );
-      status.title = `Codex: ${state} · ${turn}${this.backend?.model ? ' · ' + this.backend.model : ''}`;
+      status.title = `${name}: ${state} · ${turn}${this.backend?.model ? ' · ' + this.backend.model : ''}`;
     }
     const list = panel.querySelector<HTMLElement>('.annotate-messages');
     if (list) {
@@ -588,7 +644,10 @@ export default class Annotate extends Plugin {
     this.cancellations.delete(thread.id);
 
     let response: Thread['comments'][number] | undefined;
-    thread.codex = { ...thread.codex, status: 'pending', error: undefined };
+    const provider = this.data.assistant.provider;
+    if ((thread.codex?.provider ?? 'chatgpt') !== provider)
+      thread.codex = { status: 'idle', provider };
+    thread.codex = { ...thread.codex, provider, status: 'pending', error: undefined };
     this.paintCodex();
     try {
       const sessionId = await backend.session(thread.codex.sessionId);
@@ -608,7 +667,8 @@ export default class Annotate extends Plugin {
       thread.codex.contextVersion = 2;
       const message: Thread['comments'][number] = {
         id: crypto.randomUUID(),
-        author: 'Codex',
+        author: providers[provider].name,
+        provider,
         body: '',
         role: 'assistant',
         status: 'pending',
@@ -635,7 +695,7 @@ export default class Annotate extends Plugin {
           content,
           thread.anchor.quote,
           question,
-          isNewConversation ? history : [],
+          isNewConversation || backend.retainsHistory === false ? history : [],
           quote,
         ),
         (delta) => {
@@ -664,7 +724,7 @@ export default class Annotate extends Plugin {
             : error instanceof OutcomeUnknown
               ? 'unknown'
               : 'failed';
-        thread.codex.error = error instanceof Error ? error.message : 'Codex request failed.';
+        thread.codex.error = error instanceof Error ? error.message : 'Assistant request failed.';
       }
       if (response) response.status = error instanceof OutcomeUnknown ? 'unknown' : 'failed';
       this.changed();
@@ -675,15 +735,30 @@ export default class Annotate extends Plugin {
     }
   }
   private async record(thread: Thread, body: string, quote?: ReplyQuote): Promise<boolean> {
-    const question = invocation(body);
+    let invocation: ReturnType<typeof assistantInvocation>;
+    try {
+      invocation = assistantInvocation(body);
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : 'Invalid assistant mention.');
+      return false;
+    }
+    const question = invocation?.question ?? null;
     if (question !== null) {
       if (!question) {
-        new Notice('Add a question after @chatgpt.');
+        new Notice(`Add a question after @${this.data.assistant.provider}.`);
         return false;
       }
-      if (!this.backend) {
-        new Notice('Enable Codex in Annotate settings first.');
+      if (!this.data.codex.enabled) {
+        new Notice('Enable the assistant in Annotate settings first.');
         return false;
+      }
+      if (invocation && invocation.provider !== this.data.assistant.provider) {
+        if (this.data.threads.some((t) => this.threadBusy(t))) {
+          new Notice('Finish or stop the current response before switching assistants.');
+          return false;
+        }
+        this.data.assistant.provider = invocation.provider;
+        this.configureCodex();
       }
       if (
         this.submissions.has(thread.id) ||
@@ -697,7 +772,8 @@ export default class Annotate extends Plugin {
       .filter((c) => c.body.length > 0)
       .map((c) => ({
         role: c.role === 'assistant' ? 'assistant' : 'user',
-        content: c.role === 'assistant' ? c.body : (invocation(c.body) ?? c.body),
+        content:
+          c.role === 'assistant' ? c.body : (assistantInvocation(c.body)?.question ?? c.body),
         quote: c.quote,
       }));
     thread.comments.push({
@@ -983,6 +1059,9 @@ export default class Annotate extends Plugin {
 
   onunload(): void {
     this.disposed = true;
+    for (const probe of this.connectionProbes.values()) probe.disable();
+    this.connectionProbes.clear();
+    this.connectionLabels.clear();
     this.backend?.disable();
     this.backend = null;
     this.closePopup();
@@ -1368,7 +1447,7 @@ export default class Annotate extends Plugin {
     const sync = () => {
       button.disabled = !input.value.trim();
       form.classList.toggle('annotate-has-text', !button.disabled);
-      form.classList.toggle('annotate-asking-ai', invocation(input.value) !== null);
+      form.classList.toggle('annotate-asking-ai', /(^|\s)@(chatgpt|claude)\b/i.test(input.value));
       // Measure at auto height, then restore the old height first so the change can transition.
       const previous = input.style.height;
       input.style.height = 'auto';
@@ -1429,7 +1508,7 @@ export default class Annotate extends Plugin {
     );
     hint.append(hintInner);
     inputContainer.append(preview, input, hint);
-    mentionMenu(input, inputContainer);
+    mentionMenu(input, inputContainer, this.data.assistant.provider);
     form.append(inputLabel, avatar, inputContainer, button);
     panel.append(form);
     let pending = false;
@@ -1492,7 +1571,9 @@ export default class Annotate extends Plugin {
     this.refreshViews();
     this.composer(
       panel,
-      this.data.codex.enabled ? 'Add a comment, or @chatgpt to ask…' : 'Add a comment…',
+      this.data.codex.enabled
+        ? `Add a comment, or @${this.data.assistant.provider} to ask…`
+        : 'Add a comment…',
       async (body) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (file?.path !== target.path) {
@@ -1629,7 +1710,7 @@ export default class Annotate extends Plugin {
     if (!thread.resolved)
       this.composer(
         panel,
-        this.data.codex.enabled ? 'Reply, or @chatgpt to ask…' : 'Reply…',
+        this.data.codex.enabled ? `Reply, or @${this.data.assistant.provider} to ask…` : 'Reply…',
         async (body, quote) => {
           if (!this.data.threads.includes(thread)) return false;
           if (!(await this.record(thread, body, quote))) return false;
@@ -1738,17 +1819,33 @@ class CommentsSettings extends PluginSettingTab {
     super(plugin.app, plugin);
   }
   display(): void {
-    this.containerEl.empty();
-    const heading = this.containerEl.createEl('h2', {
+    const { containerEl } = this;
+    containerEl.empty();
+    containerEl.addClass('annotate-settings');
+    this.plugin.connectionLabels.clear();
+    const heading = containerEl.createEl('h2', {
       cls: 'annotate-brand-heading',
       text: 'Annotate',
     });
-    heading.prepend(pluginLogo(this.containerEl.ownerDocument));
-    new Setting(this.containerEl)
-      .setName('Enable Codex')
-      .setDesc(
-        'Uses your local Codex CLI ChatGPT login. Answers use the note first and can search the web when helpful. Prefix a question with @chatgpt.',
-      )
+    heading.prepend(pluginLogo(containerEl.ownerDocument));
+    new Setting(containerEl)
+      .setName('Your name')
+      .setDesc('Shown on comments you write.')
+      .addText((text) =>
+        text
+          .setPlaceholder('Name')
+          .setValue(this.plugin.data.author)
+          .onChange((value) => {
+            this.plugin.data.author = value;
+            this.plugin.changed();
+          }),
+      );
+
+    const provider = this.plugin.data.assistant.provider;
+    new Setting(containerEl).setName('AI assistant').setHeading();
+    new Setting(containerEl)
+      .setName('Ask AI in comments')
+      .setDesc('Mention @chatgpt or @claude in a comment. Uses your existing subscription login.')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
           this.plugin.data.codex.enabled = value;
@@ -1756,43 +1853,100 @@ class CommentsSettings extends PluginSettingTab {
           this.plugin.configureCodex();
         }),
       );
-    new Setting(this.containerEl)
-      .setName('Codex executable')
-      .setDesc('Absolute path from command -v codex. Run codex login in Terminal first.')
-      .addText((text) =>
-        text.setValue(this.plugin.data.codex.executable).onChange((value) => {
-          this.plugin.data.codex.executable = value.trim();
+    new Setting(containerEl)
+      .setName('Default assistant')
+      .setDesc(`Listed first when you type @. Currently @${provider}.`)
+      .addDropdown((dropdown) => {
+        for (const [id, entry] of Object.entries(providers)) dropdown.addOption(id, entry.name);
+        dropdown.setValue(provider).onChange((value) => {
+          this.plugin.data.assistant.provider = providerSchema.parse(value);
           this.plugin.changed();
+          this.plugin.configureCodex();
+          this.display();
+        });
+      });
+    for (const id of providerSchema.options) {
+      const name = providers[id].name;
+      const login = id === 'chatgpt' ? 'codex login' : 'claude auth login';
+      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
+      const models = () => {
+        const known =
+          id === 'claude'
+            ? claudeModels
+            : Object.keys(this.plugin.chatgptModels).length
+              ? this.plugin.chatgptModels
+              : cachedChatgptModels();
+        const labels: Record<string, string> = { ...known };
+        if (config.model && !labels[config.model]) labels[config.model] = config.model;
+        return labels;
+      };
+      let fillModels = () => {};
+      const row = new Setting(containerEl).setName(name);
+      row.addDropdown((dropdown) => {
+        fillModels = () => {
+          dropdown.selectEl.empty();
+          const labels = models();
+          const options = Object.keys(labels);
+          for (const model of options) dropdown.addOption(model, labels[model] ?? model);
+          dropdown.selectEl.toggle(options.length > 0);
+          dropdown.setValue(config.model || options[0] || '');
+        };
+        fillModels();
+        dropdown.selectEl.addClass('annotate-settings-model');
+        dropdown.selectEl.setAttribute('aria-label', `${name} model`);
+        dropdown.onChange((value) => {
+          config.model = value;
+          this.plugin.changed();
+          if (this.plugin.data.codex.enabled && id === this.plugin.data.assistant.provider)
+            this.plugin.configureCodex();
+        });
+      });
+      row.addButton((button) =>
+        button.setButtonText('Check').onClick(async () => {
+          button.setDisabled(true).setButtonText('Checking…');
+          const connected = await this.plugin.checkConnection(id);
+          if (
+            connected &&
+            this.plugin.data.codex.enabled &&
+            id === this.plugin.data.assistant.provider &&
+            this.plugin.backend?.state !== 'ready'
+          )
+            this.plugin.configureCodex();
+          if (connected) fillModels();
+          button.setDisabled(false).setButtonText(connected ? 'Connected' : 'Retry');
         }),
       );
-    new Setting(this.containerEl)
-      .setName('Annotation context')
-      .setDesc(
-        'Always sends the complete current Markdown note, selected passage, question, and this annotation’s conversation. Runs in an isolated Codex environment without global skills, MCP tools, or AGENTS.md.',
-      );
-    const connection = this.containerEl.createEl('p', {
-      cls: 'annotate-settings-codex-status',
-      text: `Codex: ${this.plugin.backend?.state ?? 'disabled'}${this.plugin.backend?.model ? ' · ' + this.plugin.backend.model : ''}${this.plugin.backend?.detail ? ' — ' + this.plugin.backend.detail : ''}`,
-    });
-    connection.setAttribute('role', 'status');
-    this.plugin.connectionLabel = connection;
-    new Setting(this.containerEl)
-      .setName('Reconnect Codex')
-      .addButton((button) =>
-        button.setButtonText('Reconnect').onClick(() => this.plugin.configureCodex()),
-      );
-    new Setting(this.containerEl)
-      .setName('Comment author')
-      .setDesc('Display name saved with new comments.')
-      .addText((text) =>
-        text.setValue(this.plugin.data.author).onChange((value) => {
-          this.plugin.data.author = value;
-          this.plugin.changed();
-        }),
-      );
+      row.settingEl.addClass('annotate-settings-provider');
+      const connection = row.descEl.createDiv({ cls: 'annotate-settings-codex-status' });
+      connection.dataset.provider = id;
+      connection.setAttribute('role', 'status');
+      this.plugin.connectionLabels.set(id, connection);
+      row.descEl.createDiv({
+        cls: 'annotate-settings-hint',
+        text: `Not connected? Run ${login} in Terminal, then Check.`,
+      });
+    }
+    this.plugin.paintConnections();
+
+    const advanced = containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
+    advanced.createEl('summary', { text: 'Advanced' });
+    for (const id of providerSchema.options) {
+      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
+      const command = providers[id].executable;
+      new Setting(advanced)
+        .setName(`${providers[id].name} command`)
+        .setDesc(`Found automatically. Set a full path only if Check can't find ${command}.`)
+        .addText((text) =>
+          text
+            .setPlaceholder(command)
+            .setValue(config.executable === command ? '' : config.executable)
+            .onChange((value) => {
+              config.executable = value.trim() || command;
+              this.plugin.changed();
+            }),
+        );
+    }
     if (Platform.isDesktopApp) {
-      const advanced = this.containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
-      advanced.createEl('summary', { text: 'Advanced' });
       new Setting(advanced)
         .setName('Local build folder')
         .setDesc('For plugin development: folder with the latest Annotate build.')

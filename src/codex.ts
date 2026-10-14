@@ -72,6 +72,10 @@ export class CodexBackend {
   detail = '';
   launches = 0;
   model: string | null = null;
+  /** Models the signed-in account can use, from the last successful connection. */
+  models: Record<string, string> = {};
+  /** Preferred model; falls back to the account default when unavailable. */
+  preferredModel = '';
   private child: ChildProcessWithoutNullStreams | null = null;
   private startup: Promise<void> | null = null;
   private sequence = 0;
@@ -202,9 +206,23 @@ export class CodexBackend {
           'Run codex login in Terminal and sign in with ChatGPT, then reconnect. API-key authentication is not supported here.',
         );
       const catalog = z
-        .object({ data: z.array(z.object({ model: z.string(), isDefault: z.boolean() })) })
+        .object({
+          data: z.array(
+            z.object({
+              model: z.string(),
+              displayName: z.string().optional(),
+              isDefault: z.boolean(),
+            }),
+          ),
+        })
         .parse(await this.rpc('model/list', { limit: 100 }));
-      this.model = (catalog.data.find((m) => m.isDefault) ?? catalog.data[0])?.model ?? null;
+      this.models = Object.fromEntries(
+        catalog.data.map((m) => [m.model, m.displayName || m.model]),
+      );
+      this.model =
+        (this.preferredModel in this.models ? this.preferredModel : null) ??
+        (catalog.data.find((m) => m.isDefault) ?? catalog.data[0])?.model ??
+        null;
       if (!this.model) throw new Error('Codex returned no available account models.');
       if (!this.enabled || this.child !== child) throw new Error('Connection was closed.');
       this.attempts = 0;
