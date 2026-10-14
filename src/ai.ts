@@ -129,11 +129,19 @@ export function createAssistant(config: AssistantConfig, update: () => void): As
   }
 }
 
+export function commentBody(body: string): string | null {
+  const prefix = /^\s*@comment(?:\s+|$)/i.exec(body);
+  return prefix ? body.slice(prefix[0].length).trim() : null;
+}
+
 export function assistantInvocation(
   body: string,
+  defaultProvider?: ProviderId,
 ): { provider: ProviderId; question: string } | null {
+  if (commentBody(body) !== null) return null;
   const matches = [...body.matchAll(/(^|\s)@(chatgpt|claude)\b/gi)];
-  if (!matches.length) return null;
+  if (!matches.length)
+    return defaultProvider ? { provider: defaultProvider, question: body.trim() } : null;
   const provider = providerSchema.parse(matches[0]?.[2]?.toLowerCase());
   if (matches.some((match) => match[2]?.toLowerCase() !== provider))
     throw new Error('Ask one assistant at a time.');

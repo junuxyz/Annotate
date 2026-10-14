@@ -13,7 +13,7 @@ await build({
   format: 'cjs',
   outdir: root,
 });
-const { assistantInvocation, resolveExecutable } = createRequire(import.meta.url)(
+const { assistantInvocation, commentBody, resolveExecutable } = createRequire(import.meta.url)(
   join(root, 'ai.js'),
 );
 const { dataSchema } = createRequire(import.meta.url)(join(root, 'model.js'));
@@ -52,6 +52,17 @@ function request(backend, id, question, cancel = false) {
     }
   });
 }
+test('plain questions use the default assistant and @comment opts out', () => {
+  for (const provider of ['chatgpt', 'claude']) {
+    assert.deepEqual(assistantInvocation(' explain ', provider), { provider, question: 'explain' });
+    assert.equal(assistantInvocation('@comment literal @claude @chatgpt', provider), null);
+  }
+  assert.equal(commentBody('  @COMMENT hello @claude  '), 'hello @claude');
+  assert.equal(commentBody('@comment'), '');
+  assert.equal(commentBody('@commentary hello'), null);
+  assert.equal(commentBody('hello @comment'), null);
+  assert.equal(assistantInvocation('ordinary comment'), null);
+});
 test('mentions route exactly one assistant and legacy settings default to ChatGPT', () => {
   for (const provider of ['chatgpt', 'claude'])
     assert.deepEqual(assistantInvocation(`Please @${provider.toUpperCase()} explain`), {

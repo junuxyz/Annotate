@@ -1,7 +1,10 @@
 import { assistantIcon } from './logos';
 import { providers, type ProviderId } from './ai';
 import type { CodexSkill } from './codex';
-type Choice = { kind: 'assistant'; provider: ProviderId } | { kind: 'skill'; skill: CodexSkill };
+type Choice =
+  | { kind: 'comment' }
+  | { kind: 'assistant'; provider: ProviderId }
+  | { kind: 'skill'; skill: CodexSkill };
 export function mentionMenu(
   input: HTMLTextAreaElement,
   container: HTMLElement,
@@ -15,7 +18,7 @@ export function mentionMenu(
   menu.className = 'annotate-mention-menu';
   menu.id = `annotate-mentions-${crypto.randomUUID()}`;
   menu.setAttribute('role', 'listbox');
-  menu.setAttribute('aria-label', 'AI assistants');
+  menu.setAttribute('aria-label', 'Message mentions');
   menu.hidden = true;
   container.append(menu);
   input.setAttribute('role', 'combobox');
@@ -38,7 +41,12 @@ export function mentionMenu(
     const current = range;
     if (!current || !choice) return;
     const suffix = input.value.slice(current.to);
-    const token = choice.kind === 'assistant' ? `@${choice.provider}` : `/${choice.skill.name}`;
+    const token =
+      choice.kind === 'comment'
+        ? '@comment'
+        : choice.kind === 'assistant'
+          ? `@${choice.provider}`
+          : `/${choice.skill.name}`;
     const completion = token + (/^\s/.test(suffix) ? '' : ' ');
     input.setRangeText(completion, current.from, current.to, 'end');
     const caret = current.from + completion.length + (/^\s/.test(suffix) ? 1 : 0);
@@ -65,7 +73,7 @@ export function mentionMenu(
     range = { from, to, matches };
     selected = -1;
     menu.replaceChildren();
-    menu.setAttribute('aria-label', skills ? 'Codex skills' : 'AI assistants');
+    menu.setAttribute('aria-label', skills ? 'Codex skills' : 'Message mentions');
     matches.forEach((choice, i) => {
       const option = doc.createElement('button');
       option.type = 'button';
@@ -79,6 +87,9 @@ export function mentionMenu(
         name.textContent = providers[choice.provider].name;
         detail.textContent = `@${choice.provider}`;
         option.append(assistantIcon(doc, choice.provider));
+      } else if (choice.kind === 'comment') {
+        name.textContent = 'Comment';
+        detail.textContent = '@comment';
       } else {
         name.textContent = `/${choice.skill.name}`;
         detail.textContent = choice.skill.description;
@@ -107,9 +118,14 @@ export function mentionMenu(
       show(
         caret - query.length - 1,
         caret,
-        providersInOrder
-          .filter((p) => p !== query && p.startsWith(query))
-          .map((provider) => ({ kind: 'assistant', provider })),
+        [
+          ...providersInOrder
+            .filter((p) => p !== query && p.startsWith(query))
+            .map((provider): Choice => ({ kind: 'assistant', provider })),
+          ...('comment' !== query && 'comment'.startsWith(query)
+            ? [{ kind: 'comment' } as const]
+            : []),
+        ],
         false,
       );
       return;

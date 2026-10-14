@@ -175,6 +175,71 @@ export async function checkProviders({
         );
       },
     );
+    for (const provider of ['chatgpt', 'claude']) {
+      for (const mode of modes) {
+        await step(
+          `providers [${provider}/${mode}]: plain questions and local @comment`,
+          async () => {
+            await resetThreads();
+            await ev(
+              `${P}p.data.assistant.provider=${JSON.stringify(provider)};p.data.codex.enabled=true;p.configureCodex()`,
+            );
+            await openComposer(mode);
+            assert(
+              await ev(
+                `return document.querySelector('.annotate-composer textarea').placeholder.includes('@${provider}')`,
+              ),
+              'default assistant hint',
+            );
+            await type('explain this passage');
+            await press('Enter');
+            await until(
+              `${P}return p.data.threads.at(-1)?.comments.length===2&&p.data.threads.at(-1)?.codex?.status==='completed'`,
+              'implicit assistant answered',
+            );
+            assert(
+              await ev(
+                `${P}return p.data.threads.at(-1).comments.at(-1).provider===${JSON.stringify(provider)}`,
+              ),
+              'default provider answered',
+            );
+            await type('@co');
+            await press('Enter');
+            assert(
+              await ev(
+                `return document.querySelector('.annotate-composer textarea').value==='@comment '`,
+              ),
+              'comment completion',
+            );
+            await type('literal @claude @chatgpt');
+            await press('Enter');
+            await until(
+              `${P}return p.data.threads.at(-1)?.comments.length===3`,
+              'local comment saved',
+            );
+            assert(
+              await ev(
+                `${P}const c=p.data.threads.at(-1).comments.at(-1);return c.body==='literal @claude @chatgpt'&&c.role==='user'&&!c.provider`,
+              ),
+              'directive stripped and local intent saved',
+            );
+            await type('follow up');
+            await press('Enter');
+            await until(
+              `${P}return p.data.threads.at(-1)?.comments.length===5&&p.data.threads.at(-1)?.codex?.status==='completed'`,
+              'implicit reply answered',
+            );
+            if (provider === 'claude')
+              assert(
+                await ev(
+                  `${P}return p.data.threads.at(-1).comments.at(-1).body.includes('literal @claude @chatgpt')`,
+                ),
+                'literal local mentions preserved in history',
+              );
+          },
+        );
+      }
+    }
     for (const provider of ['claude']) {
       await step(`providers [${provider}]: subscription adapter connects`, async () => {
         await ev(
@@ -242,7 +307,7 @@ export async function checkProviders({
         `providers [${provider}]: cancellation, unknown outcome and explicit recovery`,
         async () => {
           await resetThreads();
-          await createComment('live', 'synthetic recovery context');
+          await createComment('live', '@comment synthetic recovery context');
           await sendQuestion(provider, 'cancel');
           await until(
             `${P}return p.data.threads.at(-1)?.codex?.status==='streaming'`,
@@ -328,7 +393,7 @@ export async function checkProviders({
             await ev(
               `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
             );
-            await createComment(mode, 'Skill fixture');
+            await createComment(mode, '@comment Skill fixture');
             await ev(`document.querySelector('.annotate-composer textarea').focus()`);
             await type('/synthetic');
             await ev(

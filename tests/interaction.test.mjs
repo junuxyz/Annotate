@@ -118,7 +118,7 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
     let menu = document.querySelector('.annotate-mention-menu');
     type(input, '@');
     assert.equal(menu.hidden, false);
-    assert.equal(menu.querySelectorAll('[role="option"]').length, 2);
+    assert.equal(menu.querySelectorAll('[role="option"]').length, 3);
     assert.equal(menu.querySelector('strong').textContent, 'ChatGPT');
     const claudeLogo = menu.querySelector('.annotate-claude-icon path');
     const chatgptLogo = menu.querySelector('.annotate-openai-icon path');
@@ -139,6 +139,11 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
       0,
       'completion does not save a comment or start a request',
     );
+
+    type(input, '@co');
+    key(input, 'Enter');
+    assert.equal(input.value, '@comment ');
+    assert.equal(plugin.data.threads.length, 0);
 
     type(input, 'Please @ch explain this', 'Please @ch'.length);
     click(menu.querySelector('button'));
@@ -1102,6 +1107,22 @@ test('Claude mentions route without changing settings first and connection probe
     await tick();
     assert.equal(asked.at(-1).provider, 'chatgpt');
     assert.equal(asked.at(-1).text.conversationHistory.length, 2);
+    await send('@comment literal @claude @chatgpt');
+    await tick();
+    assert.equal(asked.length, 2);
+    assert.equal(plugin.data.threads[0].comments.at(-1).body, 'literal @claude @chatgpt');
+    assert.equal(plugin.saved.threads[0].comments.at(-1).role, 'user');
+    await send('plain follow up');
+    await tick();
+    assert.equal(asked.at(-1).provider, 'chatgpt');
+    assert.equal(asked.at(-1).text.question, 'plain follow up');
+    assert.equal(asked.at(-1).text.conversationHistory.at(-1).content, 'literal @claude @chatgpt');
+    plugin.data.assistant.provider = 'claude';
+    plugin.configureCodex();
+    await send('plain Claude question');
+    await tick();
+    assert.equal(asked.at(-1).provider, 'claude');
+    assert.equal(asked.at(-1).text.question, 'plain Claude question');
     const current = plugin.backend;
     const factory = plugin.createBackend;
     plugin.connectionLabels.set('claude', document.createElement('p'));
@@ -1119,7 +1140,7 @@ test('Claude mentions route without changing settings first and connection probe
       /Not connected.*Subscription login required/,
     );
     same(plugin.backend, current);
-    assert.equal(plugin.data.assistant.provider, 'chatgpt');
+    assert.equal(plugin.data.assistant.provider, 'claude');
     plugin.createBackend = factory;
     assert.equal(await plugin.checkConnection('claude'), true);
     assert.match(plugin.connectionLabels.get('claude').textContent, /^Ready/);
@@ -1220,9 +1241,9 @@ test('slash skills filter, complete without sending, and route the selected skil
       'stale discovery does not reopen menu',
     );
     selected = undefined;
-    await send('/synthetic-review ordinary comment');
+    await send('@comment /synthetic-review ordinary comment');
     await tick();
-    assert.equal(selected, undefined, 'bare slash never invokes the assistant');
+    assert.equal(selected, undefined, 'local slash text never invokes a skill');
     assert.equal(plugin.data.threads[0].comments.at(-1).body, '/synthetic-review ordinary comment');
   } finally {
     plugin.onunload();

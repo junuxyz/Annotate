@@ -2,6 +2,7 @@ import { assistantIcon } from './logos';
 import {
   createAssistant,
   assistantInvocation,
+  commentBody,
   providers,
   providerSchema,
   cachedChatgptModels,
@@ -765,9 +766,17 @@ export default class Annotate extends Plugin {
     }
   }
   private async record(thread: Thread, body: string, quote?: ReplyQuote): Promise<boolean> {
+    const savedBody = commentBody(body) ?? body;
+    if (!savedBody.trim()) {
+      new Notice('Add some comment text after @comment.');
+      return false;
+    }
     let invocation: ReturnType<typeof assistantInvocation>;
     try {
-      invocation = assistantInvocation(body);
+      invocation = assistantInvocation(
+        body,
+        this.data.codex.enabled ? this.data.assistant.provider : undefined,
+      );
     } catch (error) {
       new Notice(error instanceof Error ? error.message : 'Invalid assistant mention.');
       return false;
@@ -813,13 +822,17 @@ export default class Annotate extends Plugin {
       .map((c) => ({
         role: c.role === 'assistant' ? 'assistant' : 'user',
         content:
-          c.role === 'assistant' ? c.body : (assistantInvocation(c.body)?.question ?? c.body),
+          c.role === 'assistant' || (c.role === 'user' && !c.provider)
+            ? c.body
+            : (assistantInvocation(c.body)?.question ?? c.body),
         quote: c.quote,
       }));
     thread.comments.push({
       id: crypto.randomUUID(),
       author: this.data.author || 'You',
-      body,
+      body: savedBody,
+      role: 'user',
+      ...(invocation ? { provider: invocation.provider } : {}),
       ...(quote ? { quote } : {}),
       createdAt: Date.now(),
     });
@@ -1466,7 +1479,21 @@ export default class Annotate extends Plugin {
     const sync = () => {
       button.disabled = !input.value.trim();
       form.classList.toggle('annotate-has-text', !button.disabled);
-      form.classList.toggle('annotate-asking-ai', /(^|\s)@(chatgpt|claude)\b/i.test(input.value));
+      let asking: ReturnType<typeof assistantInvocation> = null;
+      try {
+        asking = assistantInvocation(
+          input.value,
+          this.data.codex.enabled ? this.data.assistant.provider : undefined,
+        );
+      } catch {
+        // Submission reports conflicting assistant mentions.
+      }
+      form.classList.toggle('annotate-asking-ai', asking !== null);
+      button.setAttribute(
+        'aria-label',
+        asking ? `Ask ${providers[asking.provider].name}` : 'Send comment',
+      );
+      button.title = `${asking ? 'Ask assistant' : 'Save comment'} (Enter); new line (Shift+Enter)`;
       // Measure at auto height, then restore the old height first so the change can transition.
       const previous = input.style.height;
       input.style.height = 'auto';
@@ -1564,9 +1591,9 @@ export default class Annotate extends Plugin {
     const saved = draftKey ? this.drafts.get(draftKey) : undefined;
     if (saved) {
       input.value = saved;
-      sync();
       input.setSelectionRange(saved.length, saved.length);
     }
+    sync();
     input.focus({ preventScroll: true });
   }
   compose(target: Target, rect?: Pick<DOMRect, 'left' | 'bottom'>, doc?: Document): void {
@@ -1591,7 +1618,7 @@ export default class Annotate extends Plugin {
     this.composer(
       panel,
       this.data.codex.enabled
-        ? `Add a comment, or @${this.data.assistant.provider} to ask…`
+        ? `Ask @${this.data.assistant.provider}, or @comment to comment…`
         : 'Add a comment…',
       async (body) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
@@ -1737,7 +1764,9 @@ export default class Annotate extends Plugin {
     if (!thread.resolved)
       this.composer(
         panel,
-        this.data.codex.enabled ? `Reply, or @${this.data.assistant.provider} to ask…` : 'Reply…',
+        this.data.codex.enabled
+          ? `Ask @${this.data.assistant.provider}, or @comment to comment…`
+          : 'Reply…',
         async (body, quote) => {
           if (!this.data.threads.includes(thread)) return false;
           if (!(await this.record(thread, body, quote))) return false;
@@ -1889,7 +1918,7 @@ class CommentsSettings extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Ask AI in comments')
       .setDesc(
-        'Mention @chatgpt or @claude in a comment. ChatGPT can use your Codex tools, files, commands and live web search.',
+        'Messages ask the default assistant. Start with @comment to save a comment without an AI reply. Use @chatgpt or @claude to choose another assistant.',
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
@@ -1900,7 +1929,7 @@ class CommentsSettings extends PluginSettingTab {
       );
     new Setting(containerEl)
       .setName('Default assistant')
-      .setDesc(`Listed first when you type @. Currently @${provider}.`)
+      .setDesc(`Receives messages by default. Currently @${provider}.`)
       .addDropdown((dropdown) => {
         for (const [id, entry] of Object.entries(providers)) dropdown.addOption(id, entry.name);
         dropdown.setValue(provider).onChange((value) => {
