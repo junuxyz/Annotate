@@ -13,7 +13,9 @@ await build({
   format: 'cjs',
   outdir: root,
 });
-const { assistantInvocation } = createRequire(import.meta.url)(join(root, 'ai.js'));
+const { assistantInvocation, resolveExecutable } = createRequire(import.meta.url)(
+  join(root, 'ai.js'),
+);
 const { dataSchema } = createRequire(import.meta.url)(join(root, 'model.js'));
 await build({
   entryPoints: ['src/claude.ts'],
@@ -132,3 +134,16 @@ test('Claude reports a revoked login as a connection error and recovers after re
     rmSync(marker, { force: true });
   }
 });
+
+test(
+  'saved standard Codex paths use the same compatible CLI as automatic discovery',
+  { skip: process.platform !== 'darwin' },
+  () => {
+    const automatic = resolveExecutable('codex');
+    if (!automatic.includes('.app/')) return;
+    assert.equal(resolveExecutable('/opt/homebrew/bin/codex'), automatic);
+    assert.equal(resolveExecutable('/usr/local/bin/codex'), automatic);
+    assert.equal(resolveExecutable(join(process.env.HOME, '.local/bin/codex')), automatic);
+    assert.equal(resolveExecutable('/custom/pinned/codex'), '/custom/pinned/codex');
+  },
+);

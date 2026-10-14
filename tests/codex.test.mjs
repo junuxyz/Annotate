@@ -154,3 +154,39 @@ test('reply quotes identify the latest target and survive conversation reconstru
   assert.equal(payload.question, 'followup');
   assert.equal(Object.keys(payload).at(-1), 'question');
 });
+
+test('Codex executes terminal tools and reports search activity without losing the answer', async () => {
+  const observed = new Set();
+  const b = new CodexBackend(
+    fixture,
+    () => {
+      for (const activity of b.activity?.values() ?? []) observed.add(activity);
+    },
+    runtime(),
+  );
+  try {
+    await b.enable();
+    const result = await response(b, await b.session(), 'tools');
+    assert.equal(result.state, 'completed', result.error);
+    assert.equal(result.chunks, 'terminal-executed');
+    assert.ok(observed.has('commandExecution'));
+    assert.ok(observed.has('webSearch'));
+    assert.equal(b.activity.size, 0);
+  } finally {
+    b.disable();
+  }
+});
+
+test('active command approvals proceed and explicit model choices survive a stale catalog', async () => {
+  const b = new CodexBackend(fixture, () => {}, runtime());
+  b.preferredModel = 'account-model-not-in-stale-catalog';
+  try {
+    await b.enable();
+    assert.equal(b.model, 'account-model-not-in-stale-catalog');
+    const result = await response(b, await b.session(), 'approval');
+    assert.equal(result.state, 'completed');
+    assert.equal(result.chunks, 'approved');
+  } finally {
+    b.disable();
+  }
+});

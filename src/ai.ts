@@ -11,12 +11,33 @@ export const providers = {
 
 /** Finds a CLI that Obsidian's GUI PATH misses, so bare names like `claude` work without setup. */
 export function resolveExecutable(executable: string): string {
-  if (!executable || executable.includes('/') || executable.includes('\\')) return executable;
+  if (!executable) return executable;
   try {
     const fs = require('node:fs') as typeof import('node:fs');
     const os = require('node:os') as typeof import('node:os');
     const path = require('node:path') as typeof import('node:path');
     const home = os.homedir();
+    const standardCodexPaths = [
+      'codex',
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      path.join(home, '.local/bin/codex'),
+      path.join(home, '.codex/packages/standalone/current/bin/codex'),
+    ];
+    if (standardCodexPaths.includes(executable) && process.platform === 'darwin') {
+      for (const candidate of [
+        '/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+        '/Applications/Codex.app/Contents/Resources/codex',
+      ]) {
+        try {
+          fs.accessSync(candidate, fs.constants.X_OK);
+          return candidate;
+        } catch {
+          /* Fall back to the user's PATH. */
+        }
+      }
+    }
+    if (executable.includes('/') || executable.includes('\\')) return executable;
     const directories = [
       ...(process.env.PATH ?? '').split(path.delimiter),
       '/opt/homebrew/bin',
@@ -72,6 +93,7 @@ export function cachedChatgptModels(): Record<string, string> {
 
 export interface AssistantBackend {
   state: ConnectionState;
+  readonly activity?: Map<string, string>;
   models?: Record<string, string>;
   detail: string;
   model: string | null;

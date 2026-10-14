@@ -306,6 +306,20 @@ export async function checkProviders({
       },
     );
     await step(
+      'providers [chatgpt]: terminal and web search activity reach the thread',
+      async () => {
+        await sendQuestion('chatgpt', 'tools');
+        await until(
+          `${P}return p.data.threads.at(-1)?.codex?.status==='completed'`,
+          'tool-enabled turn completes',
+        );
+        assert(
+          await ev(`${P}return p.data.threads.at(-1).comments.at(-1).body==='terminal-executed'`),
+          'tool result rendered in the annotation',
+        );
+      },
+    );
+    await step(
       'providers: switching assistants keeps history and replaces session identity',
       async () => {
         const old = await ev(`${P}return p.data.threads.at(-1).codex.sessionId`);

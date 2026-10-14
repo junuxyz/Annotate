@@ -588,8 +588,19 @@ export default class Annotate extends Plugin {
                 : state !== 'ready'
                   ? `${name} is ${state}${error ? ' — ' + error : '…'}`
                   : '';
-      status.textContent = text;
-      status.hidden = !text;
+      const activity = thread.codex?.sessionId
+        ? this.backend?.activity?.get(thread.codex.sessionId)
+        : undefined;
+      const toolLabel =
+        activity &&
+        {
+          commandExecution: 'Running a command…',
+          webSearch: 'Searching the web…',
+          mcpToolCall: 'Using a connected tool…',
+          fileChange: 'Editing files…',
+        }[activity];
+      status.textContent = thinking(turn) && toolLabel ? `${name}: ${toolLabel}` : text;
+      status.hidden = !status.textContent;
       status.classList.toggle('annotate-status-live', thinking(turn));
       status.classList.toggle(
         'annotate-status-error',
@@ -1877,7 +1888,9 @@ class CommentsSettings extends PluginSettingTab {
     new Setting(containerEl).setName('AI assistant').setHeading();
     new Setting(containerEl)
       .setName('Ask AI in comments')
-      .setDesc('Mention @chatgpt or @claude in a comment. Uses your existing subscription login.')
+      .setDesc(
+        'Mention @chatgpt or @claude in a comment. ChatGPT can use your Codex tools, files, commands and live web search.',
+      )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
           this.plugin.data.codex.enabled = value;
