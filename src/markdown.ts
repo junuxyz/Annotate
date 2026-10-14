@@ -61,10 +61,7 @@ export class CommentMarkdown {
           return;
         }
         highlightMentions(content, text);
-        const list = body.closest('.annotate-messages');
-        const pinned = list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
         body.replaceChildren(content);
-        if (pinned) list.scrollTop = list.scrollHeight;
       })
       .catch(() => {
         render.component.unload();

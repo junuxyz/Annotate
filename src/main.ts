@@ -634,7 +634,6 @@ export default class Annotate extends Plugin {
     }
     const list = panel.querySelector<HTMLElement>('.annotate-messages');
     if (list) {
-      const pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
       for (const comment of thread.comments) {
         let item = [...list.querySelectorAll<HTMLElement>('[data-message-id]')].find(
           (el) => el.dataset.messageId === comment.id,
@@ -655,7 +654,6 @@ export default class Annotate extends Plugin {
           save = form.querySelector<HTMLButtonElement>('button[type=submit]');
         if (input && save) save.disabled = this.threadBusy(thread) || !input.value.trim();
       }
-      if (pinned) list.scrollTop = list.scrollHeight;
     }
     const reconnect = panel.querySelector<HTMLButtonElement>('.annotate-codex-reconnect');
     if (reconnect)

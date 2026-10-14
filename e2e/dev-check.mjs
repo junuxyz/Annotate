@@ -762,6 +762,58 @@ if (only.includes('ui') || only.includes('fullscreen'))
         },
       );
 
+if (only.includes('scroll'))
+  for (const theme of themes)
+    for (const mode of modes)
+      await step(
+        `scroll [${mode}/${theme}]: streamed text preserves the reading position`,
+        async () => {
+          await ev(
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+          );
+          await resetThreads();
+          await createComment(mode, 'Explain this synthetic passage');
+          await ev(
+            `${P}const t=p.data.threads[0];t.comments.push({id:'scroll-stream',author:'ChatGPT',role:'assistant',status:'streaming',body:Array.from({length:50},(_,i)=>'Paragraph '+i+' of the streamed answer.').join('\\n\\n'),createdAt:Date.now()});p.paintCodex()`,
+          );
+          await until(
+            `return document.querySelector('[data-message-id="scroll-stream"] .annotate-message-body')?.textContent.includes('Paragraph 49')`,
+            'long streamed response rendered',
+          );
+          let chunk = 0;
+          for (const expanded of [false, true]) {
+            if (expanded) await ev(`document.querySelector('.annotate-expand').click()`);
+            for (const fraction of [0, 0.5, 1]) {
+              const before = await ev(
+                `const l=document.querySelector('.annotate-messages');if(l.scrollHeight<=l.clientHeight)throw Error('Response must overflow');l.scrollTop=(l.scrollHeight-l.clientHeight)*${fraction};return l.scrollTop`,
+              );
+              const marker = `Stream chunk ${++chunk}`;
+              await ev(
+                `${P}const c=p.data.threads[0].comments.at(-1);c.body+='\\n\\n'+${JSON.stringify(marker)}+'\\n\\n'+Array(10).fill('New text arriving while the reader stays here.').join('\\n\\n');p.paintCodex()`,
+              );
+              await until(
+                `return document.querySelector('[data-message-id="scroll-stream"] .annotate-message-body')?.textContent.includes(${JSON.stringify(marker)})`,
+                'next streamed chunk rendered',
+              );
+              assert(
+                await ev(
+                  `return Math.abs(document.querySelector('.annotate-messages').scrollTop-${before})<1`,
+                ),
+                `reading position moved at ${fraction}, fullscreen=${expanded}`,
+              );
+            }
+          }
+          const before = await ev(`return document.querySelector('.annotate-messages').scrollTop`);
+          await ev(`${P}p.data.threads[0].comments.at(-1).status='completed';p.paintCodex()`);
+          assert(
+            await ev(
+              `return Math.abs(document.querySelector('.annotate-messages').scrollTop-${before})<1`,
+            ),
+            'completing the response moved the reading position',
+          );
+        },
+      );
+
 if (only.includes('markdown'))
   for (const theme of themes)
     for (const m of modes) {
