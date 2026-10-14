@@ -58,6 +58,7 @@ const threadSchema = z.object({
 });
 export const dataSchema = z.object({
   version: z.literal(1),
+  localBuildDirectory: z.string().default(''),
   author: z.string(),
   threads: z.array(threadSchema),
   codex: z
@@ -69,6 +70,7 @@ export type Thread = z.infer<typeof threadSchema>;
 export type PluginData = z.infer<typeof dataSchema>;
 export const emptyData = (): PluginData => ({
   version: 1,
+  localBuildDirectory: '',
   author: 'You',
   threads: [],
   codex: { enabled: false, executable: 'codex' },

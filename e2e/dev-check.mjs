@@ -450,7 +450,7 @@ if (only.includes('smoke')) {
     );
     assert(
       await ev(
-        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')).length===2`,
+        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')).length===3`,
       ),
       'commands must not duplicate on reload',
     );
@@ -979,6 +979,64 @@ if (only.includes('copy'))
         }
       });
     }
+
+if (only.includes('sync')) {
+  await step('sync: settings button reloads local build and preserves comments', async () => {
+    await ev(
+      `const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+    );
+    await until(
+      `return [...document.querySelectorAll('.setting-item button')].some(b=>b.textContent==='Sync')`,
+      'Sync button rendered',
+    );
+    const before = await ev(
+      `${P}p.data.localBuildDirectory=${JSON.stringify(PLUGIN)};await p.persist();window.annotateBeforeSync=p;return JSON.stringify(p.data.threads)`,
+    );
+    await ev(
+      `const button=[...document.querySelectorAll('.setting-item button')].find(b=>b.textContent==='Sync');if(!button)throw Error('Sync button missing');button.click()`,
+    );
+    await until(
+      `return app.plugins.plugins.annotate && app.plugins.plugins.annotate!==window.annotateBeforeSync && !window.annotateBeforeSync.syncing`,
+      'new plugin loaded by Sync',
+    );
+    assert(
+      await ev(
+        `return [...document.querySelectorAll('.notice')].some(n=>n.textContent.includes('synced and reloaded'))`,
+      ),
+      'sync success notice visible',
+    );
+    const after = await ev(`${P}return JSON.stringify(p.data.threads)`);
+    assert(
+      isDeepStrictEqual(JSON.parse(after), JSON.parse(before)),
+      `comments survive sync: ${before} -> ${after}`,
+    );
+    assert(
+      (await ev(
+        `return Object.keys(app.commands.commands).filter(id=>id==='annotate:sync-local-build').length`,
+      )) === 1,
+      'sync command registered once',
+    );
+    await ev(`delete window.annotateBeforeSync;app.setting.close()`);
+  });
+  await step('sync: missing build reports failure and keeps plugin loaded', async () => {
+    await ev(
+      `${P}window.annotateBeforeSync=p;p.data.localBuildDirectory='/missing/annotate-build';await p.syncBuild()`,
+    );
+    assert(
+      (await ev(`${P}return p===window.annotateBeforeSync && !p.syncing`)) === true,
+      'failed sync keeps current instance',
+    );
+    assert(
+      await ev(
+        `return [...document.querySelectorAll('.notice')].some(n=>n.textContent.includes('Annotate sync failed'))`,
+      ),
+      'failure notice visible',
+    );
+    await ev(
+      `${P}p.data.localBuildDirectory='';await p.persist();delete window.annotateBeforeSync`,
+    );
+  });
+}
 
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});

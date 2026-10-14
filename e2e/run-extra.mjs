@@ -96,7 +96,7 @@ const dup = await ev(
 );
 check(
   'disable/enable keeps threads, no duplicate commands or highlights',
-  a && a.n === 1 && dup.cmds === 2 && dup.pop === 0,
+  a && a.n === 1 && dup.cmds === 3 && dup.pop === 0,
   JSON.stringify(dup),
 );
 // rename note & folder

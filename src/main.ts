@@ -1,3 +1,4 @@
+import { defaultBuildDirectory, syncLocalBuild } from './sync';
 import {
   CodexBackend,
   SessionUnavailable,
@@ -7,6 +8,7 @@ import {
   type ConversationMessage,
 } from './codex';
 import {
+  Platform,
   MarkdownView,
   MarkdownRenderChild,
   Modal,
@@ -258,6 +260,7 @@ export default class Annotate extends Plugin {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
   private disposed = false;
+  syncing = false;
   private storageHealthy = true;
   backend: CodexBackend | null = null;
   connectionLabel: HTMLElement | null = null;
@@ -904,6 +907,13 @@ export default class Annotate extends Plugin {
     );
     ribbon?.replaceChildren(pluginLogo(ribbon.ownerDocument));
     ribbon?.addClass('annotate-ribbon');
+    if (Platform.isDesktopApp) {
+      this.addCommand({
+        id: 'sync-local-build',
+        name: 'Sync latest local build',
+        callback: () => void this.syncBuild(),
+      });
+    }
     this.addSettingTab(new CommentsSettings(this));
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
@@ -928,6 +938,47 @@ export default class Annotate extends Plugin {
         this.closePopup();
       }),
     );
+  }
+
+  async syncBuild(): Promise<void> {
+    if (this.syncing || !Platform.isDesktopApp) return;
+    this.syncing = true;
+    new Notice('Syncing Annotate…');
+    try {
+      if (!this.storageHealthy)
+        throw new Error('Resolve the comment storage error before syncing.');
+      if (this.saveTimer) clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+      await this.persistOrThrow();
+      const manager: unknown = Reflect.get(this.app, 'plugins');
+      if (!manager || typeof manager !== 'object') throw new Error('Plugin reload is unavailable.');
+      const disable: unknown = Reflect.get(manager, 'disablePlugin');
+      const enable: unknown = Reflect.get(manager, 'enablePlugin');
+      if (typeof disable !== 'function' || typeof enable !== 'function')
+        throw new Error('Plugin reload is unavailable.');
+      const version = await syncLocalBuild({
+        source: this.data.localBuildDirectory || defaultBuildDirectory,
+        destination: this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`,
+        adapter: this.app.vault.adapter,
+        disable: async () => {
+          await disable.call(manager, 'annotate');
+        },
+        enable: async () => {
+          await enable.call(manager, 'annotate');
+          const loaded: unknown = Reflect.get(manager, 'plugins');
+          if (!loaded || typeof loaded !== 'object' || !Reflect.get(loaded, 'annotate'))
+            throw new Error('The synced build could not load.');
+        },
+      });
+      new Notice(`Annotate ${version} synced and reloaded.`);
+    } catch (error) {
+      new Notice(
+        `Annotate sync failed: ${error instanceof Error ? error.message : String(error)}`,
+        10000,
+      );
+    } finally {
+      this.syncing = false;
+    }
   }
 
   onunload(): void {
@@ -1739,5 +1790,31 @@ class CommentsSettings extends PluginSettingTab {
           this.plugin.changed();
         }),
       );
+    if (Platform.isDesktopApp) {
+      const advanced = this.containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
+      advanced.createEl('summary', { text: 'Advanced' });
+      new Setting(advanced)
+        .setName('Local build folder')
+        .setDesc('For plugin development: folder with the latest Annotate build.')
+        .addText((text) =>
+          text
+            .setPlaceholder(defaultBuildDirectory)
+            .setValue(this.plugin.data.localBuildDirectory || defaultBuildDirectory)
+            .onChange((value) => {
+              this.plugin.data.localBuildDirectory = value.trim();
+              this.plugin.changed();
+            }),
+        )
+        .addButton((button) =>
+          button
+            .setButtonText('Sync')
+            .setDisabled(this.plugin.syncing)
+            .onClick(async () => {
+              button.setDisabled(true).setButtonText('Syncing…');
+              await this.plugin.syncBuild();
+              button.setDisabled(false).setButtonText('Sync');
+            }),
+        );
+    }
   }
 }

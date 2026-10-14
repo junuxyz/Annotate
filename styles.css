@@ -1101,3 +1101,13 @@ button.annotate-count:hover {
     background: none;
   }
 }
+
+.annotate-settings-advanced {
+  margin-top: 24px;
+}
+.annotate-settings-advanced > summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  padding: 8px 0;
+}
