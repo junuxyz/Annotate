@@ -97,6 +97,8 @@ const ICONS = {
   undo: 'undo-2',
   reply: 'reply',
   copy: 'copy',
+  expand: 'maximize-2',
+  shrink: 'minimize-2',
 } as const;
 function icon(doc: Document, name: keyof typeof ICONS): HTMLElement {
   const element = doc.createElement('span');
@@ -1362,12 +1364,14 @@ export default class Annotate extends Plugin {
     doc.body.append(panel);
     this.popup = panel;
     const outside = (event: MouseEvent) => {
+      if (panel.classList.contains('annotate-fullscreen')) return;
       if (event.target instanceof Node && !panel.contains(event.target)) this.closePopup();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        this.closePopup();
+        if (panel.classList.contains('annotate-fullscreen')) this.setFullscreen(panel, false);
+        else this.closePopup();
       }
     };
     doc.addEventListener('mousedown', outside);
@@ -1395,6 +1399,11 @@ export default class Annotate extends Plugin {
     doc: Document,
   ): void {
     this.anchorRect = rect;
+    if (element.classList.contains('annotate-fullscreen')) {
+      element.style.removeProperty('left');
+      element.style.removeProperty('top');
+      return;
+    }
     const win = doc.defaultView;
     if (!win) return;
     const bounds = element.getBoundingClientRect();
@@ -1612,6 +1621,8 @@ export default class Annotate extends Plugin {
     this.position(panel, rect, panel.ownerDocument);
   }
   openThread(thread: Thread, rect?: Pick<DOMRect, 'left' | 'bottom'>, doc?: Document): void {
+    const fullscreen =
+      this.openThreadId === thread.id && !!this.popup?.classList.contains('annotate-fullscreen');
     const panel = this.panel(rect, doc),
       owner = panel.ownerDocument;
     this.quote(panel, thread.anchor);
@@ -1629,6 +1640,12 @@ export default class Annotate extends Plugin {
     actions.append(
       copyButton(owner, 'Copy entire thread', () => threadText(thread), 'annotate-copy-thread'),
     );
+    const expand = iconButton(owner, 'expand', 'Expand thread', 'annotate-expand');
+    expand.setAttribute('aria-pressed', 'false');
+    expand.addEventListener('click', () =>
+      this.setFullscreen(panel, !panel.classList.contains('annotate-fullscreen')),
+    );
+    actions.append(expand);
     const resolve = iconButton(
       owner,
       thread.resolved ? 'undo' : 'check',
@@ -1723,6 +1740,22 @@ export default class Annotate extends Plugin {
     this.paintCodex();
     list.scrollTop = list.scrollHeight;
     this.position(panel, rect, owner);
+    if (fullscreen) this.setFullscreen(panel, true);
+  }
+  private setFullscreen(panel: HTMLElement, expanded: boolean): void {
+    const list = panel.querySelector<HTMLElement>('.annotate-messages');
+    const scroll = list?.scrollTop;
+    panel.classList.toggle('annotate-fullscreen', expanded);
+    const button = panel.querySelector<HTMLButtonElement>('.annotate-expand');
+    if (button) {
+      const label = expanded ? 'Restore thread size' : 'Expand thread';
+      button.setAttribute('aria-label', label);
+      button.setAttribute('aria-pressed', String(expanded));
+      button.title = label;
+      button.replaceChildren(icon(panel.ownerDocument, expanded ? 'shrink' : 'expand'));
+    }
+    this.position(panel, this.anchorRect, panel.ownerDocument);
+    if (list && scroll !== undefined) list.scrollTop = scroll;
   }
 }
 

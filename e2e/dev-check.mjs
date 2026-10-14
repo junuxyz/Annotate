@@ -690,6 +690,78 @@ if (only.includes('polish'))
       );
     });
 
+if (only.includes('ui') || only.includes('fullscreen'))
+  for (const theme of themes)
+    for (const mode of modes)
+      await step(
+        `fullscreen [${mode}/${theme}]: expand, draft, edit, stream, restore and resolve`,
+        async () => {
+          await resetThreads();
+          await ev(
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+          );
+          await createComment(mode, 'Fullscreen comment');
+          await type('Unsent fullscreen reply');
+          await ev(
+            `window.annotateFullscreenPanel=document.querySelector('.annotate-popover');window.annotateFullscreenDraft=document.querySelector('.annotate-composer textarea');document.querySelector('.annotate-message-edit').click();window.annotateFullscreenEdit=document.querySelector('.annotate-message-editor textarea');window.annotateFullscreenEdit.value='Unsent edit';document.querySelector('.annotate-expand').click()`,
+          );
+          await until(
+            `const p=document.querySelector('.annotate-fullscreen'),r=p?.getBoundingClientRect();return r&&r.x===0&&r.y===0&&Math.abs(r.width-innerWidth)<1&&Math.abs(r.height-innerHeight)<1`,
+            'thread covers the application viewport',
+          );
+          assert(
+            await ev(
+              `return document.querySelector('.annotate-popover')===window.annotateFullscreenPanel&&document.querySelector('.annotate-composer textarea')===window.annotateFullscreenDraft&&window.annotateFullscreenDraft.value==='Unsent fullscreen reply'&&document.querySelector('.annotate-message-editor textarea')===window.annotateFullscreenEdit&&window.annotateFullscreenEdit.value==='Unsent edit'&&document.querySelector('.annotate-expand').getAttribute('aria-pressed')==='true'`,
+            ),
+            'expand preserves draft and edit DOM',
+          );
+          await ev(
+            `${P}p.data.threads[0].comments.push({id:'fullscreen-stream',author:'ChatGPT',role:'assistant',status:'streaming',body:'**Streaming** reply',createdAt:Date.now()});p.paintCodex()`,
+          );
+          await until(
+            `return document.querySelector('.annotate-fullscreen [data-message-id="fullscreen-stream"] .annotate-message-body strong')?.textContent==='Streaming'`,
+            'response renders in expanded thread',
+          );
+          await shot(`fullscreen-${mode}-${theme}`);
+          await ev(`document.querySelector('.annotate-expand').focus()`);
+          await press('Escape');
+          await until(
+            `return !!document.querySelector('.annotate-popover')&&!document.querySelector('.annotate-fullscreen')`,
+            'Escape restores popup without closing',
+          );
+          assert(
+            await ev(
+              `return document.querySelector('.annotate-popover')===window.annotateFullscreenPanel&&window.annotateFullscreenDraft.value==='Unsent fullscreen reply'&&window.annotateFullscreenEdit.value==='Unsent edit'&&document.querySelector('.annotate-expand').getAttribute('aria-pressed')==='false'`,
+            ),
+            'restore preserves draft and edit',
+          );
+          await ev(
+            `document.querySelector('.annotate-expand').click();document.querySelector('.annotate-resolve').click()`,
+          );
+          await until(
+            `return !!document.querySelector('.annotate-fullscreen .annotate-resolved-banner')`,
+            'resolved thread stays expanded',
+          );
+          await ev(`document.querySelector('.annotate-resolve').click()`);
+          await until(
+            `return !!document.querySelector('.annotate-fullscreen .annotate-composer')`,
+            'reopened thread stays expanded',
+          );
+          await ev(`document.querySelector('.annotate-expand').click()`);
+          await until(
+            `return !!document.querySelector('.annotate-popover')&&!document.querySelector('.annotate-fullscreen')`,
+            'restore button returns to popup',
+          );
+          await ev(
+            `document.querySelector('.annotate-expand').click();document.querySelector('.annotate-close').click();delete window.annotateFullscreenPanel;delete window.annotateFullscreenDraft;delete window.annotateFullscreenEdit`,
+          );
+          await until(
+            `return !document.querySelector('.annotate-panel')`,
+            'close removes expanded thread',
+          );
+        },
+      );
+
 if (only.includes('markdown'))
   for (const theme of themes)
     for (const m of modes) {
