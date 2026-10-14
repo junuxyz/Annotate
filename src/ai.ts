@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CodexBackend, type ConnectionState, type ResponseState } from './codex';
+import { CodexBackend, type ConnectionState, type ResponseState, type CodexSkill } from './codex';
 import { ClaudeBackend } from './claude';
 
 export const providerSchema = z.enum(['chatgpt', 'claude']);
@@ -98,6 +98,7 @@ export interface AssistantBackend {
   detail: string;
   model: string | null;
   readonly retainsHistory?: boolean;
+  listSkills?(): Promise<CodexSkill[]>;
   enable(): Promise<void>;
   connect(): Promise<void>;
   session(id?: string): Promise<string>;
@@ -106,6 +107,7 @@ export interface AssistantBackend {
     text: string,
     delta: (text: string) => void,
     finish: (state: ResponseState, error?: string) => void,
+    skill?: CodexSkill,
   ): Promise<void>;
   interrupt(id: string): Promise<void>;
   disable(): void;

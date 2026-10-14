@@ -319,6 +319,66 @@ export async function checkProviders({
         );
       },
     );
+    for (const mode of modes)
+      for (const theme of themes)
+        await step(
+          `skills [${mode}/${theme}]: slash picker invokes a discovered skill`,
+          async () => {
+            await resetThreads();
+            await ev(
+              `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+            );
+            await createComment(mode, 'Skill fixture');
+            await ev(`document.querySelector('.annotate-composer textarea').focus()`);
+            await type('/synthetic');
+            await ev(
+              `document.querySelector('.annotate-composer textarea').dispatchEvent(new Event('input',{bubbles:true}))`,
+            );
+            assert(
+              await ev(`return document.querySelector('.annotate-mention-menu').hidden`),
+              'bare slash does not open skills',
+            );
+            await ev(
+              `const input=document.querySelector('.annotate-composer textarea');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))`,
+            );
+            await type('@chatgpt /synthetic');
+            await until(
+              `return !document.querySelector('.annotate-mention-menu').hidden&&document.querySelector('.annotate-skill-option strong')?.textContent==='/synthetic-review'`,
+              'skill picker loaded',
+            );
+            assert(
+              await ev(
+                `const option=document.querySelector('.annotate-skill-option'),panel=document.querySelector('.annotate-panel');return getComputedStyle(option).color===getComputedStyle(panel).color`,
+              ),
+              'skill picker uses neutral text instead of green',
+            );
+            await shot(`skills-${mode}-${theme}`);
+            await press('Tab');
+            assert(
+              await ev(
+                `${P}return document.querySelector('.annotate-composer textarea').value==='@chatgpt /synthetic-review '&&p.data.threads[0].comments.length===1`,
+              ),
+              'Tab completes without posting',
+            );
+            await type('review the passage');
+            await press('Enter');
+            await until(
+              `${P}return p.data.threads[0].codex?.status==='completed'&&p.data.threads[0].comments.at(-1).body==='skill-input-verified'`,
+              'explicit skill input reaches Codex',
+            );
+            await until(
+              `return !!document.querySelector('.annotate-skill-mention')`,
+              'skill token rendered',
+            );
+            assert(
+              await ev(
+                `return getComputedStyle(document.querySelector('.annotate-skill-mention')).color===${JSON.stringify(theme === 'dark' ? 'rgb(101, 214, 162)' : 'rgb(23, 131, 79)')}`,
+              ),
+              'posted skill uses theme-specific green',
+            );
+            await shot(`skills-${mode}-${theme}-posted`);
+          },
+        );
     await step(
       'providers: switching assistants keeps history and replaces session identity',
       async () => {

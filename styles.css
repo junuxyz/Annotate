@@ -25,6 +25,7 @@ body {
   --annotate-success: var(--color-green, #2f9e6e);
   --annotate-danger: var(--color-red, #e5484d);
   --annotate-ai: #7c5cff;
+  --annotate-skill: #17834f;
   --annotate-focus: 0 0 0 2px color-mix(in srgb, var(--annotate-accent) 55%, transparent);
 
   /* Scale */
@@ -60,6 +61,7 @@ body.theme-dark {
   --annotate-surface: color-mix(in srgb, var(--background-primary) 92%, var(--text-normal));
   --annotate-surface-raised: color-mix(in srgb, var(--background-primary) 88%, var(--text-normal));
   --annotate-ai: #a78bfa;
+  --annotate-skill: #65d6a2;
   --annotate-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 8px 16px -4px rgba(0, 0, 0, 0.4), 0 24px 48px -12px rgba(0, 0, 0, 0.55);
@@ -451,7 +453,9 @@ button.annotate-count:hover {
 .annotate-message-body p {
   margin: 0 0 0.6em;
 }
-.annotate-chatgpt-mention {
+.annotate-chatgpt-mention,
+.annotate-claude-mention,
+.annotate-skill-mention {
   color: var(--annotate-ai);
   background: color-mix(in srgb, var(--annotate-ai) 16%, transparent);
   border-radius: 4px;
@@ -1162,4 +1166,33 @@ button.annotate-count:hover {
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   padding: 8px 0;
+}
+
+.annotate-mention-menu {
+  max-height: min(300px, 40vh);
+  overflow-y: auto;
+}
+.annotate-skill-option strong {
+  flex-shrink: 0;
+}
+.annotate-skill-option span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.annotate-skill-mention {
+  color: var(--annotate-skill);
+  background: color-mix(in srgb, var(--annotate-skill) 16%, transparent);
+}
+.annotate-panel button.annotate-skill-option {
+  color: var(--annotate-text);
+  background: transparent;
+}
+.annotate-panel button.annotate-skill-option:hover,
+.annotate-panel button.annotate-skill-option[aria-selected='true'] {
+  background: var(--annotate-hover);
+}
+.annotate-panel .annotate-skill-option span {
+  color: var(--annotate-text-3);
 }

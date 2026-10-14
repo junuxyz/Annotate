@@ -13,6 +13,7 @@
 - 💬 **Comment on any passage.** Start a thread and reply right from its highlight. Full markdown supported, which includes note links, embeds, code blocks, and LaTeX.
 - 🤖 **Ask an assistant.** Mention ChatGPT (via `@chatgpt`) or Claude (via `@claude`) for streamed replies about your note. Answers use your current note and highlighted passage as context. Optional, desktop only.
   - Comments stay in your vault without changing your notes. Assistant requests share note content with the selected provider. See [assistant setup and privacy](docs/assistants.md).
+- **Use Codex skills.** After mentioning an assistant, type `/` to search installed skills. Send `@chatgpt /skill-name your question` to run a Codex skill. Posted skill commands appear in green, with colors adapted to light and dark themes. Desktop only.
 
 ## Install
 

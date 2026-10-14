@@ -1070,3 +1070,98 @@ test('Claude mentions route without changing settings first and connection probe
     await tick();
   }
 });
+
+test('slash skills filter, complete without sending, and route the selected skill to Codex', async () => {
+  const type = (input, value) => {
+    input.value = value;
+    input.setSelectionRange(value.length, value.length);
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+  };
+  const key = (input, key) =>
+    input.dispatchEvent(new win.KeyboardEvent('keydown', { key, cancelable: true, bubbles: true }));
+  const plugin = new Plugin();
+  await plugin.onload();
+  const skill = {
+    name: 'synthetic-review',
+    path: '/fixture/SKILL.md',
+    description: 'Review a passage',
+    enabled: true,
+  };
+  plugin.loadSkills = async () => [skill];
+  let selected;
+  plugin.createBackend = () => ({
+    state: 'ready',
+    detail: '',
+    model: 'test',
+    async enable() {},
+    disable() {},
+    async session() {
+      return 'skill-session';
+    },
+    async ask(id, text, delta, finish, chosen) {
+      selected = chosen;
+      delta('Skill answer');
+      finish('completed');
+    },
+  });
+  plugin.data.codex.enabled = true;
+  plugin.configureCodex();
+  try {
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    const input = document.querySelector('.annotate-composer textarea');
+    type(input, '/synthetic');
+    await tick();
+    assert.equal(
+      document.querySelector('.annotate-mention-menu').hidden,
+      true,
+      'bare slash stays ordinary text',
+    );
+    type(input, '@claude /synthetic');
+    await tick();
+    assert.equal(
+      document.querySelector('.annotate-mention-menu').hidden,
+      false,
+      'Claude mention also opens the skill picker',
+    );
+    type(input, '@chatgpt /synthetic');
+    await tick();
+    const menu = document.querySelector('.annotate-mention-menu');
+    assert.equal(menu.hidden, false);
+    assert.equal(menu.querySelector('strong').textContent, '/synthetic-review');
+    key(input, 'Tab');
+    assert.equal(input.value, '@chatgpt /synthetic-review ');
+    assert.equal(plugin.data.threads.length, 0);
+    await send('@chatgpt /synthetic-review explain');
+    await tick();
+    assert.equal(selected, skill);
+    assert.equal(plugin.data.assistant.provider, 'chatgpt');
+    assert.equal(plugin.data.threads[0].comments.at(-1).body, 'Skill answer');
+    const reply = document.querySelector('.annotate-composer textarea');
+    type(reply, '@chatgpt /synthetic');
+    await tick();
+    key(reply, 'Escape');
+    assert.equal(document.querySelector('.annotate-mention-menu').hidden, true);
+    assert.ok(document.querySelector('.annotate-popover'), 'Escape dismisses the picker first');
+    type(reply, '@chatgpt /synthetic');
+    type(reply, 'ordinary text');
+    await tick();
+    assert.equal(
+      document.querySelector('.annotate-mention-menu').hidden,
+      true,
+      'stale discovery does not reopen menu',
+    );
+    selected = undefined;
+    await send('/synthetic-review ordinary comment');
+    await tick();
+    assert.equal(selected, undefined, 'bare slash never invokes the assistant');
+    assert.equal(plugin.data.threads[0].comments.at(-1).body, '/synthetic-review ordinary comment');
+  } finally {
+    plugin.onunload();
+    await tick();
+  }
+});

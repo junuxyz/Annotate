@@ -15,6 +15,7 @@ import {
   OutcomeUnknown,
   questionContext,
   type ConversationMessage,
+  type CodexSkill,
 } from './codex';
 import {
   Platform,
@@ -283,6 +284,7 @@ export default class Annotate extends Plugin {
   private pulseId: string | null = null;
   private pulseTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshPending = false;
+  private skillsRequest: Promise<CodexSkill[]> | null = null;
   createBackend(provider: ProviderId = this.data.assistant.provider): AssistantBackend {
     const update = () => this.paintCodex();
     if (provider === 'chatgpt') return createAssistant({ provider, ...this.data.codex }, update);
@@ -291,7 +293,29 @@ export default class Annotate extends Plugin {
   private assistantName(): string {
     return providers[this.data.assistant.provider].name;
   }
+  loadSkills(): Promise<CodexSkill[]> {
+    return (this.skillsRequest ??= (async () => {
+      const backend =
+        this.data.assistant.provider === 'chatgpt' && this.backend
+          ? this.backend
+          : this.createBackend('chatgpt');
+      const temporary = backend !== this.backend;
+      try {
+        if (temporary) await backend.enable();
+        return (await backend.listSkills?.()) ?? [];
+      } catch (error) {
+        this.skillsRequest = null;
+        new Notice(
+          `Could not load Codex skills: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return [];
+      } finally {
+        if (temporary) backend.disable();
+      }
+    })());
+  }
   configureCodex(): void {
+    this.skillsRequest = null;
     this.connectionChecks.delete(this.data.assistant.provider);
     this.backend?.disable();
     this.backend = null;
@@ -650,6 +674,7 @@ export default class Annotate extends Plugin {
     question: string,
     history: ConversationMessage[],
     quote?: ReplyQuote,
+    skill?: CodexSkill,
   ): Promise<void> {
     const backend = this.backend;
     if (!backend || !this.data.codex.enabled) return;
@@ -728,6 +753,7 @@ export default class Annotate extends Plugin {
           this.paintCodex();
           void this.persist();
         },
+        skill,
       );
     } catch (error) {
       if (thread.codex) {
@@ -754,6 +780,16 @@ export default class Annotate extends Plugin {
     } catch (error) {
       new Notice(error instanceof Error ? error.message : 'Invalid assistant mention.');
       return false;
+    }
+    let skill: CodexSkill | undefined;
+    const slash = /^@chatgpt\s+\/([\w:.-]+)(?:\s+([\s\S]*))?$/i.exec(body.trim());
+    if (slash) {
+      skill = (await this.loadSkills()).find((entry) => entry.name === slash[1]);
+      if (skill)
+        invocation = {
+          provider: 'chatgpt',
+          question: slash[2]?.trim() || 'Apply the selected skill to the highlighted passage.',
+        };
     }
     const question = invocation?.question ?? null;
     if (question !== null) {
@@ -798,7 +834,7 @@ export default class Annotate extends Plugin {
     });
     this.changed();
     await this.persistOrThrow();
-    if (question !== null) void this.requestCodex(thread, question, history, quote);
+    if (question !== null) void this.requestCodex(thread, question, history, quote, skill);
     return true;
   }
 
@@ -1527,7 +1563,7 @@ export default class Annotate extends Plugin {
     );
     hint.append(hintInner);
     inputContainer.append(preview, input, hint);
-    mentionMenu(input, inputContainer, this.data.assistant.provider);
+    mentionMenu(input, inputContainer, this.data.assistant.provider, () => this.loadSkills());
     form.append(inputLabel, avatar, inputContainer, button);
     panel.append(form);
     let pending = false;

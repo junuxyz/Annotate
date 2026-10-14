@@ -3,22 +3,28 @@ import { mathParts } from './math';
 
 type Render = { text: string; path: string; component: Component };
 
-function highlightMentions(root: HTMLElement): void {
+function highlightMentions(root: HTMLElement, text: string): void {
+  const skill = /^@(?:chatgpt|claude)\s+(\/[\w:.-]+)(?=\s|$)/i.exec(text.trim())?.[1];
+  let skillHighlighted = false;
   const doc = root.ownerDocument;
   const walker = doc.createTreeWalker(root, 4);
   const nodes: Text[] = [];
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
     if (node.parentElement?.closest('code, pre')) continue;
-    if (/@chatgpt\b/i.test(node.data)) nodes.push(node);
+    if (/@(?:chatgpt|claude)\b/i.test(node.data) || (skill && node.data.includes(skill)))
+      nodes.push(node);
   }
   for (const node of nodes) {
     const fragment = doc.createDocumentFragment();
-    const parts = node.data.split(/(@chatgpt\b)/gi);
+    const parts = node.data.split(/(@(?:chatgpt|claude)\b|\/[\w:.-]+)/gi);
     for (const part of parts) {
-      if (/^@chatgpt\b$/i.test(part)) {
+      const assistant = /^@(chatgpt|claude)$/i.exec(part)?.[1]?.toLowerCase();
+      const isSkill = !skillHighlighted && part === skill;
+      if (assistant || isSkill) {
         const mention = doc.createElement('span');
-        mention.className = 'annotate-chatgpt-mention';
+        mention.className = isSkill ? 'annotate-skill-mention' : `annotate-${assistant}-mention`;
+        if (isSkill) skillHighlighted = true;
         mention.textContent = part;
         fragment.append(mention);
       } else fragment.append(doc.createTextNode(part));
@@ -54,7 +60,7 @@ export class CommentMarkdown {
           render.component.unload();
           return;
         }
-        highlightMentions(content);
+        highlightMentions(content, text);
         const list = body.closest('.annotate-messages');
         const pinned = list && list.scrollHeight - list.scrollTop - list.clientHeight < 80;
         body.replaceChildren(content);

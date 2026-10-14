@@ -1,14 +1,15 @@
 import { assistantIcon } from './logos';
 import { providers, type ProviderId } from './ai';
-type MentionRange = { from: number; to: number; matches: ProviderId[] };
-
+import type { CodexSkill } from './codex';
+type Choice = { kind: 'assistant'; provider: ProviderId } | { kind: 'skill'; skill: CodexSkill };
 export function mentionMenu(
   input: HTMLTextAreaElement,
   container: HTMLElement,
   preferred: ProviderId = 'chatgpt',
+  loadSkills: () => Promise<CodexSkill[]> = async () => [],
 ): void {
   const doc = input.ownerDocument;
-  const choices: ProviderId[] =
+  const providersInOrder: ProviderId[] =
     preferred === 'claude' ? ['claude', 'chatgpt'] : ['chatgpt', 'claude'];
   const menu = doc.createElement('div');
   menu.className = 'annotate-mention-menu';
@@ -16,77 +17,127 @@ export function mentionMenu(
   menu.setAttribute('role', 'listbox');
   menu.setAttribute('aria-label', 'AI assistants');
   menu.hidden = true;
-  const options = choices.map((provider) => {
-    const option = doc.createElement('button');
-    option.type = 'button';
-    option.className = 'annotate-mention-option';
-    option.id = `${menu.id}-${provider}`;
-    option.tabIndex = -1;
-    option.setAttribute('role', 'option');
-    const name = doc.createElement('strong');
-    name.textContent = providers[provider].name;
-    const token = doc.createElement('span');
-    token.textContent = `@${provider}`;
-    option.append(assistantIcon(doc, provider), name, token);
-    menu.append(option);
-    return { provider, option };
-  });
   container.append(menu);
   input.setAttribute('role', 'combobox');
   input.setAttribute('aria-autocomplete', 'list');
   input.setAttribute('aria-haspopup', 'listbox');
   input.setAttribute('aria-controls', menu.id);
   input.setAttribute('aria-expanded', 'false');
-  let range: MentionRange | null = null;
-  let selected = -1;
+  let range: { from: number; to: number; matches: Choice[] } | null = null;
+  let selected = -1,
+    revision = 0;
   let composing = false;
-  const paint = () => {
-    const active = range?.matches[Math.max(0, selected)];
-    for (const { provider, option } of options) {
-      option.hidden = !range?.matches.includes(provider);
-      option.setAttribute('aria-selected', String(provider === active));
-      if (provider === active) input.setAttribute('aria-activedescendant', option.id);
-    }
-  };
   const hide = () => {
+    revision++;
     range = null;
     menu.hidden = true;
     input.setAttribute('aria-expanded', 'false');
     input.removeAttribute('aria-activedescendant');
   };
-  const update = () => {
-    const caret = input.selectionStart;
-    const match = /(^|\s)@([a-z]*)$/i.exec(input.value.slice(0, caret));
-    const query = match?.[2]?.toLowerCase();
-    const matches =
-      query === undefined ? [] : choices.filter((p) => p !== query && p.startsWith(query));
-    if (
-      composing ||
-      caret !== input.selectionEnd ||
-      /\w/.test(input.value.charAt(caret)) ||
-      !matches.length ||
-      query === undefined
-    ) {
-      hide();
-      return;
-    }
-    range = { from: caret - query.length - 1, to: caret, matches };
-    selected = -1;
-    menu.hidden = false;
-    input.setAttribute('aria-expanded', 'true');
-    paint();
-  };
-  const choose = (provider: ProviderId | undefined) => {
+  const choose = (choice: Choice | undefined) => {
     const current = range;
-    if (!current || !provider || !current.matches.includes(provider)) return;
+    if (!current || !choice) return;
     const suffix = input.value.slice(current.to);
-    const completion = `@${provider}${/^\s/.test(suffix) ? '' : ' '}`;
+    const token = choice.kind === 'assistant' ? `@${choice.provider}` : `/${choice.skill.name}`;
+    const completion = token + (/^\s/.test(suffix) ? '' : ' ');
     input.setRangeText(completion, current.from, current.to, 'end');
     const caret = current.from + completion.length + (/^\s/.test(suffix) ? 1 : 0);
     input.setSelectionRange(caret, caret);
     hide();
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus({ preventScroll: true });
+  };
+  const paint = () => {
+    if (!range) return;
+    for (const [i, option] of [...menu.children].entries()) {
+      option.setAttribute('aria-selected', String(i === Math.max(0, selected)));
+      if (i === Math.max(0, selected)) {
+        input.setAttribute('aria-activedescendant', option.id);
+        if (selected >= 0) option.scrollIntoView?.({ block: 'nearest' });
+      }
+    }
+  };
+  const show = (from: number, to: number, matches: Choice[], skills: boolean) => {
+    if (!matches.length) {
+      hide();
+      return;
+    }
+    range = { from, to, matches };
+    selected = -1;
+    menu.replaceChildren();
+    menu.setAttribute('aria-label', skills ? 'Codex skills' : 'AI assistants');
+    matches.forEach((choice, i) => {
+      const option = doc.createElement('button');
+      option.type = 'button';
+      option.tabIndex = -1;
+      option.className = 'annotate-mention-option' + (skills ? ' annotate-skill-option' : '');
+      option.id = `${menu.id}-${i}`;
+      option.setAttribute('role', 'option');
+      const name = doc.createElement('strong'),
+        detail = doc.createElement('span');
+      if (choice.kind === 'assistant') {
+        name.textContent = providers[choice.provider].name;
+        detail.textContent = `@${choice.provider}`;
+        option.append(assistantIcon(doc, choice.provider));
+      } else {
+        name.textContent = `/${choice.skill.name}`;
+        detail.textContent = choice.skill.description;
+        option.title = choice.skill.description;
+      }
+      option.append(name, detail);
+      option.addEventListener('mousedown', (event) => event.preventDefault());
+      option.addEventListener('click', () => choose(choice));
+      menu.append(option);
+    });
+    menu.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    paint();
+  };
+  const update = () => {
+    const caret = input.selectionStart;
+    if (composing || caret !== input.selectionEnd || /\w/.test(input.value.charAt(caret))) {
+      hide();
+      return;
+    }
+    const prefix = input.value.slice(0, caret);
+    const assistant = /(^|\s)@([a-z]*)$/i.exec(prefix);
+    if (assistant) {
+      revision++;
+      const query = assistant[2]?.toLowerCase() ?? '';
+      show(
+        caret - query.length - 1,
+        caret,
+        providersInOrder
+          .filter((p) => p !== query && p.startsWith(query))
+          .map((provider) => ({ kind: 'assistant', provider })),
+        false,
+      );
+      return;
+    }
+    const slash = /^@(chatgpt|claude)\s+\/([\w:.-]*)$/i.exec(prefix);
+    if (!slash) {
+      hide();
+      return;
+    }
+    hide();
+    const query = slash[2]?.toLowerCase() ?? '';
+    const ticket = ++revision;
+    void loadSkills()
+      .then((skills) => {
+        if (ticket !== revision || !input.isConnected) return;
+        show(
+          caret - query.length - 1,
+          caret,
+          skills
+            .filter((s) => s.name.toLowerCase().includes(query))
+            .slice(0, 50)
+            .map((skill) => ({ kind: 'skill', skill })),
+          true,
+        );
+      })
+      .catch(() => {
+        if (ticket === revision) hide();
+      });
   };
   input.addEventListener('input', update);
   input.addEventListener('click', update);
@@ -131,8 +182,4 @@ export function mentionMenu(
       paint();
     }
   });
-  for (const { provider, option } of options) {
-    option.addEventListener('mousedown', (event) => event.preventDefault());
-    option.addEventListener('click', () => choose(provider));
-  }
 }

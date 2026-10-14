@@ -72,6 +72,25 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       method: 'turn/started',
       params: { threadId: id, turn: { id: turnId, status: 'inProgress' } },
     });
+    const skill = m.params.input.find((input) => input.type === 'skill');
+    if (skill) {
+      const valid =
+        skill.name === 'synthetic-review' && skill.path === '/fake/global-skill/SKILL.md';
+      send({
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: id,
+          turnId,
+          itemId: 'answer',
+          delta: valid ? 'skill-input-verified' : 'wrong-skill',
+        },
+      });
+      send({
+        method: 'turn/completed',
+        params: { threadId: id, turn: { id: turnId, status: valid ? 'completed' : 'failed' } },
+      });
+      return;
+    }
     if (JSON.parse(m.params.input[0].text).question === 'approval') {
       const requestId = 'approval-' + turnId;
       approvals.set(requestId, { id, turnId });

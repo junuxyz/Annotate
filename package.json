@@ -12,7 +12,8 @@
     "format:check": "prettier --check src tests e2e scripts *.mjs *.json styles.css README.md",
     "version": "node version-bump.mjs && git add manifest.json versions.json",
     "dev:vault": "node esbuild.config.mjs --watch --vault",
-    "check:codex-tools": "node scripts/check-codex-tools.mjs"
+    "check:codex-tools": "node scripts/check-codex-tools.mjs",
+    "check:codex-skills": "node scripts/check-codex-skills.mjs"
   },
   "dependencies": {
     "@lezer/markdown": "^1.8.0",

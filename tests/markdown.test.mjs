@@ -125,3 +125,29 @@ y &= z
   renderer.clear();
   await window.happyDOM.close();
 });
+
+test('skill commands and assistant mentions are highlighted without changing code or file paths', async () => {
+  const window = new Window(),
+    body = window.document.createElement('div'),
+    renderer = new CommentMarkdown();
+  const app = {
+    async renderMarkdown(text, el) {
+      el.innerHTML =
+        '<p>@chatgpt /amplifier explain @claude <code>/amplifier @claude</code> /usr/local</p>';
+    },
+  };
+  try {
+    renderer.paint(app, body, '@chatgpt /amplifier explain @claude', 'test.md');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(body.querySelector('.annotate-skill-mention').textContent, '/amplifier');
+    assert.equal(body.querySelector('.annotate-claude-mention').textContent, '@claude');
+    same(body.querySelector('code .annotate-skill-mention'), null);
+    assert.equal(body.querySelectorAll('.annotate-skill-mention').length, 1);
+    renderer.paint(app, body, '/usr/local is a file path', 'test.md');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    same(body.querySelector('.annotate-skill-mention'), null);
+  } finally {
+    renderer.clear();
+    await window.happyDOM.close();
+  }
+});

@@ -190,3 +190,26 @@ test('active command approvals proceed and explicit model choices survive a stal
     b.disable();
   }
 });
+
+test('discovered skills are sent as explicit app-server skill inputs', async () => {
+  const b = new CodexBackend(fixture, () => {}, runtime());
+  try {
+    await b.enable();
+    const skills = await b.listSkills();
+    assert.equal(skills[0].name, 'synthetic-review');
+    let body = '';
+    let finish;
+    const done = new Promise((resolve) => (finish = resolve));
+    await b.ask(
+      await b.session(),
+      questionContext('note', 'passage', 'review', []),
+      (delta) => (body += delta),
+      (state) => finish(state),
+      skills[0],
+    );
+    assert.equal(await done, 'completed');
+    assert.equal(body, 'skill-input-verified');
+  } finally {
+    b.disable();
+  }
+});
