@@ -2,7 +2,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import esbuild from 'esbuild';
 import { createRequire } from 'node:module';
-import { mkdtempSync, rmSync, copyFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  rmSync,
+  copyFileSync,
+  symlinkSync,
+  writeFileSync,
+  mkdirSync,
+  readFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 const temp = mkdtempSync(join(tmpdir(), 'annotate-backend-test-'));
@@ -184,6 +192,54 @@ test('active command approvals proceed and explicit model choices survive a stal
     const result = await response(b, await b.session(), 'approval');
     assert.equal(result.state, 'completed');
     assert.equal(result.chunks, 'approved');
+  } finally {
+    b.disable();
+  }
+});
+
+test('unavailable inherited CLI model falls back to the account default and completes a reply', async () => {
+  const environment = runtime();
+  mkdirSync(environment.home);
+  const configPath = join(environment.home, 'fixture-models.json');
+  const config = JSON.stringify({
+    model: 'unavailable-cli-model',
+    models: [
+      { model: 'other-account-model', isDefault: false },
+      { model: 'account-default', isDefault: true },
+    ],
+    rejectUnavailable: true,
+  });
+  writeFileSync(configPath, config);
+  const b = new CodexBackend(fixture, () => {}, environment);
+  try {
+    await b.enable();
+    assert.equal(b.model, 'account-default');
+    assert.equal((await response(b, await b.session(), 'question')).state, 'completed');
+    assert.equal(readFileSync(configPath, 'utf8'), config);
+  } finally {
+    b.disable();
+  }
+});
+
+test('available inherited CLI model takes precedence over the account default', async () => {
+  const environment = runtime();
+  mkdirSync(environment.home);
+  writeFileSync(
+    join(environment.home, 'fixture-models.json'),
+    JSON.stringify({
+      model: 'chosen-cli-model',
+      models: [
+        { model: 'fixture-model', isDefault: true },
+        { model: 'chosen-cli-model', isDefault: false },
+      ],
+      rejectUnavailable: true,
+    }),
+  );
+  const b = new CodexBackend(fixture, () => {}, environment);
+  try {
+    await b.enable();
+    assert.equal(b.model, 'chosen-cli-model');
+    assert.equal((await response(b, await b.session(), 'question')).state, 'completed');
   } finally {
     b.disable();
   }

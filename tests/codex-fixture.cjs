@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 const readline = require('node:readline');
+const fs = require('node:fs');
+const path = require('node:path');
+const modelConfigPath = path.join(process.env.CODEX_HOME, 'fixture-models.json');
+const modelConfig = fs.existsSync(modelConfigPath)
+  ? JSON.parse(fs.readFileSync(modelConfigPath, 'utf8'))
+  : {};
+const models = modelConfig.models ?? [{ model: 'fixture-model', isDefault: true }];
 let session = 0,
   skillsDisabled = false;
 const timers = new Map();
@@ -24,7 +31,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   const reply = (result) => send({ id: m.id, result });
   if (m.method === 'initialize') reply({});
-  else if (m.method === 'config/read') reply({ config: { model: null } });
+  else if (m.method === 'config/read') reply({ config: { model: modelConfig.model ?? null } });
   else if (m.method === 'account/read') reply({ account: { type: 'chatgpt' } });
   else if (m.method === 'skills/list')
     reply({
@@ -44,8 +51,13 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.method === 'skills/config/write') {
     skillsDisabled = true;
     reply({});
-  } else if (m.method === 'model/list')
-    reply({ data: [{ model: 'fixture-model', isDefault: true }] });
+  } else if (m.method === 'model/list') reply({ data: models });
+  else if (
+    m.method === 'thread/start' &&
+    modelConfig.rejectUnavailable &&
+    !models.some((model) => model.model === m.params.model)
+  )
+    send({ id: m.id, error: { message: 'Model is unavailable for this account' } });
   else if (m.method === 'thread/start') reply({ thread: { id: 'session-' + ++session } });
   else if (m.method === 'thread/resume')
     m.params.threadId === 'missing'

@@ -57,6 +57,11 @@ export async function checkProviders({
     );
     const codexAuth = join(dir, 'codex-auth.json');
     writeFileSync(codexAuth, '{}', { mode: 0o600 });
+    mkdirSync(join(dir, 'codex-home'), { recursive: true });
+    writeFileSync(
+      join(dir, 'codex-home', 'fixture-models.json'),
+      JSON.stringify({ model: 'unavailable-cli-model', rejectUnavailable: true }),
+    );
     const fixture = join(dir, 'assistant');
     writeFileSync(
       fixture,
@@ -141,6 +146,37 @@ export async function checkProviders({
       await shot('connections-both-ready');
       await ev(`app.setting.close()`);
     });
+    await step(
+      'providers: unavailable inherited CLI model falls back and answers in Obsidian',
+      async () => {
+        await resetThreads();
+        await ev(
+          `${P}p.data.assistant.provider='chatgpt';p.data.codex.enabled=true;p.configureCodex()`,
+        );
+        await until(`${P}return p.backend?.state==='ready'`, 'ChatGPT fallback ready');
+        assert(
+          await ev(`${P}return p.backend.model==='fixture-model'`),
+          'account default selected',
+        );
+        await openComposer('live');
+        await sendQuestion('chatgpt', 'Explain the selected passage.');
+        await until(
+          `${P}return p.data.threads.at(-1)?.codex?.status==='completed'`,
+          'fallback model answered',
+        );
+        assert(
+          await ev(
+            `${P}return p.data.threads.at(-1).comments.at(-1).body==='Hello world'&&!!document.querySelector('.annotate-message-ai')`,
+          ),
+          'response rendered in the annotation thread',
+        );
+        assert(
+          JSON.parse(readFileSync(join(dir, 'codex-home', 'fixture-models.json'), 'utf8')).model ===
+            'unavailable-cli-model',
+          'inherited CLI configuration unchanged',
+        );
+      },
+    );
     await step(
       'providers: @claude routes from ChatGPT default and @chatgpt routes the reply',
       async () => {

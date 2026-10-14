@@ -198,7 +198,7 @@ export class CodexBackend {
         .parse(await this.rpc('config/read', { includeLayers: false }));
       this.model =
         this.preferredModel ||
-        configuration.config.model ||
+        catalog.data.find((m) => m.model === configuration.config.model)?.model ||
         (catalog.data.find((m) => m.isDefault) ?? catalog.data[0])?.model ||
         null;
       if (!this.model) throw new Error('Codex returned no available account models.');
