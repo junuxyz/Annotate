@@ -14,4 +14,4 @@ WORKDIR /workspace
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-ENTRYPOINT ["xvfb-run", "-a", "-s", "-screen 0 1280x900x24", "sh", "-c", "npm run build && npm test && exec node e2e/dev-check.mjs \"$@\"", "--"]
+ENTRYPOINT ["xvfb-run", "-a", "-s", "-screen 0 1280x900x24", "sh", "-c", "npm run lint && npm run build && npm test && exec node e2e/dev-check.mjs \"$@\"", "--"]

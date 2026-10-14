@@ -11,7 +11,7 @@ import {
   type Thread,
 } from '../src/model';
 
-test('inserting before a selection keeps the comment on its text', () => {
+void test('inserting before a selection keeps the comment on its text', () => {
   const state = EditorState.create({ doc: 'hello selected end' });
   const tr = state.update({ changes: { from: 0, insert: 'new ' } });
   const anchor = mapAnchor(
@@ -22,7 +22,7 @@ test('inserting before a selection keeps the comment on its text', () => {
   assert.equal(anchor.from, 10);
   assert.equal(anchor.quote, 'selected');
 });
-test('typing at the selection boundaries is excluded', () => {
+void test('typing at the selection boundaries is excluded', () => {
   const state = EditorState.create({ doc: 'abc' });
   const tr = state.update({
     changes: [
@@ -35,7 +35,7 @@ test('typing at the selection boundaries is excluded', () => {
   assert.equal(anchor.from, 1);
   assert.equal(anchor.to, 4);
 });
-test('edits inside a selection update its stored quote', () => {
+void test('edits inside a selection update its stored quote', () => {
   const state = EditorState.create({ doc: 'the cat sleeps' });
   const tr = state.update({ changes: { from: 5, to: 6, insert: 'o' } });
   assert.equal(
@@ -43,7 +43,7 @@ test('edits inside a selection update its stored quote', () => {
     'cot',
   );
 });
-test('deleting selected text preserves an orphaned anchor', () => {
+void test('deleting selected text preserves an orphaned anchor', () => {
   const state = EditorState.create({ doc: 'before target after' });
   const tr = state.update({ changes: { from: 7, to: 13 } });
   const anchor = mapAnchor(
@@ -55,11 +55,11 @@ test('deleting selected text preserves an orphaned anchor', () => {
   assert.equal(anchor.quote, 'target');
   assert.equal(locateAnchor(anchor, 'target elsewhere').orphaned, true);
 });
-test('reopening a note relocates a unique quote after external edits', () => {
+void test('reopening a note relocates a unique quote after external edits', () => {
   const anchor = makeAnchor('before target after', 7, 13);
   assert.equal(locateAnchor(anchor, 'added before target after').from, 13);
 });
-test('context disambiguates repeated passages', () => {
+void test('context disambiguates repeated passages', () => {
   const original = 'first target one / second target two';
   const anchor = makeAnchor(original, 26, 32);
   assert.equal(anchor.quote, 'target');
@@ -67,11 +67,11 @@ test('context disambiguates repeated passages', () => {
   assert.equal(relocated.from, 32);
   assert.equal(relocated.orphaned, false);
 });
-test('ambiguous repeated text is never silently attached elsewhere', () => {
+void test('ambiguous repeated text is never silently attached elsewhere', () => {
   const anchor = makeAnchor('target', 0, 6);
   assert.equal(locateAnchor(anchor, 'target target').orphaned, true);
 });
-test('file and folder renames preserve threads without matching sibling names', () => {
+void test('file and folder renames preserve threads without matching sibling names', () => {
   const thread = (path: string): Thread => ({
     id: path,
     path,
@@ -88,7 +88,7 @@ test('file and folder renames preserve threads without matching sibling names', 
   renameThreads(threads, 'renamed/note.md', 'renamed/new.md');
   assert.equal(threads[0]?.path, 'renamed/new.md');
 });
-test('persistent data rejects malformed or unsupported versions', () => {
+void test('persistent data rejects malformed or unsupported versions', () => {
   assert.equal(dataSchema.safeParse(emptyData()).success, true);
   assert.equal(dataSchema.safeParse({ ...emptyData(), version: 2 }).success, false);
   assert.equal(
@@ -96,7 +96,7 @@ test('persistent data rejects malformed or unsupported versions', () => {
     false,
   );
 });
-test('multiline and Korean selections use editor UTF-16 offsets', () => {
+void test('multiline and Korean selections use editor UTF-16 offsets', () => {
   const text = 'Intro\n메모 😀\nlast';
   const from = text.indexOf('메모'),
     to = text.indexOf('\nlast');

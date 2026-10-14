@@ -28,11 +28,11 @@ const { ClaudeBackend } = createRequire(import.meta.url)(join(root, 'cli.cjs'));
 const fixture = resolve('tests/assistant-fixture.cjs');
 after(() => rmSync(root, { recursive: true, force: true }));
 function request(backend, id, question, cancel = false) {
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let body = '',
       calls = 0;
-    try {
-      await backend.ask(
+    void backend
+      .ask(
         id,
         JSON.stringify({
           noteText: '# Synthetic 한글 note',
@@ -45,11 +45,11 @@ function request(backend, id, question, cancel = false) {
           calls++;
           resolve({ body, state, error, calls });
         },
-      );
-      if (cancel) await backend.interrupt(id);
-    } catch (error) {
-      reject(error);
-    }
+      )
+      .then(async () => {
+        if (cancel) await backend.interrupt(id);
+      })
+      .catch(reject);
   });
 }
 test('plain questions use the default assistant and @comment opts out', () => {

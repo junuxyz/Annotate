@@ -241,7 +241,7 @@ export class ClaudeBackend implements AssistantBackend {
     child.on('error', () =>
       done('failed', 'Cannot start the assistant CLI. Check its executable path.'),
     );
-    child.on('close', (code) => {
+    child.on('close', () => {
       try {
         line(buffer);
       } catch {

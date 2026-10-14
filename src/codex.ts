@@ -209,7 +209,7 @@ export class CodexBackend {
       const message = error instanceof Error ? error.message : 'Codex connection failed.';
       this.stopChild();
       this.stateChanged('error', message);
-      throw new Error(message);
+      throw new Error(message, { cause: error });
     }
   }
   private notify(method: string, params: unknown): void {
@@ -256,7 +256,8 @@ export class CodexBackend {
         if (p) {
           clearTimeout(p.timer);
           this.pending.delete(msg.id);
-          msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
+          if (msg.error) p.reject(new Error(msg.error.message));
+          else p.resolve(msg.result);
         }
         continue;
       }

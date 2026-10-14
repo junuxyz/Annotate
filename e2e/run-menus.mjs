@@ -1,5 +1,5 @@
 import * as h from './e2e.mjs';
-const { ev, key, type, click, check, sleep, P, CMD, SHIFT } = h;
+const { ev, key, click, check, sleep, P } = h;
 for (const m of ['reading', 'live', 'source']) {
   await h.mode(m);
   await sleep(1500);

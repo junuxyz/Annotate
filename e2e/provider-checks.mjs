@@ -22,7 +22,6 @@ export async function checkProviders({
   shot,
 }) {
   const P = `const p=app.plugins.plugins['annotate'];`;
-  const terminal = `${P}return p.data.threads.at(-1)?.codex?.status`;
   const sendQuestion = async (provider, question) => {
     await ev(`document.querySelector('.annotate-composer textarea').focus()`);
     await type(`@${provider} ${question}`);

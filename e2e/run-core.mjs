@@ -34,7 +34,7 @@ for (const m of ['live', 'source', 'reading']) {
   );
   await h.send('Input.imeSetComposition', { text: '한', selectionStart: 1, selectionEnd: 1 });
   await sleep(100);
-  const ime = await ev(
+  await ev(
     `window.__imeEnter=null;document.querySelector('.annotate-composer textarea').addEventListener('keydown',e=>{if(e.key==='Enter')__imeEnter={c:e.isComposing,k:e.keyCode}},{once:true});return 1`,
   );
   await h.send('Input.dispatchKeyEvent', {

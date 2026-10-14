@@ -18,7 +18,6 @@ import {
   type CodexSkill,
 } from './codex';
 import {
-  Platform,
   MarkdownView,
   MarkdownRenderChild,
   Modal,
@@ -870,6 +869,8 @@ export default class Annotate extends Plugin {
       }
     this.configureCodex();
     this.scheduleSave();
+    // The nested CodeMirror class has its own `this`.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const plugin = this;
     this.registerEditorExtension(
       ViewPlugin.fromClass(
@@ -1438,7 +1439,8 @@ export default class Annotate extends Plugin {
     quote.className = 'annotate-quote';
     quote.textContent = anchor.quote;
     const header = panel.querySelector('.annotate-header');
-    header ? header.prepend(quote) : panel.append(quote);
+    if (header) header.prepend(quote);
+    else panel.append(quote);
     if (anchor.orphaned) {
       const warning = panel.ownerDocument.createElement('p');
       warning.className = 'annotate-muted annotate-orphaned';

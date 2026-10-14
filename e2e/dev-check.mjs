@@ -345,6 +345,7 @@ const openComposer = async (m, quote = QUOTE) => {
       if (i === 2)
         throw new Error(
           `${e.message} ${JSON.stringify(await ev(`return {active:document.activeElement?.className,modals:document.querySelectorAll('.modal-container').length,popover:!!document.querySelector('.annotate-popover'),sel:getSelection().toString().slice(0,40)}`))}`,
+          { cause: e },
         );
     }
   }

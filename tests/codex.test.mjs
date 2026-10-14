@@ -63,14 +63,14 @@ test('note context serialization', () => {
   );
 });
 test('unchanged note bytes lead every request and latest question follows history', () => {
-  const note = '# Note\n\nExact \"quotes\", 한글 and spacing.\n';
+  const note = '# Note\n\nExact "quotes", 한글 and spacing.\n';
   const history = [
     { role: 'user', content: 'previous question' },
     { role: 'assistant', content: 'previous answer' },
   ];
   const a = questionContext(note, 'first selection', 'new question', history);
   const b = questionContext(note, 'different selection', 'different question', []);
-  const prefix = '{\"noteText\":' + JSON.stringify(note) + ',';
+  const prefix = '{"noteText":' + JSON.stringify(note) + ',';
   assert.ok(a.startsWith(prefix));
   assert.ok(b.startsWith(prefix));
   assert.deepEqual(Object.keys(JSON.parse(a)), [
@@ -81,7 +81,7 @@ test('unchanged note bytes lead every request and latest question follows histor
   ]);
   assert.equal(JSON.parse(a).noteText, note);
   const c = questionContext(note, 'first selection', 'another question', history);
-  assert.equal(a.slice(0, a.indexOf(',\"question\":')), c.slice(0, c.indexOf(',\"question\":')));
+  assert.equal(a.slice(0, a.indexOf(',"question":')), c.slice(0, c.indexOf(',"question":')));
   assert.ok(!questionContext('edited ' + note, 'first selection', 'q', history).startsWith(prefix));
 });
 test('persistent process, separate sessions, stream, resume, cancellation and missing session', async () => {

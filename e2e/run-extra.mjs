@@ -1,5 +1,5 @@
 import * as h from './e2e.mjs';
-const { ev, key, type, click, shot, check, sleep, threadsFor, P, CMD, SHIFT } = h;
+const { ev, key, type, click, shot, check, sleep, P, CMD, SHIFT } = h;
 const Q = 'violet flower';
 await h.mode('live');
 await ev(`${P}p.closePopup()`);
