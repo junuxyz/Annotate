@@ -388,7 +388,7 @@ const hoverComposer = async () => {
 // ---------- scenarios ----------
 if (only.includes('ui'))
   for (const theme of themes) {
-    await step(`branding [${theme}]: ribbon and settings logo`, async () => {
+    await step(`branding [${theme}]: native SVG ribbon icon and settings logo`, async () => {
       await ev(
         `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
       );
@@ -399,9 +399,9 @@ if (only.includes('ui'))
         );
         assert(
           await ev(
-            `const images=[document.querySelector('.annotate-ribbon img'),document.querySelector('.vertical-tab-content .annotate-brand-heading img')];await Promise.all(images.map(image=>image?.decode()));return images.every(image=>image?.naturalWidth>0&&image.src.startsWith('data:image/png;base64,')&&getComputedStyle(image).width!=='0px')`,
+            `const ribbon=document.querySelector('.annotate-ribbon'),svg=ribbon?.querySelector('svg.lucide-message-square-text'),image=document.querySelector('.vertical-tab-content .annotate-brand-heading img');await image?.decode();return !!svg&&!ribbon.querySelector('img')&&svg.getAttribute('stroke')==='currentColor'&&svg.getBoundingClientRect().width>0&&svg.getBoundingClientRect().height>0&&image?.naturalWidth>0&&image.src.startsWith('data:image/png;base64,')`,
           ),
-          'embedded logos load in the ribbon and settings',
+          'ribbon uses a theme-aware SVG and the settings logo loads',
         );
         await shot(`branding-${theme}`);
       } finally {

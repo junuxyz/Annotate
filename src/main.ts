@@ -980,10 +980,9 @@ export default class Annotate extends Plugin {
       name: 'Show comments for current note',
       callback: () => new ThreadList(this).open(),
     });
-    const ribbon = this.addRibbonIcon('message-square', 'Annotate', () =>
+    const ribbon = this.addRibbonIcon('message-square-text', 'Annotate', () =>
       new ThreadList(this).open(),
     );
-    ribbon?.replaceChildren(pluginLogo(ribbon.ownerDocument));
     ribbon?.addClass('annotate-ribbon');
     if (Platform.isDesktopApp) {
       this.addCommand({
