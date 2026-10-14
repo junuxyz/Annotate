@@ -743,8 +743,7 @@ test('edit and remove individual comments preserve drafts, reset conversation hi
     thread.codex.status = 'completed';
     plugin.paintCodex();
     click(document.querySelector('.annotate-message-remove'));
-    assert.equal(thread.comments.length, 2, 'first click only arms removal');
-    click(document.querySelector('.annotate-message-remove'));
+    assert.equal(thread.comments.length, 1, 'one click removes the comment and offers Undo');
     await tick();
     assert.equal(thread.comments.length, 1);
     assert.equal(thread.comments[0].body, 'reply');
@@ -755,11 +754,21 @@ test('edit and remove individual comments preserve drafts, reset conversation hi
       'Removed message must finish its exit animation',
     );
     click(document.querySelector('.annotate-message-remove'));
-    click(document.querySelector('.annotate-message-remove'));
     await tick();
     assert.equal(plugin.data.threads.length, 0);
     assert.equal(plugin.saved.threads.length, 0);
     same(document.querySelector('.annotate-popover'), null);
+    const undo = document.querySelector('.annotate-toast-undo');
+    assert.ok(undo, 'removing the last comment offers Undo');
+    click(undo);
+    await tick();
+    assert.equal(plugin.data.threads.length, 1, 'Undo restores the deleted thread');
+    assert.equal(plugin.data.threads[0].comments[0].body, 'reply');
+    assert.equal(plugin.saved.threads.length, 1, 'Undo is saved');
+    await until(
+      () => !document.querySelector('.annotate-toast'),
+      'Undo notice must leave after its exit animation',
+    );
   } finally {
     plugin.onunload();
     await tick();

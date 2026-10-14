@@ -116,12 +116,9 @@ for (const mode of ['live', 'source', 'reading']) {
   await click('.annotate-message-editor button[type=button]');
   await click('.annotate-message:first-child .annotate-message-remove');
   check(
-    `[${mode}] remove requires second click`,
-    await ev(
-      `${P}return p.data.threads.find(t=>t.id===${JSON.stringify(id)}).comments.length===2&&document.querySelector('.annotate-message-remove').getAttribute('aria-label')==='Confirm remove comment'`,
-    ),
+    `[${mode}] remove offers Undo`,
+    await ev(`return !!document.querySelector('.annotate-toast-undo')`),
   );
-  await click('.annotate-message:first-child .annotate-message-remove');
   await sleep(300);
   check(
     `[${mode}] removes only selected comment and updates count`,

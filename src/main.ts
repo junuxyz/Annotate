@@ -189,6 +189,14 @@ export function relativeTime(time: number, now = Date.now()): string {
     ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: 'numeric' } : {}),
   });
 }
+/** Collapses a list item's height and opacity before removing it. */
+function collapse(item: HTMLElement): void {
+  item.style.height = `${item.offsetHeight}px`;
+  void item.offsetHeight;
+  item.classList.add('annotate-is-leaving');
+  item.style.height = '0px';
+  setTimeout(() => item.remove(), 200);
+}
 const initial = (name: string) => (name.trim() || '?').slice(0, 1).toUpperCase();
 const thinking = (status?: string) => status === 'pending' || status === 'streaming';
 function messageBody(comment: Thread['comments'][number]): string {
@@ -258,6 +266,12 @@ export default class Annotate extends Plugin {
   private markdown = new CommentMarkdown();
   private submissions = new Set<string>();
   private cancellations = new Set<string>();
+  private retiring = new Set<HTMLElement>();
+  private drafts = new Map<string, string>();
+  private toast: { element: HTMLElement; timer?: ReturnType<typeof setTimeout> } | null = null;
+  private pulseId: string | null = null;
+  private pulseTimer: ReturnType<typeof setTimeout> | undefined;
+  private refreshPending = false;
   createBackend(): CodexBackend {
     return new CodexBackend(this.data.codex.executable, () => this.paintCodex());
   }
@@ -413,31 +427,32 @@ export default class Annotate extends Plugin {
     });
     remove.addEventListener('click', () => {
       if (this.threadBusy(thread) || !thread.comments.includes(comment)) return;
-      if (remove.dataset.confirm !== 'yes') {
-        remove.dataset.confirm = 'yes';
-        remove.classList.add('annotate-armed');
-        remove.setAttribute('aria-label', 'Confirm remove comment');
-        remove.title = 'Click again to remove';
-        setTimeout(() => {
-          delete remove.dataset.confirm;
-          remove.classList.remove('annotate-armed');
-          remove.setAttribute('aria-label', 'Remove comment');
-          remove.title = 'Remove comment';
-        }, 3000);
-        return;
-      }
+      const index = thread.comments.indexOf(comment),
+        threadIndex = this.data.threads.indexOf(thread),
+        codex = thread.codex && structuredClone(thread.codex);
       thread.comments = thread.comments.filter((message) => message.id !== comment.id);
-      if (!thread.comments.length) {
+      const removedThread = !thread.comments.length;
+      if (removedThread) {
         this.data.threads = this.data.threads.filter((t) => t.id !== thread.id);
         this.closePopup();
       } else {
         this.resetEditedConversation(thread);
         this.markdown.remove(body);
-        item.remove();
+        collapse(item);
         this.paintCodex();
       }
       this.changed();
       void this.persist();
+      this.showUndo(owner, removedThread ? 'Thread deleted' : 'Comment removed', () => {
+        if (thread.comments.includes(comment)) return;
+        thread.comments.splice(Math.min(index, thread.comments.length), 0, comment);
+        if (removedThread && !this.data.threads.includes(thread))
+          this.data.threads.splice(Math.min(threadIndex, this.data.threads.length), 0, thread);
+        if (!this.threadBusy(thread) && !thread.codex?.sessionId) thread.codex = codex;
+        this.changed();
+        void this.persist();
+        if (this.openThreadId === thread.id) this.openThread(thread, this.anchorRect, owner);
+      });
     });
     body.className = 'annotate-message-body markdown-rendered';
     body.addEventListener('click', (event) => {
@@ -459,6 +474,13 @@ export default class Annotate extends Plugin {
     }
     item.append(body, selectedReply);
     list.append(item);
+  }
+  private highlightClass(thread: Thread): string {
+    return [
+      'annotate-highlight',
+      ...(thread.id === this.openThreadId ? ['annotate-is-active'] : []),
+      ...(thread.id === this.pulseId ? ['annotate-pulse'] : []),
+    ].join(' ');
   }
   private threadBusy(thread: Thread): boolean {
     return this.submissions.has(thread.id) || thinking(thread.codex?.status);
@@ -507,6 +529,7 @@ export default class Annotate extends Plugin {
                   : '';
       status.textContent = text;
       status.hidden = !text;
+      status.classList.toggle('annotate-status-live', thinking(turn));
       status.classList.toggle(
         'annotate-status-error',
         ['failed', 'unknown', 'unavailable'].includes(turn) || state === 'error',
@@ -912,6 +935,9 @@ export default class Annotate extends Plugin {
     this.backend?.disable();
     this.backend = null;
     this.closePopup();
+    for (const panel of [...this.retiring]) this.retire(panel);
+    this.dismissToast(true);
+    clearTimeout(this.pulseTimer);
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (this.storageHealthy) void this.persist();
     this.views.clear();
@@ -943,7 +969,7 @@ export default class Annotate extends Plugin {
         source,
         bounds,
         thread.anchor,
-        'annotate-highlight',
+        this.highlightClass(thread),
         thread.id,
       );
       for (const mark of marks)
@@ -1033,7 +1059,7 @@ export default class Annotate extends Plugin {
       if (!view.visibleRanges.some((range) => a.from < range.to && a.to > range.from)) continue;
       ranges.push(
         Decoration.mark({
-          class: 'annotate-highlight',
+          class: this.highlightClass(thread),
           attributes: { 'data-annotate-thread': thread.id },
         }).range(a.from, a.to),
       );
@@ -1050,7 +1076,12 @@ export default class Annotate extends Plugin {
     return Decoration.set(ranges, true);
   }
   refreshViews(exclude?: EditorView): void {
+    if (!exclude) {
+      if (this.refreshPending) return;
+      this.refreshPending = true;
+    }
     requestAnimationFrame(() => {
+      if (!exclude) this.refreshPending = false;
       if (this.disposed) return;
       for (const view of this.views)
         if (view !== exclude) view.dispatch({ effects: refresh.of(null) });
@@ -1086,18 +1117,105 @@ export default class Annotate extends Plugin {
     this.markdown.clear();
     this.disposePopup?.();
     this.disposePopup = null;
-    this.popup?.remove();
+    const panel = this.popup;
     this.popup = null;
+    if (panel) {
+      panel.classList.remove('annotate-popover');
+      panel.classList.add('annotate-is-closing');
+      panel.inert = true;
+      panel.setAttribute('aria-hidden', 'true');
+      this.retiring.add(panel);
+      setTimeout(() => this.retire(panel), 140);
+    }
+    const wasOpen = this.openThreadId !== null;
     this.openThreadId = null;
-    if (this.draft) {
+    if (this.draft || wasOpen) {
       this.draft = null;
       this.refreshViews();
     }
   }
+  private retire(panel: HTMLElement): void {
+    panel.remove();
+    this.retiring.delete(panel);
+  }
+  /** Shows one transient notice with an Undo action; a newer notice replaces it. */
+  showUndo(doc: Document, message: string, undo: () => void): void {
+    this.dismissToast(true);
+    const element = doc.createElement('div'),
+      text = doc.createElement('span'),
+      button = doc.createElement('button');
+    element.className = 'annotate-toast';
+    element.setAttribute('role', 'status');
+    text.textContent = message;
+    button.type = 'button';
+    button.className = 'annotate-toast-undo';
+    button.textContent = 'Undo';
+    button.addEventListener('click', () => {
+      this.dismissToast();
+      undo();
+    });
+    element.append(text, button);
+    doc.body.append(element);
+    const toast: NonNullable<typeof this.toast> = { element };
+    const arm = (ms: number) => {
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(() => {
+        if (this.toast === toast) this.dismissToast();
+      }, ms);
+    };
+    element.addEventListener('mouseenter', () => clearTimeout(toast.timer));
+    element.addEventListener('mouseleave', () => arm(2500));
+    this.toast = toast;
+    arm(6000);
+  }
+  dismissToast(immediate = false): void {
+    const toast = this.toast;
+    this.toast = null;
+    if (!toast) return;
+    clearTimeout(toast.timer);
+    if (immediate) toast.element.remove();
+    else {
+      toast.element.classList.add('annotate-is-closing');
+      setTimeout(() => toast.element.remove(), 160);
+    }
+  }
+  /** Scrolls a thread's highlight into view, pulses it once, and opens the thread there. */
+  revealThread(thread: Thread): void {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || view.file?.path !== thread.path || thread.resolved || thread.anchor.orphaned) {
+      this.openThread(thread);
+      return;
+    }
+    clearTimeout(this.pulseTimer);
+    this.pulseId = thread.id;
+    this.pulseTimer = setTimeout(() => {
+      this.pulseId = null;
+      this.refreshViews();
+    }, 1400);
+    const doc = view.containerEl.ownerDocument;
+    const mark = () =>
+      view.containerEl.querySelector<HTMLElement>(
+        `[data-annotate-thread="${CSS.escape(thread.id)}"]`,
+      );
+    if (view.getMode() === 'source') {
+      const editor = view.editor;
+      editor.scrollIntoView(
+        { from: editor.offsetToPos(thread.anchor.from), to: editor.offsetToPos(thread.anchor.to) },
+        true,
+      );
+    } else mark()?.scrollIntoView({ block: 'center' });
+    this.refreshViews();
+    setTimeout(() => {
+      if (this.disposed || !this.data.threads.includes(thread)) return;
+      const rect = mark()?.getBoundingClientRect();
+      this.openThread(thread, rect && rect.height ? rect : undefined, doc);
+    }, 90);
+  }
   private panel(rect?: Pick<DOMRect, 'left' | 'bottom'>, doc: Document = document): HTMLElement {
     this.closePopup();
+    for (const old of [...this.retiring]) this.retire(old);
     const panel = doc.createElement('section');
-    panel.className = 'annotate-popover';
+    panel.className = 'annotate-popover annotate-panel';
     panel.setAttribute('role', 'dialog');
     const title = doc.createElement('span');
     title.id = `annotate-thread-label-${crypto.randomUUID()}`;
@@ -1172,6 +1290,7 @@ export default class Annotate extends Plugin {
     label: string,
     submit: (body: string, quote?: ReplyQuote) => Promise<boolean>,
     allowQuote = false,
+    draftKey?: string,
   ): void {
     const doc = panel.ownerDocument,
       form = doc.createElement('form'),
@@ -1195,12 +1314,23 @@ export default class Annotate extends Plugin {
     button.title = 'Save comment (Enter); new line (Shift+Enter)';
     button.className = 'annotate-send';
     button.disabled = true;
-    input.addEventListener('input', () => {
+    const sync = () => {
       button.disabled = !input.value.trim();
       form.classList.toggle('annotate-has-text', !button.disabled);
       form.classList.toggle('annotate-asking-ai', invocation(input.value) !== null);
+      // Measure at auto height, then restore the old height first so the change can transition.
+      const previous = input.style.height;
       input.style.height = 'auto';
-      input.style.height = `${Math.min(160, Math.max(24, input.scrollHeight))}px`;
+      const next = `${Math.min(160, Math.max(24, input.scrollHeight))}px`;
+      input.style.height = previous;
+      void input.offsetHeight;
+      input.style.height = next;
+    };
+    input.addEventListener('input', () => {
+      sync();
+      if (!draftKey) return;
+      if (input.value.trim()) this.drafts.set(draftKey, input.value);
+      else this.drafts.delete(draftKey);
     });
     const inputContainer = doc.createElement('div');
     inputContainer.className = 'annotate-composer-input';
@@ -1230,7 +1360,24 @@ export default class Annotate extends Plugin {
         preview.hidden = false;
         input.focus({ preventScroll: true });
       };
-    inputContainer.append(preview, input);
+    const hint = doc.createElement('div');
+    hint.className = 'annotate-composer-hint';
+    hint.setAttribute('aria-hidden', 'true');
+    const key = (text: string) => {
+      const element = doc.createElement('kbd');
+      element.textContent = text;
+      return element;
+    };
+    const hintInner = doc.createElement('span');
+    hintInner.append(
+      key('↵'),
+      doc.createTextNode(' to send'),
+      doc.createTextNode('  ·  '),
+      key('⇧ ↵'),
+      doc.createTextNode(' new line'),
+    );
+    hint.append(hintInner);
+    inputContainer.append(preview, input, hint);
     mentionMenu(input, inputContainer);
     form.append(inputLabel, avatar, inputContainer, button);
     panel.append(form);
@@ -1244,6 +1391,7 @@ export default class Annotate extends Plugin {
         .then((success) => {
           if (success) {
             clearReply();
+            if (draftKey) this.drafts.delete(draftKey);
             input.value = '';
             input.dispatchEvent(new Event('input', { bubbles: true }));
           }
@@ -1264,6 +1412,12 @@ export default class Annotate extends Plugin {
         form.requestSubmit();
       }
     });
+    const saved = draftKey ? this.drafts.get(draftKey) : undefined;
+    if (saved) {
+      input.value = saved;
+      sync();
+      input.setSelectionRange(saved.length, saved.length);
+    }
     input.focus({ preventScroll: true });
   }
   compose(target: Target, rect?: Pick<DOMRect, 'left' | 'bottom'>, doc?: Document): void {
@@ -1320,6 +1474,8 @@ export default class Annotate extends Plugin {
           this.openThread(thread, rect, panel.ownerDocument);
         return true;
       },
+      false,
+      `new:${target.path}:${target.anchor.from}:${target.anchor.to}`,
     );
     this.position(panel, rect, panel.ownerDocument);
   }
@@ -1331,6 +1487,7 @@ export default class Annotate extends Plugin {
     list.className = 'annotate-messages';
     panel.append(list);
     this.openThreadId = thread.id;
+    this.refreshViews();
     for (const comment of thread.comments) this.messageElement(list, thread, comment);
     const header = panel.querySelector('.annotate-header'),
       close = header?.querySelector('.annotate-close');
@@ -1354,28 +1511,22 @@ export default class Annotate extends Plugin {
     });
     const remove = iconButton(owner, 'trash', 'Delete thread', 'annotate-delete');
     actions.append(remove);
-    let confirmed = false,
-      disarm: ReturnType<typeof setTimeout> | undefined;
     remove.addEventListener('click', () => {
-      if (!confirmed) {
-        confirmed = true;
-        remove.classList.add('annotate-armed');
-        remove.setAttribute('aria-label', 'Confirm delete');
-        remove.title = 'Click again to delete';
-        disarm = setTimeout(() => {
-          confirmed = false;
-          remove.classList.remove('annotate-armed');
-          remove.setAttribute('aria-label', 'Delete thread');
-          remove.title = 'Delete thread';
-        }, 3000);
-        return;
-      }
-      clearTimeout(disarm);
       if (thread.codex?.sessionId)
         void this.backend?.interrupt(thread.codex.sessionId).catch(() => {});
+      const index = this.data.threads.indexOf(thread);
       this.data.threads = this.data.threads.filter((t) => t.id !== thread.id);
       this.changed();
       this.closePopup();
+      this.showUndo(owner, 'Thread deleted', () => {
+        if (this.data.threads.includes(thread)) return;
+        if (thread.codex && thinking(thread.codex.status)) thread.codex.status = 'cancelled';
+        for (const message of thread.comments)
+          if (thinking(message.status)) message.status = 'cancelled';
+        this.data.threads.splice(Math.min(index, this.data.threads.length), 0, thread);
+        this.changed();
+        void this.persist();
+      });
     });
     if (thread.resolved) {
       const banner = owner.createElement('div');
@@ -1435,6 +1586,7 @@ export default class Annotate extends Plugin {
           return true;
         },
         true,
+        `thread:${thread.id}`,
       );
     this.paintCodex();
     list.scrollTop = list.scrollHeight;
@@ -1464,6 +1616,29 @@ class ThreadList extends Modal {
       const row = this.contentEl.createDiv({
         cls: `annotate-thread-row${thread.resolved ? ' annotate-is-resolved' : ''}`,
       });
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', `Open comment thread: ${thread.anchor.quote}`);
+      const openRow = () => {
+        this.close();
+        this.plugin.revealThread(thread);
+      };
+      row.addEventListener('click', (event) => {
+        if (event.target instanceof Element && event.target.closest('button')) return;
+        openRow();
+      });
+      row.addEventListener('keydown', (event) => {
+        if (event.target !== row) return;
+        const rows = [...this.contentEl.querySelectorAll<HTMLElement>('.annotate-thread-row')];
+        const at = rows.indexOf(row);
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openRow();
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          rows[(at + (event.key === 'ArrowDown' ? 1 : rows.length - 1)) % rows.length]?.focus();
+        }
+      });
       row.createEl('blockquote', { text: thread.anchor.quote });
       const first = thread.comments[0],
         last = thread.comments.at(-1);
@@ -1477,10 +1652,8 @@ class ThreadList extends Modal {
         text: `${thread.comments.length} ${thread.comments.length === 1 ? 'comment' : 'comments'}${last ? ' · ' + relativeTime(last.createdAt) : ''}${thread.resolved ? ' · Resolved' : ''}${thread.anchor.orphaned ? ' · Text missing' : ''}`,
       });
       const open = row.createEl('button', { text: 'Open', cls: 'annotate-pill' });
-      open.addEventListener('click', () => {
-        this.close();
-        this.plugin.openThread(thread);
-      });
+      open.tabIndex = -1;
+      open.addEventListener('click', openRow);
       if (thread.anchor.orphaned) {
         const reattach = row.createEl('button', {
           text: 'Attach to selection',
@@ -1499,10 +1672,11 @@ class ThreadList extends Modal {
           );
           this.plugin.changed();
           this.close();
-          this.plugin.openThread(thread);
+          this.plugin.revealThread(thread);
         });
       }
     }
+    this.contentEl.querySelector<HTMLElement>('.annotate-thread-row')?.focus();
   }
   onClose(): void {
     this.contentEl.empty();

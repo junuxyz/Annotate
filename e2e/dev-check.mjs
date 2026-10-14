@@ -1,5 +1,5 @@
 // One-command development check in an isolated Obsidian on a Linux virtual display.
-// usage: node e2e/dev-check.mjs [--only smoke,ui,list] [--modes live,source,reading] [--themes light,dark]
+// usage: node e2e/dev-check.mjs [--only smoke,ui,list,polish] [--modes live,source,reading] [--themes light,dark]
 //                               [--shots] [--record] [--stop] [--profile <dir>] [--port <n>]
 // Sets up (or reuses) its own profile, syncs test-vault + current build, resets fixtures and comment data,
 // reloads the plugin, runs the selected scenarios with per-step timeouts, and prints a short report.
@@ -33,7 +33,7 @@ const arg = (name, def) => {
 };
 const flag = (name) => process.argv.includes(`--${name}`);
 const list = (name, def) => arg(name, def).split(',').filter(Boolean);
-const only = list('only', 'smoke,ui,list'),
+const only = list('only', 'smoke,ui,list,polish'),
   modes = list('modes', 'live'),
   themes = list('themes', 'light,dark');
 // Each checkout gets its own profile and port so parallel sessions never share an instance.
@@ -290,7 +290,7 @@ await ev(
   `if(!document.getElementById('annotate-dev-check-still'))document.head.append(Object.assign(document.createElement('style'),{id:'annotate-dev-check-still',textContent:'*,*::before,*::after{animation:none!important;transition:none!important}'}))`,
 );
 await ev(
-  `app.plugins.setEnable(true);await app.plugins.disablePlugin('annotate');await app.plugins.enablePluginAndSave('annotate');`,
+  `const previous=app.plugins.plugins['annotate'];if(previous){previous.data=${JSON.stringify(data)};previous.configureCodex();await previous.persist();}await app.plugins.setEnable(true);await app.plugins.disablePlugin('annotate');await app.plugins.enablePluginAndSave('annotate');`,
   'reload plugin',
 );
 errors.length = 0;
@@ -409,7 +409,7 @@ if (only.includes('ui'))
 if (only.includes('smoke')) {
   await step('smoke: plugin loaded, Codex disabled, no load errors', async () => {
     const s = await ev(
-      `${P}return {name:p?.manifest.name,v:p?.manifest.version,codex:p?.data.codex?.enabled,css:[...document.styleSheets].some(x=>{try{return [...x.cssRules].some(r=>r.selectorText?.includes('.annotate-popover'))}catch{return false}})}`,
+      `${P}return {name:p?.manifest.name,v:p?.manifest.version,codex:p?.data.codex?.enabled,css:[...document.styleSheets].some(x=>{try{return [...x.cssRules].some(r=>r.selectorText?.includes('.annotate-panel'))}catch{return false}})}`,
     );
     assert(
       s.name === pluginName && s.v === version && s.codex === false && s.css && !errors.length,
@@ -599,6 +599,57 @@ if (only.includes('list'))
     return `${rows} row(s)`;
   });
 
+if (only.includes('polish'))
+  for (const m of modes)
+    await step(`polish [${m}]: draft, active highlight, undo, list keyboard, exit`, async () => {
+      await resetThreads();
+      await createComment(m, 'polish comment');
+      const id = await ev(`${P}return p.data.threads[0].id`);
+      await until(
+        `return !!document.querySelector('.annotate-highlight.annotate-is-active')`,
+        'open thread highlight is active',
+      );
+      await hoverComposer();
+      await type('unsent polish draft');
+      await ev(`${P}p.closePopup()`);
+      await until(
+        `return !document.querySelector('.annotate-panel')&&!document.querySelector('.annotate-highlight.annotate-is-active')`,
+        'popover exit finishes and active highlight clears',
+      );
+      await ev(`${P}p.openThread(p.data.threads[0])`);
+      await until(
+        `return document.querySelector('.annotate-composer textarea')?.value==='unsent polish draft'`,
+        'unsent reply draft restored',
+      );
+      await ev(`${P}p.closePopup()`);
+      await ev(`app.commands.executeCommandById('annotate:show-comment-threads')`);
+      await until(
+        `return document.activeElement?.classList.contains('annotate-thread-row')`,
+        'first list row focused',
+      );
+      await press('Enter');
+      await until(
+        `return document.querySelector('.annotate-popover .annotate-quote')&&!document.querySelector('.modal-container')`,
+        'Enter on a row opens the thread',
+      );
+      assert(
+        (await ev(
+          `return document.querySelectorAll('.annotate-highlight.annotate-pulse').length`,
+        )) > 0 || m === 'reading',
+        'revealed highlight pulses',
+      );
+      await ev(`document.querySelector('.annotate-popover .annotate-delete').click()`);
+      await until(
+        `${P}return !p.data.threads.length&&!!document.querySelector('.annotate-toast-undo')`,
+        'one click deletes and offers Undo',
+      );
+      await ev(`document.querySelector('.annotate-toast-undo').click()`);
+      await until(
+        `${P}return p.data.threads[0]?.id===${JSON.stringify(id)}&&!document.querySelector('.annotate-toast')`,
+        'Undo restores the thread',
+      );
+    });
+
 if (only.includes('markdown'))
   for (const theme of themes)
     for (const m of modes) {
@@ -684,6 +735,12 @@ if (only.includes('markdown'))
         await until(
           `const b=document.querySelector('[data-message-id="markdown-stream"] .annotate-message-body');return b?.querySelector('strong')?.textContent==='stream bold'&&!!b.querySelector('mjx-container')`,
           'partial streamed Markdown',
+        );
+        assert(
+          await ev(
+            `const ai=document.querySelector('.annotate-message-ai'),user=document.querySelector('.annotate-message:not(.annotate-message-ai)');return !!ai&&!!user&&getComputedStyle(ai).backgroundColor===getComputedStyle(user).backgroundColor`,
+          ),
+          'assistant messages use the same background as ordinary comments',
         );
         await ev(
           `${P}const c=p.data.threads[0].comments.at(-1);c.body='**obsolete**';p.paintCodex();c.body='**stream bold** $a^2$ finished *italic*';c.status='completed';p.paintCodex()`,

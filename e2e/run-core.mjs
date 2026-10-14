@@ -174,16 +174,19 @@ for (const m of ['live', 'source', 'reading']) {
   const opened = await ev(`return document.querySelector('.annotate-quote')?.textContent`);
   check(`[${m}] badge click opens this thread`, opened === Q, `opened=${JSON.stringify(opened)}`);
   await click('.annotate-delete');
-  const armed = await ev(
-    `return document.querySelector('.annotate-delete').classList.contains('annotate-armed')`,
-  );
-  check(`[${m}] delete requires second click`, armed && (await threadsFor(Q)).length === 1);
-  await click('.annotate-delete');
   await sleep(300);
   check(
-    `[${m}] second click deletes thread`,
+    `[${m}] one click deletes thread and offers Undo`,
     (await threadsFor(Q)).length === 0 &&
-      !(await ev(`return !!document.querySelector('.annotate-popover')`)),
+      !(await ev(`return !!document.querySelector('.annotate-popover')`)) &&
+      (await ev(`return !!document.querySelector('.annotate-toast-undo')`)),
   );
+  await click('.annotate-toast-undo');
+  await sleep(300);
+  check(`[${m}] Undo restores deleted thread`, (await threadsFor(Q)).length === 1);
+  await ev(
+    `${P}const t=p.data.threads.find(t=>t.anchor.quote===${JSON.stringify(Q)});p.data.threads=p.data.threads.filter(x=>x!==t);p.changed();await p.persist()`,
+  );
+  await sleep(200);
 }
 process.exit(h.done());
