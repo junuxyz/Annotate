@@ -47,16 +47,12 @@ const options = {
                 if (!existsSync(enabledPath))
                   throw new Error(`Missing Obsidian plugin list: ${enabledPath}`);
                 const current = JSON.parse(readFileSync(enabledPath, 'utf8'));
-                const enabled = [
-                  ...new Set(current.map((id) => (id === 'selection-comments' ? 'annotate' : id))),
-                ];
+                const enabled = [...new Set(current)];
                 if (!enabled.includes('annotate')) enabled.push('annotate');
                 if (JSON.stringify(current) !== JSON.stringify(enabled))
                   writeFileSync(enabledPath, JSON.stringify(enabled, null, 2) + '\n');
                 activated = true;
-                console.log(
-                  'Enabled Annotate and disabled Selection Comments; reload Obsidian to apply.',
-                );
+                console.log('Enabled Annotate; reload Obsidian to apply.');
               }
               console.log(`Updated Annotate in ${pluginDir}`);
             });

@@ -838,35 +838,7 @@ export default class Annotate extends Plugin {
   }
 
   async onload(): Promise<void> {
-    let raw: unknown = await this.loadData();
-    if (raw === null || raw === undefined) {
-      const adapter = this.app.vault.adapter;
-      const legacyPath = `${this.app.vault.configDir}/plugins/selection-comments/data.json`;
-      if (adapter?.exists && (await adapter.exists(legacyPath))) {
-        try {
-          const legacy = dataSchema.safeParse(JSON.parse(await adapter.read(legacyPath)));
-          if (legacy.success) {
-            raw = legacy.data;
-            for (const thread of legacy.data.threads)
-              if (thread.codex) {
-                thread.codex.sessionId = undefined;
-                thread.codex.contextVersion = undefined;
-                if (!['pending', 'streaming'].includes(thread.codex.status))
-                  thread.codex.status = 'idle';
-              }
-            new Notice('Annotate imported your comments from Selection Comments.');
-          } else {
-            new Notice(
-              'Annotate could not read old comments. Keep Selection Comments installed to preserve them.',
-            );
-          }
-        } catch {
-          new Notice(
-            'Annotate could not read old comments. Keep Selection Comments installed to preserve them.',
-          );
-        }
-      }
-    }
+    const raw: unknown = await this.loadData();
     if (raw !== null && raw !== undefined) {
       const parsed = dataSchema.safeParse(raw);
       if (!parsed.success) {

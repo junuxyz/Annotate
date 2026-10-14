@@ -30,8 +30,6 @@ Copy `main.js`, `manifest.json`, and `styles.css` into
 `<vault>/.obsidian/plugins/annotate/`, then enable **Annotate** in
 **Settings → Community plugins**.
 
-Upgrading from Selection Comments? See [migration instructions](docs/usage.md#migrating-from-selection-comments).
-
 ## Quick start
 
 1. Select text and press **Cmd+Shift+M** on macOS or **Ctrl+Shift+M** on Windows/Linux.
