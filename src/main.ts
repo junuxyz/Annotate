@@ -83,6 +83,7 @@ type ReadingSection = {
   path: string;
   source: string;
   context: MarkdownPostProcessorContext;
+  dirty: boolean;
 };
 
 const ICONS = {
@@ -919,7 +920,9 @@ export default class Annotate extends Plugin {
               } else if (previous !== text) plugin.reconcile(path, text);
             }
             const pathChanged = path !== this.path;
+            const previousPath = this.path;
             this.path = path;
+            if (pathChanged) plugin.releaseDocument(previousPath);
             if (
               pathChanged ||
               update.docChanged ||
@@ -931,6 +934,7 @@ export default class Annotate extends Plugin {
           }
           destroy(): void {
             plugin.views.delete(this.view);
+            plugin.releaseDocument(this.path);
           }
         },
         {
@@ -957,12 +961,19 @@ export default class Annotate extends Plugin {
       if (this.disposed || source === null || !context.getSectionInfo(root)) return;
       if (this.documents.get(context.sourcePath) !== source)
         this.reconcile(context.sourcePath, source);
-      const section: ReadingSection = { root, path: context.sourcePath, source, context };
+      const section: ReadingSection = {
+        root,
+        path: context.sourcePath,
+        source,
+        context,
+        dirty: false,
+      };
       this.readingSections.set(root, section);
       context.addChild(
         new ReadingLifecycle(root, () => {
           this.readingSections.delete(root);
           clearReadingMarks(root);
+          this.releaseDocument(section.path);
         }),
       );
       this.renderReadingSection(section);
@@ -1055,11 +1066,20 @@ export default class Annotate extends Plugin {
           this.documents.delete(path);
       }),
     );
+    const refreshReading = () => {
+      requestAnimationFrame(() => {
+        if (this.disposed) return;
+        for (const section of this.readingSections.values())
+          if (section.dirty && section.root.isShown()) this.renderReadingSection(section);
+      });
+    };
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', () => {
         this.closePopup();
+        refreshReading();
       }),
     );
+    this.registerEvent(this.app.workspace.on('layout-change', refreshReading));
   }
 
   async syncBuild(): Promise<void> {
@@ -1119,6 +1139,17 @@ export default class Annotate extends Plugin {
     this.views.clear();
     for (const section of this.readingSections.values()) clearReadingMarks(section.root);
     this.readingSections.clear();
+    this.documents.clear();
+    this.drafts.clear();
+  }
+
+  private releaseDocument(path: string | null): void {
+    if (!path) return;
+    for (const view of this.views)
+      if (view.state.field(editorInfoField, false)?.file?.path === path) return;
+    for (const section of this.readingSections.values())
+      if (section.path === path && section.root.isConnected) return;
+    this.documents.delete(path);
   }
 
   private async noteText(path: string): Promise<string | null> {
@@ -1128,6 +1159,7 @@ export default class Annotate extends Plugin {
   private renderReadingSection(section: ReadingSection): void {
     const info = section.context.getSectionInfo(section.root);
     if (!info) return;
+    section.dirty = false;
     clearReadingMarks(section.root);
     const source = this.documents.get(section.path) ?? section.source;
     const bounds = sectionBounds(source, info.lineStart, info.lineEnd);
@@ -1261,8 +1293,10 @@ export default class Annotate extends Plugin {
       if (this.disposed) return;
       for (const view of this.views)
         if (view !== exclude) view.dispatch({ effects: refresh.of(null) });
-      for (const section of this.readingSections.values())
-        if (section.root.isConnected) this.renderReadingSection(section);
+      for (const section of this.readingSections.values()) {
+        section.dirty = true;
+        if (section.root.isShown()) this.renderReadingSection(section);
+      }
     });
   }
   changed(): void {

@@ -62,6 +62,12 @@ for (const name of [
 }
 win.Range.prototype.getClientRects = () => [new win.DOMRect(100, 100, 120, 20)];
 win.Range.prototype.getBoundingClientRect = () => new win.DOMRect(100, 100, 120, 20);
+win.HTMLElement.prototype.isShown = function () {
+  if (!this.isConnected) return false;
+  for (let element = this; element; element = element.parentElement)
+    if (win.getComputedStyle(element).display === 'none') return false;
+  return true;
+};
 const tick = () => new Promise((resolve) => setTimeout(resolve, 50));
 const click = (element) => {
   assert.ok(element);
@@ -375,6 +381,58 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
   }
 });
 
+test('closing the last editor releases cached note text and reopening restores its comments', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const source = 'before passage after';
+  const parent = document.createElement('div');
+  document.body.append(parent);
+  const open = () =>
+    new EditorView({
+      parent,
+      state: EditorState.create({ doc: source, extensions: plugin.extensions }),
+    });
+  let first = open();
+  const second = open();
+  try {
+    first.dispatch({ selection: { anchor: 7, head: 14 } });
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: {
+        from: 7,
+        to: 14,
+        quote: 'passage',
+        prefix: 'before ',
+        suffix: ' after',
+        orphaned: false,
+      },
+      text: () => source,
+    });
+    await send('Keep this saved comment');
+    plugin.closePopup();
+    first.destroy();
+    assert.equal(plugin.documents.get('test.md'), source, 'a split editor still needs the note');
+    second.destroy();
+    assert.equal(plugin.documents.has('test.md'), false, 'closed notes must not stay cached');
+    assert.equal(plugin.saved.threads[0].comments[0].body, 'Keep this saved comment');
+    first = open();
+    await tick();
+    assert.equal(plugin.documents.get('test.md'), source);
+    assert.equal(parent.querySelector('.annotate-highlight').textContent, 'passage');
+    click(parent.querySelector('.annotate-count'));
+    assert.equal(
+      document.querySelector('.annotate-message-body').textContent,
+      'Keep this saved comment',
+    );
+  } finally {
+    plugin.onunload();
+    first.destroy();
+    second.destroy();
+    parent.remove();
+  }
+});
+
 test('reading mode: existing highlights, shortcut, Enter save, reply counts and cleanup', async () => {
   const plugin = new Plugin();
   await plugin.onload();
@@ -450,6 +508,30 @@ test('reading mode: existing highlights, shortcut, Enter save, reply counts and 
     await tick();
     same(first.querySelector('.annotate-highlight'), null);
     assert.ok(second.querySelector('.annotate-highlight'));
+    preview.style.display = 'none';
+    const hiddenMarkup = preview.innerHTML;
+    plugin.data.threads[0].resolved = false;
+    plugin.data.threads[1].comments.push({
+      id: 'hidden-reply',
+      author: 'You',
+      body: 'A reply while Reading is hidden',
+      createdAt: 1,
+    });
+    plugin.changed();
+    await tick();
+    plugin.app.workspace.emit('layout-change');
+    await tick();
+    assert.equal(preview.innerHTML, hiddenMarkup, 'hidden previews do not rebuild their marks');
+    preview.style.display = '';
+    plugin.app.workspace.emit('layout-change');
+    await tick();
+    assert.equal(first.querySelector('.annotate-count').textContent, '1');
+    assert.equal(second.querySelector('.annotate-count').textContent, '3');
+    assert.equal(
+      [...first.querySelectorAll('.annotate-highlight')].map((mark) => mark.textContent).join(''),
+      'bold and link',
+      'showing Reading restores the current highlight and comment counts',
+    );
   } finally {
     plugin.onunload();
     for (const child of children) child.onunload();

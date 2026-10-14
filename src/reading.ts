@@ -4,23 +4,24 @@ import type { Anchor } from './model';
 export type SourcePoint = { from: number; to: number };
 export type DomPoint = { node: Text; offset: number };
 type Projection<T> = { text: string; points: T[] };
+type ProjectionBuilder<T> = { chars: string[]; points: T[] };
 const markdown = parser.configure([GFM]);
 
-function normalized<T>(chars: { char: string; point: T }[]): Projection<T> {
-  let text = '';
-  const points: T[] = [];
-  for (const { char, point } of chars) {
-    if (/\s/.test(char)) {
-      if (!text || text.endsWith(' ')) continue;
-      text += ' ';
-    } else text += char;
-    points.push(point);
+function append<T>(projection: ProjectionBuilder<T>, char: string, point: T): void {
+  if (/\s/.test(char)) {
+    if (!projection.chars.length || projection.chars.at(-1) === ' ') return;
+    char = ' ';
   }
-  if (text.endsWith(' ')) {
-    text = text.slice(0, -1);
-    points.pop();
+  projection.chars.push(char);
+  projection.points.push(point);
+}
+
+function finish<T>(projection: ProjectionBuilder<T>): Projection<T> {
+  if (projection.chars.at(-1) === ' ') {
+    projection.chars.pop();
+    projection.points.pop();
   }
-  return { text, points };
+  return { text: projection.chars.join(''), points: projection.points };
 }
 
 export function projectSource(source: string, doc: Document): Projection<SourcePoint> {
@@ -75,23 +76,23 @@ export function projectSource(source: string, doc: Document): Projection<SourceP
     hide(from, from + 2 + (alias >= 0 ? alias + 1 : 0));
     hide(from + match[0].length - 2, from + match[0].length);
   }
-  const chars: { char: string; point: SourcePoint }[] = [];
+  const projected: ProjectionBuilder<SourcePoint> = { chars: [], points: [] };
   for (let i = 0; i < source.length; i++) {
     const replacement = replacements.get(i);
     if (replacement) {
       for (let j = 0; j < replacement.text.length; j++)
-        chars.push({ char: replacement.text.charAt(j), point: { from: i, to: replacement.end } });
+        append(projected, replacement.text.charAt(j), { from: i, to: replacement.end });
       i = replacement.end - 1;
-    } else if (!hidden[i]) chars.push({ char: source.charAt(i), point: { from: i, to: i + 1 } });
+    } else if (!hidden[i]) append(projected, source.charAt(i), { from: i, to: i + 1 });
   }
-  return normalized(chars);
+  return finish(projected);
 }
 
 export function projectDom(root: HTMLElement): Projection<DomPoint | null> {
   const doc = root.ownerDocument,
     win = doc.defaultView;
-  const chars: { char: string; point: DomPoint | null }[] = [];
-  if (!win) return { text: '', points: [] };
+  const projected: ProjectionBuilder<DomPoint | null> = { chars: [], points: [] };
+  if (!win) return finish(projected);
   const blocks = new Set([
     'P',
     'DIV',
@@ -110,8 +111,9 @@ export function projectDom(root: HTMLElement): Projection<DomPoint | null> {
   ]);
   const visit = (node: Node): void => {
     if (node instanceof win.Text) {
-      for (let offset = 0; offset < node.data.length; offset++)
-        chars.push({ char: node.data.charAt(offset), point: { node, offset } });
+      const text = node.data;
+      for (let offset = 0; offset < text.length; offset++)
+        append(projected, text.charAt(offset), { node, offset });
       return;
     }
     if (!(node instanceof win.HTMLElement)) return;
@@ -121,12 +123,12 @@ export function projectDom(root: HTMLElement): Projection<DomPoint | null> {
       )
     )
       return;
-    if (node.tagName === 'BR' || blocks.has(node.tagName)) chars.push({ char: ' ', point: null });
+    if (node.tagName === 'BR' || blocks.has(node.tagName)) append(projected, ' ', null);
     for (const child of node.childNodes) visit(child);
-    if (blocks.has(node.tagName)) chars.push({ char: ' ', point: null });
+    if (blocks.has(node.tagName)) append(projected, ' ', null);
   };
   visit(root);
-  return normalized(chars);
+  return finish(projected);
 }
 
 export function sectionBounds(source: string, lineStart: number, lineEnd: number): SourcePoint {

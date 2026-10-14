@@ -1144,6 +1144,174 @@ if (only.includes('copy'))
       });
     }
 
+if (only.includes('preview')) {
+  for (const mode of modes.filter((mode) => mode !== 'reading')) {
+    await step(
+      `preview [${mode}]: editing skips hidden sections, showing Reading applies pending changes`,
+      async () => {
+        await resetThreads();
+        await createComment('reading', 'Hidden preview refresh');
+        await ev(`${P}p.closePopup()`);
+        await openMode(mode);
+        await ev(
+          `${P}const sections=[...p.readingSections.values()].filter(s=>s.path===${JSON.stringify(NOTE)}&&s.root.isConnected);if(!sections.length||sections.some(s=>s.root.isShown()))throw Error('Expected connected hidden preview');window.annotatePreviewProbe={render:p.renderReadingSection,calls:0,roots:sections.map(s=>({root:s.root,html:s.root.innerHTML}))};p.renderReadingSection=function(section){if(!section.root.isShown())window.annotatePreviewProbe.calls++;return window.annotatePreviewProbe.render.call(this,section)};const editor=app.workspace.activeLeaf.view.editor;editor.focus();editor.setCursor(editor.offsetToPos(editor.getValue().length))`,
+        );
+        try {
+          for (let i = 0; i < 3; i++) {
+            await type('x');
+            await press('Backspace');
+          }
+          await ev(
+            `${P}p.openThread(p.data.threads[0]);p.popup.querySelector('.annotate-resolve').click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
+          );
+          assert(
+            await ev(
+              `return window.annotatePreviewProbe.calls===0&&window.annotatePreviewProbe.roots.every(({root,html})=>root.innerHTML===html)`,
+            ),
+            'typing and resolving do not rebuild hidden preview sections',
+          );
+          await openMode('reading');
+          await until(
+            `return app.workspace.activeLeaf.view.previewMode.containerEl.querySelectorAll('.annotate-reading-count').length===0`,
+            'resolved annotation disappears when Reading becomes visible',
+          );
+        } finally {
+          await ev(
+            `${P}p.renderReadingSection=window.annotatePreviewProbe.render;delete window.annotatePreviewProbe`,
+          );
+        }
+      },
+    );
+  }
+  await step('preview: hidden Reading tab catches up when activated', async () => {
+    await resetThreads();
+    await createComment('reading', 'Background tab refresh');
+    await ev(
+      `${P}p.closePopup();window.annotatePreviewLeaf=app.workspace.activeLeaf;const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
+    );
+    try {
+      const visibility = await ev(
+        `${P}const root=window.annotatePreviewLeaf.view.previewMode.containerEl;return {shown:root.isShown(),sections:[...p.readingSections.values()].filter(s=>root.contains(s.root)&&s.root.isConnected).length}`,
+      );
+      assert(!visibility.shown, `Reading tab must be hidden: ${JSON.stringify(visibility)}`);
+      const hiddenMarkup = await ev(
+        `return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`,
+      );
+      await ev(
+        `${P}p.data.threads[0].comments.push({id:'hidden-tab-reply',author:'Synthetic',body:'A background reply',createdAt:1});p.changed();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
+      );
+      assert(
+        (await ev(`return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`)) ===
+          hiddenMarkup,
+        'hidden tab does not rebuild its markup for a comment update',
+      );
+      await ev(`app.workspace.setActiveLeaf(window.annotatePreviewLeaf,{focus:true})`);
+      await until(
+        `return window.annotatePreviewLeaf.view.previewMode.containerEl.querySelector('.annotate-reading-count')?.textContent==='2'`,
+        'activated Reading tab shows the pending reply count',
+      );
+    } finally {
+      await ev(`delete window.annotatePreviewLeaf`);
+    }
+  });
+  await step(
+    'preview: visible inactive Reading split updates while editing another pane',
+    async () => {
+      await resetThreads();
+      await createComment('reading', 'Visible split refresh');
+      await ev(
+        `${P}p.closePopup();window.annotatePreviewLeaf=app.workspace.activeLeaf;const split=app.workspace.getLeaf('split','vertical');await split.setViewState({type:'markdown',state:{file:${JSON.stringify(NOTE)},mode:'source',source:false}});app.workspace.setActiveLeaf(split,{focus:true});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
+      );
+      try {
+        assert(
+          await ev(
+            `return app.workspace.activeLeaf!==window.annotatePreviewLeaf&&window.annotatePreviewLeaf.view.previewMode.containerEl.isShown()`,
+          ),
+          'inactive Reading split remains visible',
+        );
+        await ev(
+          `${P}p.openThread(p.data.threads[0]);document.querySelector('.annotate-composer textarea').focus()`,
+        );
+        await type('Reply from the editor split');
+        await press('Enter');
+        await until(
+          `return window.annotatePreviewLeaf.view.previewMode.containerEl.querySelector('.annotate-reading-count')?.textContent==='2'`,
+          'visible Reading split receives the new reply count',
+        );
+      } finally {
+        await ev(
+          `${P}p.closePopup();window.annotatePreviewLeaf.detach();delete window.annotatePreviewLeaf`,
+        );
+      }
+    },
+  );
+}
+
+if (only.includes('memory')) {
+  for (const mode of modes) {
+    await step(
+      `memory [${mode}]: split views keep note text, last close releases it, reopen restores comments`,
+      async () => {
+        await resetThreads();
+        await createComment(mode, 'Saved comment survives cache eviction');
+        await ev(`${P}p.closePopup()`);
+        const before = await ev(`${P}await p.persist();return JSON.stringify(p.data.threads)`);
+        await ev(
+          `const first=app.workspace.getLeavesOfType('markdown').find(l=>l.view.file?.path===${JSON.stringify(NOTE)});const second=app.workspace.getLeaf('split','vertical');await second.setViewState({type:'markdown',state:{file:${JSON.stringify(NOTE)},mode:${JSON.stringify(mode === 'reading' ? 'preview' : 'source')},source:${mode === 'source'}}});app.workspace.setActiveLeaf(second,{focus:true});first.detach()`,
+        );
+        await until(
+          `${P}return p.documents.has(${JSON.stringify(NOTE)})`,
+          'split retains note text',
+        );
+        await ev(
+          `for(const leaf of app.workspace.getLeavesOfType('markdown'))if(leaf.view.file?.path===${JSON.stringify(NOTE)})leaf.detach();const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true})`,
+        );
+        await until(`${P}return !p.documents.has(${JSON.stringify(NOTE)})`, 'closed note evicted');
+        assert(
+          (await ev(`${P}return JSON.stringify(p.data.threads)`)) === before,
+          'cache eviction preserves saved comments and anchors',
+        );
+        await openMode(mode);
+        await until(
+          `return [...document.querySelectorAll('.annotate-count')].some(el=>el.textContent.includes('1'))`,
+          'reopened note has its comment badge',
+        );
+        await ev(`${P}p.openThread(p.data.threads[0])`);
+        await until(
+          `return document.querySelector('.annotate-message-body')?.textContent==='Saved comment survives cache eviction'`,
+          'reopened comment body',
+        );
+        await ev(`${P}p.closePopup()`);
+      },
+    );
+  }
+  await step(
+    'memory: disable releases note and draft caches while saved comments survive reload',
+    async () => {
+      const before = await ev(`${P}await p.persist();return JSON.stringify(p.data.threads)`);
+      try {
+        await ev(
+          `${P}window.annotateMemoryUnloaded=p;p.drafts.set('synthetic-memory-draft','Unsent synthetic draft');await app.plugins.disablePlugin('annotate');await p.saveQueue`,
+        );
+        assert(
+          await ev(
+            `return window.annotateMemoryUnloaded.documents.size===0&&window.annotateMemoryUnloaded.drafts.size===0`,
+          ),
+          'disabled instance releases its ephemeral note and draft text',
+        );
+        await ev(`await app.plugins.enablePlugin('annotate')`);
+        const after = await ev(`${P}return JSON.stringify(p.data.threads)`);
+        assert(
+          isDeepStrictEqual(JSON.parse(after), JSON.parse(before)),
+          `cache cleanup on disable preserves persisted comments: ${before} -> ${after}`,
+        );
+      } finally {
+        await ev(`delete window.annotateMemoryUnloaded`);
+      }
+    },
+  );
+}
+
 if (only.includes('providers') || only.includes('claude-live')) {
   const { checkProviders } = await import('./provider-checks.mjs');
   await checkProviders({

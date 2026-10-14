@@ -56,6 +56,15 @@ test('reading selection converts text across inline formatting into the exact Ma
   const selection = selectedSourceRange(el, source, { from: 0, to: source.length }, range);
   assert.equal(source.slice(selection.from, selection.to), 'old** and [lin');
 });
+test('collapsed whitespace retains the first space source offset and trims both ends', () => {
+  const projected = projectSource(' \tA  B\n', doc);
+  assert.equal(projected.text, 'A B');
+  assert.deepEqual(projected.points, [
+    { from: 2, to: 3 },
+    { from: 3, to: 4 },
+    { from: 5, to: 6 },
+  ]);
+});
 test('identical rendered passages in separate blocks retain their own positions', () => {
   const source = 'same text\n\nsame text';
   const first = root('<p>same text</p>'),
