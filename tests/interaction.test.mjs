@@ -1,3 +1,4 @@
+import { same, until } from './assertions.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -154,7 +155,7 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
     await tick();
     assert.equal(input.value, '@chatgpt ');
     assert.equal(input.selectionStart, input.value.length);
-    assert.equal(document.activeElement, input);
+    same(document.activeElement, input);
     assert.equal(menu.hidden, true);
     assert.equal(input.getAttribute('aria-expanded'), 'false');
     assert.equal(
@@ -210,7 +211,10 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
       'reply completion also does not submit',
     );
     plugin.closePopup();
-    assert.equal(document.querySelector('.annotate-mention-menu'), null);
+    await until(
+      () => !document.querySelector('.annotate-mention-menu'),
+      'Closed mention menu must be removed after its exit animation',
+    );
   } finally {
     plugin.onunload();
     await tick();
@@ -231,12 +235,12 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     view.focus();
     view.contentDOM.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
     await tick();
-    assert.equal(
+    same(
       document.querySelector('.annotate-selection-action'),
       null,
       'selecting text must not show a floating Comment button',
     );
-    assert.equal(
+    same(
       document.querySelector('.annotate-popover'),
       null,
       'selection alone must not open the composer',
@@ -262,7 +266,7 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
       document.querySelector('.annotate-draft-selection'),
       'selection stays highlighted while typing',
     );
-    assert.equal(document.activeElement, document.querySelector('.annotate-composer textarea'));
+    same(document.activeElement, document.querySelector('.annotate-composer textarea'));
     assert.equal(
       document.querySelector('.annotate-popover').style.top,
       '130px',
@@ -317,7 +321,7 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
       document.querySelector('.annotate-messages .annotate-message-body').textContent,
       '<img src=x onerror=alert(1)>',
     );
-    assert.equal(document.querySelector('.annotate-messages img'), null);
+    same(document.querySelector('.annotate-messages img'), null);
     await send('a reply\nsecond line');
     assert.equal(plugin.data.threads[0].comments[1].body, 'a reply\nsecond line');
     assert.equal(document.querySelectorAll('.annotate-messages article').length, 2);
@@ -325,8 +329,8 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     click(document.querySelector('.annotate-resolve'));
     await tick();
     assert.equal(plugin.data.threads[0].resolved, true);
-    assert.equal(document.querySelector('.annotate-highlight'), null);
-    assert.equal(document.querySelector('.annotate-composer'), null);
+    same(document.querySelector('.annotate-highlight'), null);
+    same(document.querySelector('.annotate-composer'), null);
     click(document.querySelector('.annotate-resolve'));
     await tick();
     assert.ok(document.querySelector('.annotate-highlight'));
@@ -343,13 +347,13 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     view.dispatch({ changes: { from: 13, to: 21 } });
     await tick();
     assert.equal(plugin.data.threads[0].anchor.orphaned, true);
-    assert.equal(document.querySelector('.annotate-highlight'), null);
+    same(document.querySelector('.annotate-highlight'), null);
   } finally {
     plugin.onunload();
     view.destroy();
     await tick();
-    assert.equal(document.querySelector('.annotate-popover'), null);
-    assert.equal(document.querySelector('.annotate-selection-action'), null);
+    same(document.querySelector('.annotate-popover'), null);
+    same(document.querySelector('.annotate-selection-action'), null);
   }
 });
 
@@ -426,14 +430,14 @@ test('reading mode: existing highlights, shortcut, Enter save, reply counts and 
     );
     click(document.querySelector('.annotate-resolve'));
     await tick();
-    assert.equal(first.querySelector('.annotate-highlight'), null);
+    same(first.querySelector('.annotate-highlight'), null);
     assert.ok(second.querySelector('.annotate-highlight'));
   } finally {
     plugin.onunload();
     for (const child of children) child.onunload();
     await tick();
-    assert.equal(preview.querySelector('.annotate-reading-mark'), null);
-    assert.equal(preview.querySelector('.annotate-reading-count'), null);
+    same(preview.querySelector('.annotate-reading-mark'), null);
+    same(preview.querySelector('.annotate-reading-count'), null);
     preview.remove();
   }
 });
@@ -720,7 +724,7 @@ test('edit and remove individual comments preserve drafts, reset conversation hi
     assert.equal(plugin.saved.threads[0].comments[0].body, 'edited $y$\n한글');
     assert.equal(thread.codex.sessionId, undefined, 'next model turn imports edited history');
     assert.equal(draft.value, 'unsent reply');
-    assert.equal(document.querySelector('.annotate-message-editor'), null);
+    same(document.querySelector('.annotate-message-editor'), null);
     click(document.querySelector('.annotate-message-edit'));
     input = document.querySelector('.annotate-message-editor textarea');
     input.value = 'discard';
@@ -746,12 +750,16 @@ test('edit and remove individual comments preserve drafts, reset conversation hi
     assert.equal(thread.comments[0].body, 'reply');
     assert.equal(thread.codex.sessionId, undefined);
     assert.equal(draft.value, 'unsent reply');
+    await until(
+      () => document.querySelectorAll('.annotate-messages article').length === 1,
+      'Removed message must finish its exit animation',
+    );
     click(document.querySelector('.annotate-message-remove'));
     click(document.querySelector('.annotate-message-remove'));
     await tick();
     assert.equal(plugin.data.threads.length, 0);
     assert.equal(plugin.saved.threads.length, 0);
-    assert.equal(document.querySelector('.annotate-popover'), null);
+    same(document.querySelector('.annotate-popover'), null);
   } finally {
     plugin.onunload();
     await tick();
@@ -774,7 +782,7 @@ test('posting a reply keeps an open comment edit and saves it against the same m
     const editor = document.querySelector('.annotate-message-editor textarea');
     editor.value = 'unsaved edit';
     await send('reply while editing');
-    assert.equal(document.querySelector('.annotate-message-editor textarea'), editor);
+    same(document.querySelector('.annotate-message-editor textarea'), editor);
     assert.equal(editor.value, 'unsaved edit');
     assert.equal(document.querySelectorAll('.annotate-messages article').length, 2);
     assert.equal(plugin.data.threads[0].comments[0].body, 'original');
@@ -933,7 +941,7 @@ test('copy message and entire thread preserve Markdown and read the latest conve
     click(failed);
     await tick();
     assert.equal(failed.getAttribute('aria-label'), 'Copy entire thread');
-    assert.equal(plugin.data.threads[0], thread);
+    same(plugin.data.threads[0], thread);
   } finally {
     clipboard.writeText = original;
     plugin.onunload();

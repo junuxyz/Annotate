@@ -1,3 +1,4 @@
+import { same } from './assertions.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -42,7 +43,7 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(body.querySelector('strong').textContent, 'latest');
   assert.equal(body.querySelector('.annotate-chatgpt-mention').textContent, '@chatgpt');
-  assert.equal(body.querySelector('code .annotate-chatgpt-mention'), null);
+  same(body.querySelector('code .annotate-chatgpt-mention'), null);
   renderer.paint(app, body, '@chatgpt **latest**', 'Fixtures/Annotations.md');
   assert.equal(calls.length, 2, 'unchanged content does not restart rendering');
   renderer.paint(
@@ -66,7 +67,7 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
   calls[3].reject(new Error('renderer unavailable'));
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(body.textContent, 'fallback <script>');
-  assert.equal(body.querySelector('script'), null);
+  same(body.querySelector('script'), null);
   assert.equal(calls[3].component.loaded, false);
   await window.happyDOM.close();
 });
