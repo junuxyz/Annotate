@@ -46,13 +46,15 @@ export class CommentMarkdown {
     const content = body.ownerDocument.createElement('div');
     content.className = 'annotate-markdown-content';
     // Keep the LaTeX delimiters accepted by existing ChatGPT comments.
-    const markdown = mathParts(text)
-      .map((part) =>
-        part.kind === 'math' && part.text.startsWith('\\')
-          ? `${part.display ? '$$' : '$'}${part.display ? part.source.trim() : part.source}${part.display ? '$$' : '$'}`
-          : part.text,
-      )
-      .join('');
+    const markdown = /\\[([]/.test(text)
+      ? mathParts(text)
+          .map((part) =>
+            part.kind === 'math' && part.text.startsWith('\\')
+              ? `${part.display ? '$$' : '$'}${part.display ? part.source.trim() : part.source}${part.display ? '$$' : '$'}`
+              : part.text,
+          )
+          .join('')
+      : text;
     if (!previous) body.textContent = text;
     void MarkdownRenderer.render(app, markdown, content, path, render.component)
       .then(() => {

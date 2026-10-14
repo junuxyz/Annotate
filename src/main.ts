@@ -1,5 +1,4 @@
 import { assistantIcon } from './logos';
-import { defaultBuildDirectory, syncLocalBuild } from './sync';
 import {
   createAssistant,
   assistantInvocation,
@@ -60,7 +59,7 @@ import {
 } from './model';
 import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
-import logoUrl from '../assets/annotate-logo.png';
+import logoUrl from '../assets/annotate-icon.png';
 
 function pluginLogo(doc: Document): HTMLImageElement {
   const image = doc.createElement('img');
@@ -257,10 +256,10 @@ export default class Annotate extends Plugin {
   private popup: HTMLElement | null = null;
   private draft: { target: Target; view: EditorView | null } | null = null;
   private disposePopup: (() => void) | null = null;
+  private selectionHandlers = new WeakMap<HTMLElement, () => void>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
   private disposed = false;
-  syncing = false;
   private storageHealthy = true;
   backend: AssistantBackend | null = null;
   connectionLabels = new Map<ProviderId, HTMLElement>();
@@ -424,14 +423,7 @@ export default class Annotate extends Plugin {
         selectedReply.style.top = `${Math.max(12, Math.min(above >= 12 ? above : rect.bottom + 8, height - button.height - 12))}px`;
       }
     };
-    owner.addEventListener('selectionchange', captureSelection);
-    const dispose = this.disposePopup;
-    this.disposePopup = () => {
-      owner.removeEventListener('selectionchange', captureSelection);
-      dispose?.();
-    };
-    body.addEventListener('mouseup', captureSelection);
-    body.addEventListener('keyup', captureSelection);
+    this.selectionHandlers.set(body, captureSelection);
     const startReply = (text: string) => {
       if (!text || thread.resolved || !thread.comments.includes(comment)) return;
       this.quoteReply?.({ messageId: comment.id, text });
@@ -1012,13 +1004,6 @@ export default class Annotate extends Plugin {
       new ThreadList(this).open(),
     );
     ribbon?.addClass('annotate-ribbon');
-    if (Platform.isDesktopApp) {
-      this.addCommand({
-        id: 'sync-local-build',
-        name: 'Sync latest local build',
-        callback: () => void this.syncBuild(),
-      });
-    }
     this.addSettingTab(new CommentsSettings(this));
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
@@ -1052,47 +1037,6 @@ export default class Annotate extends Plugin {
       }),
     );
     this.registerEvent(this.app.workspace.on('layout-change', refreshReading));
-  }
-
-  async syncBuild(): Promise<void> {
-    if (this.syncing || !Platform.isDesktopApp) return;
-    this.syncing = true;
-    new Notice('Syncing Annotate…');
-    try {
-      if (!this.storageHealthy)
-        throw new Error('Resolve the comment storage error before syncing.');
-      if (this.saveTimer) clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-      await this.persistOrThrow();
-      const manager: unknown = Reflect.get(this.app, 'plugins');
-      if (!manager || typeof manager !== 'object') throw new Error('Plugin reload is unavailable.');
-      const disable: unknown = Reflect.get(manager, 'disablePlugin');
-      const enable: unknown = Reflect.get(manager, 'enablePlugin');
-      if (typeof disable !== 'function' || typeof enable !== 'function')
-        throw new Error('Plugin reload is unavailable.');
-      const version = await syncLocalBuild({
-        source: this.data.localBuildDirectory || defaultBuildDirectory,
-        destination: this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`,
-        adapter: this.app.vault.adapter,
-        disable: async () => {
-          await disable.call(manager, 'annotate');
-        },
-        enable: async () => {
-          await enable.call(manager, 'annotate');
-          const loaded: unknown = Reflect.get(manager, 'plugins');
-          if (!loaded || typeof loaded !== 'object' || !Reflect.get(loaded, 'annotate'))
-            throw new Error('The synced build could not load.');
-        },
-      });
-      new Notice(`Annotate ${version} synced and reloaded.`);
-    } catch (error) {
-      new Notice(
-        `Annotate sync failed: ${error instanceof Error ? error.message : String(error)}`,
-        10000,
-      );
-    } finally {
-      this.syncing = false;
-    }
   }
 
   onunload(): void {
@@ -1424,6 +1368,21 @@ export default class Annotate extends Plugin {
         else this.closePopup();
       }
     };
+    let selectedBody: HTMLElement | null = null;
+    const captureSelection = () => {
+      const selection = doc.getSelection();
+      const anchor = selection?.anchorNode;
+      const element = anchor?.nodeType === 1 ? anchor : anchor?.parentElement;
+      const body =
+        element instanceof Element ? element.closest<HTMLElement>('.annotate-message-body') : null;
+      const next = body && panel.contains(body) ? body : null;
+      if (selectedBody && selectedBody !== next) this.selectionHandlers.get(selectedBody)?.();
+      if (next) this.selectionHandlers.get(next)?.();
+      selectedBody = next;
+    };
+    doc.addEventListener('selectionchange', captureSelection);
+    panel.addEventListener('mouseup', captureSelection);
+    panel.addEventListener('keyup', captureSelection);
     doc.addEventListener('mousedown', outside);
     doc.addEventListener('keydown', escape);
     const win = doc.defaultView,
@@ -1435,6 +1394,7 @@ export default class Annotate extends Plugin {
       : null;
     resize?.observe(panel);
     this.disposePopup = () => {
+      doc.removeEventListener('selectionchange', captureSelection);
       doc.removeEventListener('mousedown', outside);
       doc.removeEventListener('keydown', escape);
       resize?.disconnect();
@@ -2028,30 +1988,6 @@ class CommentsSettings extends PluginSettingTab {
             .onChange((value) => {
               config.executable = value.trim() || command;
               this.plugin.changed();
-            }),
-        );
-    }
-    if (Platform.isDesktopApp) {
-      new Setting(advanced)
-        .setName('Local build folder')
-        .setDesc('For plugin development: folder with the latest Annotate build.')
-        .addText((text) =>
-          text
-            .setPlaceholder(defaultBuildDirectory)
-            .setValue(this.plugin.data.localBuildDirectory || defaultBuildDirectory)
-            .onChange((value) => {
-              this.plugin.data.localBuildDirectory = value.trim();
-              this.plugin.changed();
-            }),
-        )
-        .addButton((button) =>
-          button
-            .setButtonText('Sync')
-            .setDisabled(this.plugin.syncing)
-            .onClick(async () => {
-              button.setDisabled(true).setButtonText('Syncing…');
-              await this.plugin.syncBuild();
-              button.setDisabled(false).setButtonText('Sync');
             }),
         );
     }

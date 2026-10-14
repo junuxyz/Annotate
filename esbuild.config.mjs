@@ -14,7 +14,6 @@ if (vault && !existsSync(resolve(vault, '.obsidian')))
 
 const options = {
   entryPoints: ['src/main.ts'],
-  define: { ANNOTATE_BUILD_DIRECTORY: JSON.stringify(resolve('.')) },
   bundle: true,
   loader: { '.png': 'dataurl' },
   outfile: 'main.js',

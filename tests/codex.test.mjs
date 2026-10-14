@@ -13,9 +13,9 @@ await esbuild.build({
   format: 'cjs',
   outfile: join(temp, 'backend.cjs'),
 });
-const { CodexBackend, SessionUnavailable, invocation, questionContext } = createRequire(
-  import.meta.url,
-)(join(temp, 'backend.cjs'));
+const { CodexBackend, SessionUnavailable, questionContext } = createRequire(import.meta.url)(
+  join(temp, 'backend.cjs'),
+);
 const fixture = resolve('tests/codex-fixture.cjs');
 const authSource = join(temp, 'auth.json');
 writeFileSync(authSource, '{}');
@@ -37,9 +37,7 @@ async function response(backend, id, text, cancel = false) {
   if (cancel) await backend.interrupt(id);
   return done;
 }
-test('marker removal and note context serialization', () => {
-  assert.equal(invocation('@chatgpt Explain this'), 'Explain this');
-  assert.equal(invocation('ordinary comment'), null);
+test('note context serialization', () => {
   const history = [
     { role: 'user', content: 'prior question' },
     { role: 'assistant', content: 'prior reply' },

@@ -914,6 +914,23 @@ test('selected reply quotes stay in the thread, survive reload, and reach resume
     body.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
     const reply = body.closest('article').querySelector('.annotate-selection-reply');
     assert.equal(reply.hidden, false);
+    const otherBody = document.querySelector(
+      '.annotate-message:not(.annotate-message-ai) .annotate-message-body',
+    );
+    const otherRange = document.createRange();
+    otherRange.selectNodeContents(otherBody);
+    selection.removeAllRanges();
+    selection.addRange(otherRange);
+    document.dispatchEvent(new win.Event('selectionchange'));
+    const otherReply = otherBody.closest('article').querySelector('.annotate-selection-reply');
+    assert.equal(reply.hidden, true, 'moving selection hides the previous message action');
+    assert.equal(otherReply.hidden, false);
+    selection.removeAllRanges();
+    document.dispatchEvent(new win.Event('selectionchange'));
+    assert.equal(otherReply.hidden, true, 'clearing selection hides the action');
+    selection.addRange(range);
+    document.dispatchEvent(new win.Event('selectionchange'));
+    assert.equal(reply.hidden, false);
     click(reply);
     assert.equal(document.querySelector('.annotate-reply-preview blockquote').textContent, 'world');
     await send('@chatgpt explain that part');

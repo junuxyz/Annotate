@@ -474,9 +474,6 @@ export class CodexBackend {
     }
   }
 }
-export function invocation(body: string): string | null {
-  return /(^|\s)@chatgpt\b/i.test(body) ? body.replace(/(^|\s)@chatgpt\b/gi, '$1').trim() : null;
-}
 export type ConversationMessage = {
   role: 'user' | 'assistant';
   content: string;
