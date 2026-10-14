@@ -666,9 +666,14 @@ button.annotate-count:hover {
   background: color-mix(in srgb, var(--annotate-surface) 97%, var(--text-normal));
   align-items: flex-start;
   gap: 8px;
-  margin: 0;
-  padding: 10px 10px 10px 14px;
-  border-top: 1px solid var(--annotate-hairline);
+  margin: 8px 10px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--annotate-hairline);
+  border-radius: 20px;
+  transition: border-color var(--annotate-base) var(--annotate-ease);
+}
+.annotate-composer:focus-within {
+  border-color: color-mix(in srgb, var(--annotate-hairline) 75%, var(--annotate-accent));
 }
 .annotate-header + .annotate-composer {
   border-top: 0;
@@ -791,7 +796,9 @@ button.annotate-count:hover {
   display: none;
 }
 .annotate-new-comment .annotate-composer {
-  border-top: 0;
+  margin: 0;
+  border: 0;
+  border-radius: inherit;
   padding: 8px 8px 8px 12px;
 }
 
