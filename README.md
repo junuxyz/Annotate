@@ -10,10 +10,12 @@
 
 ## Features
 
-- 💬 **Comment on any passage.** Start a thread and reply right from its highlight. Full markdown supported, which includes note links, embeds, code blocks, and LaTeX.
+- 💬 **Comment on any passage.** Start a thread, reply, edit, resolve, or reopen it from the highlight or comments list. Quote selected text, copy messages or entire threads, and expand longer conversations. Comments support Obsidian Markdown, note links, embeds, code blocks, and LaTeX, and follow text edits and Obsidian renames.
+- 🖍️ **Highlight and color text.** Choose highlight and text colors from the selection menu, combine them, or remove them. Customize the highlight palette, opacity, and Rounded, Flat, or Underline shape. **Cmd/Ctrl+Shift+H** reapplies your last highlight color. Bold, italics, and strikethrough stay formatted.
 - 🤖 **Ask an assistant.** When enabled, messages ask your default assistant. Start with `@comment` to save a comment without an AI reply, or use `@chatgpt` / `@claude` to choose an assistant. Answers use your current note and highlighted passage as context. Optional, desktop only.
   - Comments stay in your vault without changing your notes. Assistant requests share note content with the selected provider. See [assistant setup and privacy](docs/assistants.md).
-- **Use Codex skills.** After mentioning an assistant, type `/` to search installed skills. Send `@chatgpt /skill-name your question` to run a Codex skill. Posted skill commands appear in green, with colors adapted to light and dark themes. Desktop only.
+- 🛠️ **Use Codex skills.** Type `/` after mentioning an assistant to search installed skills, then send `@chatgpt /skill-name your question` to run one. Desktop only.
+- 🎨 **Fit your Obsidian theme.** The interface uses your theme's colors, accent color, and typography to blend into Obsidian in light and dark mode. Highlight colors remain customizable.
 
 ## Install
 
@@ -38,7 +40,7 @@ Copy `main.js`, `manifest.json`, and `styles.css` into
 
 ## Text highlights
 
-Select note text to open the compact **Highlight | Annotate** menu. Choose
+Select note text to open the compact **Highlight | Color | Annotate** menu. Choose
 **Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
 on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
 **Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
@@ -49,9 +51,15 @@ color pickers or hex values, and choose Rounded, Flat or Underline. Hex values m
 include opacity, such as `#ffe06680`. The default colors are yellow, pink and light blue.
 Palette and shape changes update existing Annotate highlights while the plugin is enabled.
 
+Choose **Color** in the selection menu to change text color or restore the default.
+Text colors follow the active theme and can be combined with highlights.
+The command palette also offers **Annotate: Color selected text with last color**;
+assign a shortcut in Obsidian Hotkeys if you use it often.
+
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments
-are left unchanged. Editor highlighting and recoloring can be undone normally.
+are left unchanged. Text colors are saved as inline `<span>` elements.
+Editor highlighting and recoloring can be undone normally.
 
 ## Documentation
 
