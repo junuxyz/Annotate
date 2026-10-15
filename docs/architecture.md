@@ -65,6 +65,13 @@ request starts with the updated saved history.
 
 ## Persistence and recovery
 
+`hotkeys.ts` edits the host's existing shortcut overrides rather than duplicating
+them in plugin data. Advanced settings list every registered Annotate command,
+including commands without a default key. The Obsidian hotkey manager is an
+internal API; its capabilities and returned bindings are checked before use.
+The recorder uses a modal key scope, checks command collisions, and rolls back
+in-memory overrides if native persistence fails.
+
 `dataSchema` in `model.ts` defines the saved format. `version` remains `1`.
 Legacy `codex` fields still hold the shared enable switch and thread session
 state. `assistant` selects the provider, and messages retain their own provider

@@ -2116,6 +2116,24 @@ if (only.includes('storage')) {
   );
 }
 
+if (only.includes('shortcuts')) {
+  const { checkShortcuts } = await import('./shortcut-checks.mjs');
+  await checkShortcuts({
+    ev,
+    step,
+    until,
+    press,
+    modes,
+    themes,
+    shot,
+    assert,
+    createComment,
+    select,
+    resetThreads,
+    closeModals,
+  });
+}
+
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});
 await resetThreads().catch(() => {});

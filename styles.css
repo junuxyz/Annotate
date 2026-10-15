@@ -1183,6 +1183,9 @@ button.annotate-count:hover {
   font-size: var(--font-ui-small);
   padding: 8px 0;
 }
+.annotate-hotkey-setting .setting-item-control {
+  flex-wrap: wrap;
+}
 
 .annotate-settings-highlight-color {
   display: block;

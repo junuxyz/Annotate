@@ -33,12 +33,15 @@ Select note text to open the compact **Highlight | Color | Annotate** menu. Choo
 **Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
 on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
 **Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
-Reassign either shortcut in Obsidian Hotkeys.
+Edit Annotate shortcuts under **Settings → Annotate → Advanced → Keyboard shortcuts**.
 
 Choose **Color** to set or remove text color. The command
 **Annotate: Color selected text with last color** reapplies your last choice.
 Use **Cmd+Shift+J** on macOS or **Ctrl+Shift+J** on Windows/Linux.
-Reassign it under **Settings → Hotkeys** if needed.
+Click a shortcut to record a replacement, **Add** to assign another, or the remove
+icon to clear a binding. **Reset shortcuts to default** restores the defaults.
+Escape cancels recording. Conflicts with another registered Obsidian command are
+reported before saving. Changes also appear in **Settings → Hotkeys** and survive reload.
 
 | Command                                       | Default shortcut |
 | --------------------------------------------- | ---------------- |

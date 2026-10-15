@@ -11,6 +11,7 @@ import {
   type WrapTag,
 } from './highlight';
 import { assistantIcon } from './logos';
+import { commandShortcut, renderShortcutSettings } from './hotkeys';
 import {
   createAssistant,
   assistantInvocation,
@@ -31,7 +32,6 @@ import {
 } from './codex';
 import {
   MarkdownView,
-  Platform,
   MarkdownRenderChild,
   Modal,
   Notice,
@@ -1248,6 +1248,7 @@ export default class Annotate extends Plugin {
 
   onunload(): void {
     this.disposed = true;
+    this.settingsTab?.hide();
     this.accessController?.dispose();
     for (const request of this.contextRequests.values()) request.abort();
     this.contextRequests.clear();
@@ -1522,7 +1523,8 @@ export default class Annotate extends Plugin {
       'highlighter',
     );
     highlight.style.setProperty('--annotate-swatch', this.recentHighlight().value);
-    highlight.title = `Choose highlight color · ${Platform.isMacOS ? '⌘⇧H' : 'Ctrl+Shift+H'} uses last color`;
+    const highlightShortcut = commandShortcut(this.app, 'annotate:highlight-selection');
+    highlight.title = ['Choose highlight color', highlightShortcut].filter(Boolean).join(' · ');
     const textColor = button(
       'Color',
       () => {
@@ -1553,7 +1555,12 @@ export default class Annotate extends Plugin {
       'type',
     );
     textColor.style.setProperty('--annotate-swatch', this.recentTextColor().value);
-    textColor.title = 'Choose text color';
+    textColor.title = [
+      'Choose text color',
+      commandShortcut(this.app, 'annotate:color-selection-text'),
+    ]
+      .filter(Boolean)
+      .join(' · ');
     const divider = doc.createElement('span');
     divider.className = 'annotate-selection-divider';
     divider.setAttribute('aria-hidden', 'true');
@@ -1565,7 +1572,7 @@ export default class Annotate extends Plugin {
         this.compose(target, rect, doc);
       },
       'message-square-plus',
-    ).title = Platform.isMacOS ? '⌘⇧M' : 'Ctrl+Shift+M';
+    ).title = commandShortcut(this.app, 'annotate:add-selection-comment') || 'Comment on selection';
     bar.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -2589,7 +2596,7 @@ class ThreadList extends Modal {
     if (!threads.length)
       this.contentEl.createEl('p', {
         cls: 'annotate-empty',
-        text: 'No comments yet. Select text, then press Cmd+Shift+M (Ctrl+Shift+M on Windows/Linux).',
+        text: `No comments yet. Select text, then ${commandShortcut(this.plugin.app, 'annotate:add-selection-comment') ? `press ${commandShortcut(this.plugin.app, 'annotate:add-selection-comment')}` : 'run Comment on selection from the command palette'}.`,
       });
     for (const thread of threads) {
       const row = this.contentEl.createDiv({
@@ -2662,10 +2669,12 @@ class ThreadList extends Modal {
   }
 }
 class CommentsSettings extends PluginSettingTab {
+  private disposeShortcuts: (() => void) | null = null;
   constructor(private plugin: Annotate) {
     super(plugin.app, plugin);
   }
   display(): void {
+    this.disposeShortcuts?.();
     const { containerEl } = this;
     containerEl.empty();
     containerEl.addClass('annotate-settings');
@@ -2787,6 +2796,10 @@ class CommentsSettings extends PluginSettingTab {
 
     const advanced = containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
     advanced.createEl('summary', { text: 'Advanced' });
+    this.disposeShortcuts = renderShortcutSettings(
+      advanced.createDiv({ cls: 'annotate-hotkey-settings' }),
+      this.plugin.app,
+    );
     new Setting(advanced).setName('Highlight shape').addDropdown((dropdown) =>
       dropdown
         .addOptions(highlightShapes)
@@ -2904,5 +2917,9 @@ class CommentsSettings extends PluginSettingTab {
             }),
         );
     }
+  }
+  hide(): void {
+    this.disposeShortcuts?.();
+    this.disposeShortcuts = null;
   }
 }

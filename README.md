@@ -45,7 +45,7 @@ Select note text to open the compact **Highlight | Color | Annotate** menu. Choo
 **Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
 on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
 **Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
-Reassign either shortcut in Obsidian Hotkeys.
+Edit these shortcuts under **Settings → Annotate → Advanced → Keyboard shortcuts**.
 
 Under **Settings → Annotate → Advanced**, customize the palette with color names,
 color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may
@@ -56,7 +56,7 @@ Choose **Color** in the selection menu to change text color or restore the defau
 Text colors follow the active theme and can be combined with highlights.
 The command palette also offers **Annotate: Color selected text with last color**.
 **Cmd+Shift+J** on macOS, or **Ctrl+Shift+J** on Windows/Linux, reapplies your last
-chosen text color. Reassign it in Obsidian Hotkeys if needed.
+chosen text color. Edit all Annotate shortcuts under **Settings → Annotate → Advanced → Keyboard shortcuts**.
 
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments
