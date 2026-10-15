@@ -75,6 +75,9 @@ import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
 import logoUrl from '../assets/annotate-icon.png';
 
+declare const ANNOTATE_DEVELOPMENT: boolean;
+declare const ANNOTATE_BUILD_DIRECTORY: string;
+
 function pluginLogo(doc: Document): HTMLImageElement {
   const image = doc.createElement('img');
   image.className = 'annotate-logo';
@@ -1064,7 +1067,15 @@ export default class Annotate extends Plugin {
       new ThreadList(this).open(),
     );
     ribbon?.addClass('annotate-ribbon');
-    this.addSettingTab(new CommentsSettings(this));
+    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT) {
+      this.addCommand({
+        id: 'sync-local-build',
+        name: 'Sync latest local development build',
+        callback: () => void this.syncBuild(),
+      });
+    }
+    this.settingsTab = new CommentsSettings(this);
+    this.addSettingTab(this.settingsTab);
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
         renameThreads(this.data.threads, oldPath, file.path);
@@ -1098,10 +1109,109 @@ export default class Annotate extends Plugin {
       }),
     );
     this.registerEvent(this.app.workspace.on('layout-change', refreshReading));
+    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT)
+      void this.startDevelopmentUpdates();
+  }
+
+  private settingsTab: CommentsSettings | null = null;
+  private lastDevelopmentInput = 0;
+  private composingDocuments = new Set<Document>();
+  private stopDevelopmentUpdates: (() => void) | null = null;
+  private async startDevelopmentUpdates(): Promise<void> {
+    try {
+      const { watchDevelopmentBuild } = await import('./sync');
+      const stop = await watchDevelopmentBuild({
+        source: this.localBuildDirectory,
+        destination: this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`,
+        adapter: this.app.vault.adapter,
+        ready: () =>
+          !this.disposed &&
+          !this.syncing &&
+          !this.popup &&
+          !this.data.threads.some(
+            (thread) => thread.codex && ['pending', 'streaming'].includes(thread.codex.status),
+          ) &&
+          this.composingDocuments.size === 0 &&
+          Date.now() - this.lastDevelopmentInput > 1200,
+        apply: () => this.syncBuild(true),
+      });
+      if (this.disposed) stop();
+      else this.stopDevelopmentUpdates = stop;
+    } catch {
+      /* Development source may be unavailable on another computer. */
+    }
+  }
+  syncing = false;
+  localBuildDirectory =
+    typeof ANNOTATE_BUILD_DIRECTORY === 'string' ? ANNOTATE_BUILD_DIRECTORY : '';
+
+  async syncBuild(automatic = false): Promise<boolean> {
+    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT && !this.syncing) {
+      this.syncing = true;
+      try {
+        const { syncLocalBuild } = await import('./sync');
+        if (!this.storageHealthy)
+          throw new Error('Resolve the comment storage error before syncing.');
+        if (this.saveTimer) clearTimeout(this.saveTimer);
+        this.saveTimer = null;
+        await this.persistOrThrow();
+        const manager: unknown = Reflect.get(this.app, 'plugins');
+        if (!manager || typeof manager !== 'object')
+          throw new Error('Plugin reload is unavailable.');
+        const disable: unknown = Reflect.get(manager, 'disablePlugin');
+        const enable: unknown = Reflect.get(manager, 'enablePlugin');
+        if (typeof disable !== 'function' || typeof enable !== 'function')
+          throw new Error('Plugin reload is unavailable.');
+        const restoreSettings = this.settingsTab?.containerEl?.isShown() ?? false;
+        const drafts = new Map(this.drafts);
+        const version = await syncLocalBuild({
+          development: true,
+          source: this.localBuildDirectory,
+          destination: this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`,
+          adapter: this.app.vault.adapter,
+          disable: async () => {
+            await disable.call(manager, this.manifest.id);
+          },
+          enable: async () => {
+            await enable.call(manager, this.manifest.id);
+            const loaded: unknown = Reflect.get(manager, 'plugins');
+            if (!loaded || typeof loaded !== 'object' || !Reflect.get(loaded, this.manifest.id))
+              throw new Error('The synced build could not load.');
+            const plugin: unknown = Reflect.get(loaded, this.manifest.id);
+            if (plugin && typeof plugin === 'object') {
+              const restored: unknown = Reflect.get(plugin, 'drafts');
+              if (restored instanceof Map)
+                for (const [key, value] of drafts) restored.set(key, value);
+            }
+            if (restoreSettings) {
+              const settings: unknown = Reflect.get(this.app, 'setting');
+              if (settings && typeof settings === 'object') {
+                const select: unknown = Reflect.get(settings, 'openTabById');
+                if (typeof select === 'function') select.call(settings, this.manifest.id);
+              }
+            }
+          },
+        });
+        new Notice(
+          `Annotate ${version} ${automatic ? 'updated automatically' : 'synced and reloaded'}.`,
+        );
+        return true;
+      } catch (error) {
+        new Notice(
+          `Annotate update failed: ${error instanceof Error ? error.message : String(error)}`,
+          10000,
+        );
+      } finally {
+        this.syncing = false;
+      }
+    }
+    return false;
   }
 
   onunload(): void {
     this.disposed = true;
+    this.stopDevelopmentUpdates?.();
+    this.stopDevelopmentUpdates = null;
     this.hideSelectionTools();
     for (const dispose of this.selectionDocuments.values()) dispose();
     this.selectionDocuments.clear();
@@ -1270,6 +1380,19 @@ export default class Annotate extends Plugin {
       clearTimeout(timer);
       this.hideSelectionTools();
     };
+    const input = () => {
+      this.lastDevelopmentInput = Date.now();
+    };
+    const compositionStart = () => {
+      this.composingDocuments.add(doc);
+    };
+    const compositionEnd = () => {
+      this.composingDocuments.delete(doc);
+      input();
+    };
+    doc.addEventListener('input', input, true);
+    doc.addEventListener('compositionstart', compositionStart);
+    doc.addEventListener('compositionend', compositionEnd);
     doc.addEventListener('mousedown', down);
     doc.addEventListener('mouseup', up);
     doc.addEventListener('keyup', key);
@@ -1277,6 +1400,10 @@ export default class Annotate extends Plugin {
     doc.addEventListener('scroll', scroll, true);
     this.selectionDocuments.set(doc, () => {
       clearTimeout(timer);
+      doc.removeEventListener('input', input, true);
+      doc.removeEventListener('compositionstart', compositionStart);
+      doc.removeEventListener('compositionend', compositionEnd);
+      this.composingDocuments.delete(doc);
       doc.removeEventListener('mousedown', down);
       doc.removeEventListener('mouseup', up);
       doc.removeEventListener('keyup', key);
@@ -2406,6 +2533,11 @@ class CommentsSettings extends PluginSettingTab {
       text: 'Annotate',
     });
     heading.prepend(pluginLogo(containerEl.ownerDocument));
+    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT)
+      containerEl.createEl('p', {
+        cls: 'setting-item-description',
+        text: 'Development · Automatic local updates enabled',
+      });
     new Setting(containerEl)
       .setName('Your name')
       .setDesc('Shown on comments you write.')
@@ -2594,6 +2726,23 @@ class CommentsSettings extends PluginSettingTab {
             this.display();
           }),
       );
+    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT) {
+      new Setting(advanced)
+        .setName('Local development build')
+        .setDesc(
+          'Successful local builds update automatically when comments and AI responses are idle. No Obsidian restart needed.',
+        )
+        .addButton((button) =>
+          button
+            .setButtonText('Sync')
+            .setDisabled(this.plugin.syncing)
+            .onClick(async () => {
+              button.setDisabled(true).setButtonText('Syncing…');
+              await this.plugin.syncBuild();
+              button.setDisabled(false).setButtonText('Sync');
+            }),
+        );
+    }
     for (const id of providerSchema.options) {
       const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
       const command = providers[id].executable;

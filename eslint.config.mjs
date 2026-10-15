@@ -6,6 +6,7 @@ import tseslint from 'typescript-eslint';
 export default defineConfig(
   globalIgnores([
     'main.js',
+    '.development/**',
     'release/**',
     'backup-*/**',
     'diagnostics/**',

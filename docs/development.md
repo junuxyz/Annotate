@@ -26,17 +26,46 @@ provided by the host and excluded from the bundle.
 
 ### Fast development updates
 
-For a dedicated development vault, install the [Hot-Reload plugin](https://github.com/pjeby/hot-reload) once, then run:
+Install the development build once into your development vault:
 
 ```sh
-npm run dev:vault -- "/absolute/path/to/your/vault"
+npm run dev:install -- "/absolute/path/to/your/vault"
 ```
 
-Leave it running while you edit. After each successful change, Annotate rebuilds
-and copies the three plugin files into the vault. Hot-Reload applies them in Obsidian.
+Enable or reload Annotate once after the first installation. Development settings
+show **Development · Automatic local updates enabled**. Later successful builds
+apply automatically without restarting Obsidian or visiting settings.
 
-The vault must already have an `.obsidian` folder. The first run enables Annotate
-in Obsidian's plugin list. Reload Obsidian to apply.
+Every `npm run build` produces the distribution files at the repository root and
+a separate development snapshot in `.development/`. `npm run build:dev` also makes
+the root build a development build. Both publish the development snapshot only
+when compilation succeeds. Manual Sync and automatic updates read that snapshot,
+so a distribution build cannot remove development controls through Sync.
+
+The development plugin checks the snapshot once per second. Updates wait while
+a comment is open, an assistant is responding, or text composition is active.
+They also wait briefly after typing. Reload preserves saved settings, comments,
+unsent drafts, and the selected Annotate settings page. A failed revision rolls
+back and is not automatically retried until a newer build is available. The
+command palette's **Annotate: Sync latest local development build** remains
+available for a manual retry.
+
+For continuous source, CSS and manifest updates, leave this running:
+
+```sh
+npm run dev
+```
+
+`npm run dev:vault -- "/absolute/path/to/your/vault"` bootstraps a development
+installation once and watches source changes. Later updates use the plugin's own
+update mechanism; no external Hot-Reload plugin is needed. Sync never replaces
+`data.json`, and development snapshots are excluded from Git and release files.
+
+Validate development updates with:
+
+```sh
+npm run check -- --dev-build --only smoke,sync,auto-update --record
+```
 
 ### Validation
 

@@ -29,10 +29,12 @@ const result = run([
   '256',
   '--cpus',
   '2',
+  '-e',
+  `ANNOTATE_DEV_BUILD=${process.argv.includes('--dev-build') ? '1' : '0'}`,
   '-v',
   `${evidence}:/evidence`,
   image,
-  ...process.argv.slice(2),
+  ...process.argv.slice(2).filter((arg) => arg !== '--dev-build'),
 ]);
 const report = join(evidence, 'Validation results.md');
 if (existsSync(report)) {

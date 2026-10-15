@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node esbuild.config.mjs",
+    "build:dev": "tsc --noEmit && node esbuild.config.mjs --dev",
     "dev": "node esbuild.config.mjs --watch",
     "test": "node scripts/test.mjs",
     "check": "node e2e/run-linux.mjs",
@@ -15,7 +16,8 @@
     "check:codex-tools": "node scripts/check-codex-tools.mjs",
     "check:codex-skills": "node scripts/check-codex-skills.mjs",
     "lint": "eslint . --max-warnings 0",
-    "lint:fix": "npm run lint -- --fix"
+    "lint:fix": "npm run lint -- --fix",
+    "dev:install": "npm run build:dev && node scripts/install-development.mjs"
   },
   "dependencies": {
     "@lezer/markdown": "^1.8.0",

@@ -856,7 +856,7 @@ if (only.includes('smoke')) {
     );
     assert(
       await ev(
-        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')).length===4`,
+        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')&&id!=='annotate:sync-local-build').length===4`,
       ),
       'commands must not duplicate on reload',
     );
@@ -1733,6 +1733,171 @@ if (only.includes('providers') || only.includes('claude-live')) {
     assert,
     shot,
   });
+}
+
+if (only.includes('distribution')) {
+  await step('distribution: development Sync controls are absent', async () => {
+    await ev(
+      `const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+    );
+    await until(
+      `return !!document.querySelector('.annotate-settings-advanced')`,
+      'settings rendered',
+    );
+    assert(
+      await ev(
+        `return !app.commands.commands['annotate:sync-local-build']&&!document.querySelector('.vertical-tab-content').textContent.includes('Local development build')&&![...document.querySelectorAll('.setting-item button')].some(b=>b.textContent==='Sync')`,
+      ),
+      'distribution must not expose development Sync',
+    );
+    await ev(`app.setting.close()`);
+  });
+}
+
+if (only.includes('sync')) {
+  await step('sync: settings button reloads local build and preserves comments', async () => {
+    await ev(
+      `const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+    );
+    await until(
+      `return [...document.querySelectorAll('.setting-item button')].some(b=>b.textContent==='Sync')`,
+      'Sync button rendered',
+    );
+    await ev(`document.querySelector('.annotate-settings-advanced').open=true`);
+    const before = await ev(
+      `${P}p.localBuildDirectory=${JSON.stringify(join(PLUGIN, '.development'))};await p.persist();window.annotateBeforeSync=p;return JSON.stringify(p.data.threads)`,
+    );
+    const point = await ev(
+      `const button=[...document.querySelectorAll('.setting-item button')].find(b=>b.textContent==='Sync');button.scrollIntoView({block:'center'});const r=button.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+    );
+    await clickAt(point);
+    await until(
+      `return app.plugins.plugins.annotate && app.plugins.plugins.annotate!==window.annotateBeforeSync && !window.annotateBeforeSync.syncing`,
+      'new plugin loaded by Sync',
+    );
+    assert(
+      await ev(
+        `return [...document.querySelectorAll('.notice')].some(n=>n.textContent.includes('synced and reloaded'))`,
+      ),
+      'sync success notice visible',
+    );
+    const after = await ev(`${P}return JSON.stringify(p.data.threads)`);
+    assert(
+      isDeepStrictEqual(JSON.parse(after), JSON.parse(before)),
+      `comments survive sync: ${before} -> ${after}`,
+    );
+    assert(
+      (await ev(
+        `return Object.keys(app.commands.commands).filter(id=>id==='annotate:sync-local-build').length`,
+      )) === 1,
+      'sync command registered once',
+    );
+    assert(
+      await ev(
+        `return !!document.querySelector('.annotate-settings-advanced')&&document.querySelector('.vertical-tab-content').textContent.includes('Automatic local updates enabled')`,
+      ),
+      'Sync preserves the open Annotate settings tab',
+    );
+    await ev(`delete window.annotateBeforeSync;app.setting.close()`);
+  });
+  await step('sync: missing build reports failure and keeps plugin loaded', async () => {
+    await ev(
+      `${P}window.annotateBeforeSync=p;p.localBuildDirectory='/missing/annotate-build';await p.syncBuild()`,
+    );
+    assert(
+      (await ev(`${P}return p===window.annotateBeforeSync && !p.syncing`)) === true,
+      'failed sync keeps current instance',
+    );
+    assert(
+      await ev(
+        `return [...document.querySelectorAll('.notice')].some(n=>n.textContent.includes('Annotate update failed'))`,
+      ),
+      'failure notice visible',
+    );
+    await ev(
+      `${P}p.localBuildDirectory=${JSON.stringify(join(PLUGIN, '.development'))};await p.persist();delete window.annotateBeforeSync`,
+    );
+  });
+}
+
+if (only.includes('auto-update')) {
+  await step(
+    'auto-update: defer during comment, reload while idle, retain settings and drafts',
+    async () => {
+      const { publishDevelopmentBuild } = await import('../scripts/development-build.mjs');
+      const directory = join(PLUGIN, '.development');
+      const originals = ['main.js', 'manifest.json', 'styles.css'].map((name) =>
+        readFileSync(join(directory, name), 'utf8'),
+      );
+      let changed = false;
+      try {
+        await resetThreads();
+        await createComment('live', 'Synthetic saved development comment');
+        const before = await ev(
+          `${P}window.annotateBeforeAuto=p;p.drafts.set('synthetic-dev-draft','Unsent synthetic draft');await p.persist();return JSON.stringify(p.data)`,
+        );
+        const next = [
+          originals[0] + '\n// synthetic automatic update check',
+          originals[1],
+          originals[2],
+        ];
+        publishDevelopmentBuild(directory, next);
+        changed = true;
+        await sleep(1400);
+        assert(
+          await ev(`${P}return p===window.annotateBeforeAuto`),
+          'an open comment defers reload',
+        );
+        await ev(
+          `${P}p.closePopup();document.activeElement?.blur();const s=app.setting,previous=s.shouldUsePopout;try{s.shouldUsePopout=()=>false;s.open();s.openTabById('annotate')}finally{s.shouldUsePopout=previous}`,
+        );
+        await until(
+          `${P}return p!==window.annotateBeforeAuto&&!window.annotateBeforeAuto.syncing&&!!p.stopDevelopmentUpdates`,
+          'new development build loads automatically',
+          7000,
+        );
+        const preserved = await ev(
+          `${P}return {data:p.data,draft:p.drafts.get('synthetic-dev-draft')}`,
+        );
+        assert(
+          isDeepStrictEqual(preserved.data, JSON.parse(before)) &&
+            preserved.draft === 'Unsent synthetic draft',
+          'automatic reload preserves saved settings, comments and unsent drafts',
+        );
+        assert(
+          await ev(
+            `return document.querySelector('.vertical-tab-content')?.textContent.includes('Automatic local updates enabled')&&!!document.querySelector('.annotate-settings-advanced')`,
+          ),
+          'Annotate settings stay selected after auto-update',
+        );
+        assert(
+          await ev(`return !!app.commands.commands['annotate:sync-local-build']`),
+          'development controls survive update',
+        );
+        await shot('development-auto-update-settings');
+        await ev(`${P}window.annotateAfterAuto=p`);
+        await sleep(1400);
+        assert(
+          await ev(`${P}return p===window.annotateAfterAuto`),
+          'unchanged build does not reload repeatedly',
+        );
+      } finally {
+        await ev(`${P}p.closePopup();app.setting.close();document.activeElement?.blur()`);
+        if (changed) {
+          await ev(`${P}window.annotateBeforeRestore=p`);
+          publishDevelopmentBuild(directory, originals);
+          await until(
+            `${P}return p!==window.annotateBeforeRestore`,
+            'original development artifact restored',
+            7000,
+          );
+        }
+        await ev(
+          `${P}p.drafts.delete('synthetic-dev-draft');await p.persist();delete window.annotateBeforeAuto;delete window.annotateAfterAuto;delete window.annotateBeforeRestore`,
+        );
+      }
+    },
+  );
 }
 
 // ---------- cleanup + report ----------
