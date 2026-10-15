@@ -691,6 +691,83 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   }
 });
 
+for (const timing of ['completed', 'streaming']) {
+  test(`local comments after a ${timing} turn reach the next Codex conversation once after reload`, async () => {
+    globalThis.require = createRequire(import.meta.url);
+    const plugin = new Plugin();
+    isolatedFactory(plugin);
+    plugin.source = 'synthetic note';
+    plugin.loadData = async () => ({
+      version: 1,
+      author: 'You',
+      threads: [],
+      codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
+    });
+    await plugin.onload();
+    let restored;
+    try {
+      await plugin.backend.connect();
+      plugin.compose({
+        kind: 'editor',
+        path: 'test.md',
+        anchor: { from: 0, to: 9, quote: 'synthetic', prefix: '', suffix: '', orphaned: false },
+        text: () => 'synthetic note',
+      });
+      await send('@chatgpt explain');
+      const thread = plugin.data.threads[0];
+      if (timing === 'completed')
+        await until(() => thread.codex.status === 'completed', 'first response completes');
+      else assert.ok(['pending', 'streaming'].includes(thread.codex.status));
+      const quote = { messageId: thread.comments[0].id, text: 'explain' };
+      await plugin.record(thread, '@comment My local addendum', quote);
+      await until(() => thread.codex.status === 'completed', 'first response completes');
+      assert.equal(thread.codex.historyDirty, true);
+      await plugin.persist();
+      const saved = structuredClone(plugin.saved);
+      plugin.onunload();
+
+      restored = new Plugin();
+      isolatedFactory(restored);
+      restored.source = 'synthetic note';
+      restored.loadData = async () => saved;
+      await restored.onload();
+      await restored.backend.connect();
+      const requests = [],
+        sessions = [];
+      const ask = restored.backend.ask.bind(restored.backend);
+      const session = restored.backend.session.bind(restored.backend);
+      restored.backend.session = (id) => {
+        sessions.push(id);
+        return session(id);
+      };
+      restored.backend.ask = (id, content, ...rest) => {
+        requests.push(JSON.parse(content));
+        return ask(id, content, ...rest);
+      };
+      const resumed = restored.data.threads[0];
+      await restored.record(resumed, '@chatgpt use the addendum');
+      await until(() => resumed.codex.status === 'completed', 'followup completes');
+      assert.equal(sessions[0], undefined, 'rebuild history in a fresh Codex conversation');
+      assert.deepEqual(requests[0].conversationHistory, [
+        { role: 'user', content: 'explain' },
+        { role: 'assistant', content: 'Hello world' },
+        { role: 'user', content: 'My local addendum', quote },
+      ]);
+      assert.equal(requests[0].question, 'use the addendum');
+      assert.equal(resumed.codex.historyDirty, false);
+      const resumedId = resumed.codex.sessionId;
+      await restored.record(resumed, '@chatgpt continue');
+      await until(() => resumed.codex.status === 'completed', 'next followup completes');
+      assert.equal(sessions[1], resumedId, 'continue the rebuilt conversation');
+      assert.deepEqual(requests[1].conversationHistory, [], 'do not repeat imported history');
+    } finally {
+      plugin.onunload();
+      restored?.onunload();
+      await tick();
+    }
+  });
+}
+
 test('interrupted responses recover as unknown and require explicit new conversation', async () => {
   const plugin = new Plugin();
   plugin.loadData = async () => ({

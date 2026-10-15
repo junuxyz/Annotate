@@ -693,6 +693,10 @@ export default class Annotate extends Plugin {
     const provider = this.data.assistant.provider;
     if ((thread.codex?.provider ?? 'chatgpt') !== provider)
       thread.codex = { status: 'idle', provider };
+    if (thread.codex?.historyDirty) {
+      thread.codex.sessionId = undefined;
+      thread.codex.historyDirty = false;
+    }
     thread.codex = { ...thread.codex, provider, status: 'pending', error: undefined };
     this.paintCodex();
     try {
@@ -852,6 +856,7 @@ export default class Annotate extends Plugin {
       ...(quote ? { quote } : {}),
       createdAt: Date.now(),
     });
+    if (question === null && thread.codex) thread.codex.historyDirty = true;
     this.changed();
     await this.persistOrThrow();
     if (question !== null) void this.requestCodex(thread, question, history, quote, skill);

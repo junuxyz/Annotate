@@ -45,6 +45,7 @@ const threadSchema = z.object({
       sessionId: z.string().optional(),
       provider: providerSchema.optional(),
       contextVersion: z.literal(2).optional(),
+      historyDirty: z.boolean().optional(),
       status: z.enum([
         'idle',
         'pending',
