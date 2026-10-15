@@ -5,5 +5,5 @@
   "minAppVersion": "1.5.0",
   "description": "Add threaded comments to selected text, with optional ChatGPT replies through Codex.",
   "author": "junuxyz",
-  "isDesktopOnly": false
+  "isDesktopOnly": true
 }
