@@ -1,4 +1,4 @@
-import { FileSystemAdapter, TFile, type FileManager, type Vault } from 'obsidian';
+import { FileSystemAdapter, TFile, type Editor, type FileManager, type Vault } from 'obsidian';
 import { lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -74,6 +74,8 @@ interface NoteToolsOptions {
   vault: Vault;
   fileManager: Pick<FileManager, 'trashFile'>;
   getFolders: () => string[];
+  /** Return the current editor for this validated note path, including unflushed text. */
+  getEditor?: (path: string) => Pick<Editor, 'getValue' | 'replaceRange' | 'offsetToPos'> | null;
   requestFolderAccess: (folder: string, signal?: AbortSignal) => Promise<boolean>;
   /** Persist in plugin-private data, never in an agent-readable note folder. */
   saveHistory: (history: NoteOperation[]) => Promise<void>;
@@ -154,7 +156,9 @@ export class NoteTools {
   private async read(path: string, signal?: AbortSignal): Promise<string> {
     await this.assertAllowed(path, signal);
     signal?.throwIfAborted();
-    const text = await this.options.vault.read(this.file(path));
+    const file = this.file(path);
+    const editor = this.options.getEditor?.(path);
+    const text = editor ? editor.getValue() : await this.options.vault.read(file);
     signal?.throwIfAborted();
     return content.parse(text);
   }
@@ -204,10 +208,23 @@ export class NoteTools {
       if ((await this.read(path, signal)) !== before)
         throw new Error('Note changed. Read it again before deleting.');
       signal?.throwIfAborted();
+      const editor = this.options.getEditor?.(path);
+      if (editor && editor.getValue() !== before)
+        throw new Error('Note changed. Read it again before deleting.');
       await this.options.fileManager.trashFile(this.file(path));
     } else {
+      const editor = this.options.getEditor?.(path);
+      if (editor) {
+        const current = editor.getValue();
+        if (current !== before) throw new Error('Note changed. Read it again before editing.');
+        signal?.throwIfAborted();
+        editor.replaceRange(after, { line: 0, ch: 0 }, editor.offsetToPos(current.length));
+        return;
+      }
       await this.options.vault.process(this.file(path), (current) => {
         signal?.throwIfAborted();
+        if (this.options.getEditor?.(path))
+          throw new Error('Note opened in an editor. Read it again before editing.');
         if (current !== before) throw new Error('Note changed. Read it again before editing.');
         return after;
       });

@@ -77,6 +77,7 @@ async function fixture(hooks = {}) {
       },
     },
     getFolders: () => allowed,
+    getEditor: (path) => hooks.getEditor?.(path) ?? null,
     requestFolderAccess: async (folder, signal) => {
       await hooks.approve?.(folder, signal);
       signal?.throwIfAborted();
@@ -359,5 +360,106 @@ test('an aborted queued call neither reads nor creates notes', async () => {
   );
   assert.equal(f.notes.has('Notes/b.md'), false);
   assert.deepEqual(f.tools.history, []);
+});
+function editor(initial) {
+  let value = initial;
+  const changes = [];
+  return {
+    changes,
+    getValue: () => value,
+    offsetToPos: (offset) => ({ line: 0, ch: offset }),
+    replaceRange: (text, from, to) => {
+      changes.push({ text, from, to });
+      value = value.slice(0, from.ch) + text + value.slice(to.ch);
+    },
+    type(text) {
+      value = text;
+    },
+  };
+}
+test('open-note reads, edits and undo preserve unflushed text and native editor history', async () => {
+  const active = editor('unsaved user text');
+  const f = await fixture({ getEditor: (path) => (path === 'Notes/a.md' ? active : null) });
+  assert.equal(
+    (await f.tools.execute('read_note', { path: 'Notes/a.md' }, 'one')).content,
+    'unsaved user text',
+  );
+  await f.tools.execute(
+    'edit_note',
+    { path: 'Notes/a.md', content: 'agent edit', expectedContent: 'unsaved user text' },
+    'one',
+  );
+  assert.equal(active.getValue(), 'agent edit');
+  assert.equal(
+    f.notes.get('Notes/a.md'),
+    'original',
+    'closed-note storage is not used to overwrite an open editor',
+  );
+  assert.equal(f.tools.history[0].changes[0].before, 'unsaved user text');
+  assert.equal(active.changes.length, 1);
+  await f.tools.undo('one');
+  assert.equal(active.getValue(), 'unsaved user text');
+  assert.equal(active.changes.length, 2);
+});
+test('typing while an editor snapshot is persisted prevents the agent from overwriting the new text', async () => {
+  const active = editor('unsaved user text');
+  const saving = deferred();
+  const release = deferred();
+  const f = await fixture({
+    getEditor: () => active,
+    save: async () => {
+      saving.resolve();
+      await release.promise;
+    },
+  });
+  const pending = f.tools.execute(
+    'edit_note',
+    { path: 'Notes/a.md', content: 'agent edit', expectedContent: 'unsaved user text' },
+    'one',
+  );
+  await saving.promise;
+  active.type('new user text');
+  release.resolve();
+  await assert.rejects(pending, /changed/);
+  assert.equal(active.getValue(), 'new user text');
+  assert.equal(active.changes.length, 0);
+  assert.equal(f.tools.history[0].changes[0].before, 'unsaved user text');
+});
+test('deleting an open note snapshots its unflushed content and undo restores it', async () => {
+  const active = editor('unsaved user text');
+  const f = await fixture({ getEditor: (path) => (f?.files.has(path) ? active : null) });
+  await f.tools.execute(
+    'delete_note',
+    { path: 'Notes/a.md', expectedContent: 'unsaved user text' },
+    'one',
+  );
+  assert.deepEqual(f.trashed, ['Notes/a.md']);
+  assert.equal(f.tools.history[0].changes[0].before, 'unsaved user text');
+  await f.tools.undo('one');
+  assert.equal(f.notes.get('Notes/a.md'), 'unsaved user text');
+});
+test('a note opened while a closed-note process waits is not overwritten', async () => {
+  const active = editor('new user text');
+  let opened = false;
+  const processing = deferred();
+  const release = deferred();
+  const f = await fixture({
+    getEditor: () => (opened ? active : null),
+    process: async () => {
+      processing.resolve();
+      await release.promise;
+    },
+  });
+  const pending = f.tools.execute(
+    'edit_note',
+    { path: 'Notes/a.md', content: 'agent edit', expectedContent: 'original' },
+    'one',
+  );
+  await processing.promise;
+  opened = true;
+  release.resolve();
+  await assert.rejects(pending, /opened in an editor/);
+  assert.equal(active.getValue(), 'new user text');
+  assert.equal(f.notes.get('Notes/a.md'), 'original');
 });
 test.after(async () => rm(temp, { recursive: true, force: true }));
