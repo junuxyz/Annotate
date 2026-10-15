@@ -6,18 +6,18 @@ Run these checks against the current build in this vault in the real Obsidian ap
 
 - [ ] Enable the current plugin build and confirm it loads without plugin errors.
 - [ ] In Reading mode, Live Preview, and Source mode, select text and open the composer with Cmd+Shift+M on macOS or Ctrl+Shift+M on Windows/Linux. Confirm placement beside the passage and input focus.
-- [ ] Confirm selecting text alone does not show a floating button. Check the selection context menu and command-palette entry.
+- [ ] Confirm selecting text opens the Highlight | Color | Annotate menu. Check each action, the selection context menu, keyboard shortcuts, and command-palette entries.
 - [ ] Submit a comment with Enter and with the send button. Confirm Shift+Enter inserts a newline and Korean IME confirmation does not submit.
 - [ ] Click the highlight and count badge, reply, and confirm the count and thread contents.
 - [ ] Resolve a thread, reopen it from the current-note comment list, and confirm its highlight returns.
 - [ ] Delete a thread and confirm deletion requires the second confirmation click.
 - [ ] Check plain-text rendering with HTML-like text, multiline text, Korean text, inline formatting, and repeated passages. Confirm each comment stays on the correct selection.
 
-## ChatGPT mention dropdown
+## Assistant and local-comment dropdown
 
-- [ ] Submit `@chatgpt hi` and a mentioned reply. Confirm the full mention remains visible and saved after reopening the thread and restarting Obsidian.
+- [ ] Submit `@chatgpt hi` and a mentioned reply. Confirm the assistant identity and message remain visible after reopening the thread and restarting Obsidian.
 
-- [ ] In new comments and replies in Reading mode, Live Preview, and Source mode, type `@`. Confirm the dropdown lists only ChatGPT. Press Down then Enter and confirm `@chatgpt ` is inserted with focus kept in the input and no submission.
+- [ ] In new comments and replies in Reading mode, Live Preview, and Source mode, type `@`. Confirm the dropdown offers ChatGPT, Claude, and @comment as appropriate for the current settings. Press Down then Enter and confirm `@chatgpt ` is inserted with focus kept in the input and no submission.
 - [ ] Complete a partial name with a mouse click. Confirm existing text before and after the token remains intact and the cursor stays immediately after the inserted mention.
 - [ ] Confirm unmatched names and email addresses do not show the dropdown. Confirm a fully typed `@chatgpt` still permits normal submission.
 - [ ] Confirm Escape dismisses only the dropdown, Shift+Enter keeps newline behavior, and IME Enter does not choose or submit during composition.
@@ -30,16 +30,16 @@ Run these checks against the current build in this vault in the real Obsidian ap
 - [ ] Close and reopen the note, restart Obsidian, and confirm saved threads, replies, and states persist. Confirm commenting does not modify the note text.
 - [ ] Disable and re-enable the plugin. Confirm popups, highlights, commands, and listeners behave correctly without duplicates or errors.
 
-## Codex integration
+## Assistant integration
 
-Use only `Fixtures/Codex context.md`. Enable Codex explicitly for these checks and disable it afterward. Record unavailable prerequisites as pending.
+Use only `Fixtures/Codex context.md` and synthetic notes in explicitly permitted folders. Enable the selected assistant explicitly for these checks and disable it afterward. Record unavailable prerequisites as pending.
 
 - [ ] Submit `@chatgpt What is the test word?` on the selected sentence. Confirm an answer using the full note, streamed into the existing popup.
 - [ ] Ask a follow-up in the same annotation and a question in a separate annotation. Confirm conversation separation and retained same-thread context.
 - [ ] Keep an unsent draft while a response streams. Close and reopen the popup and confirm the draft and saved response behavior.
 - [ ] Cancel a response and confirm the state and partial response. Restart Obsidian and confirm session resume and saved messages.
-- [ ] Exercise disconnect or process failure, reconnect, unavailable sessions, and Start new Codex conversation. Confirm unknown or interrupted requests are not resent automatically.
-- [ ] Confirm ordinary annotations still work with Codex disabled.
+- [ ] Exercise disconnect or process failure, reconnect, unavailable sessions, and Start new conversation. Confirm unknown or interrupted requests are not resent automatically.
+- [ ] Confirm ordinary annotations still work with assistants disabled. Run equivalent streaming, cancellation, recovery, and provider-switch checks for Claude when supported.
 
 Add checks for any changed behavior that this list does not cover. Restore fixture text after testing.
 
@@ -65,3 +65,37 @@ Add checks for any changed behavior that this list does not cover. Restore fixtu
 - [ ] Run `npm run check -- --only smoke,ui,list,markdown --modes live,source,reading --shots --record` for native Markdown rendering in all note modes and both themes.
 - [ ] Confirm headings, bold, italics, strikethrough, highlights, code, callouts, nested and task lists, tables, rules, footnotes, tags, wiki links, embeds, and math render with Obsidian's renderer.
 - [ ] Confirm wiki links resolve relative to the note, edits preserve raw Markdown, reopening renders the saved text, and partial and completed streamed responses use the latest content.
+
+
+## Privacy, permissions, and recoverable edits
+
+These are release gates for assistant capabilities. Mark an unavailable capability
+as not applicable with a concrete reason only when the released plugin does not
+expose it. An unverified permission boundary remains pending and blocks release.
+
+- [ ] Confirm assistant access starts disabled. Before enabling it, verify settings explain provider account requirements and that requests share the current note, passage, question, quotes, and conversation, including earlier local comments.
+- [ ] Send `@comment` while the assistant is enabled. Confirm it saves without contacting the provider. Send a later assistant request and verify the local comment appears in context, including when added after a provider session started.
+- [ ] Inspect the context shown before a request. Verify it identifies the note and conversation supplied to the model. Confirm local notes and comments do not trigger assistant network requests while assistants are disabled.
+- [ ] Start with no permitted folders. Confirm note tools cannot read, search, create, edit, rename, or delete notes until a visible vault folder is explicitly selected.
+- [ ] Grant one synthetic folder. Exercise note tools inside it and confirm access to sibling folders requires a specific folder grant. Cancel the request and verify access remains denied. Confirm revocation takes effect for existing conversations.
+- [ ] Try traversal, absolute paths, encoded paths, symlinks where supported, hidden folders, `.obsidian`, plugin code, and credential-like files. Confirm tools deny access without leaking file contents through errors or search results.
+- [ ] Edit, create, rename, and reorganize synthetic notes in permitted folders. Confirm changes appear in a visible history and undo restores the entire operation. Delete a synthetic note and confirm it moves to trash.
+- [ ] Confirm terminal commands are unavailable, including through skills and assistant tool requests. A workspace write restriction alone does not prove a private read boundary.
+- [ ] Put synthetic MCP, plugin, custom instruction, and web-search settings in the user's CLI configuration. Confirm Annotate does not silently inherit them. Confirm arbitrary command networking is unavailable.
+- [ ] Confirm web search starts disabled and requires its own opt-in. Inspect a synthetic search request for disclosure of note content. Confirm disabling search takes effect in an existing session.
+- [ ] If connected services are exposed, explicitly enable one synthetic service. Confirm unselected services remain unavailable and messages, uploads, publishing, and other external calls require approval before execution. Deny an approval and confirm no external action occurs.
+- [ ] Close and reopen the thread, reconnect, switch providers, and reload the plugin. Confirm permissions, context disclosure, and history retain the documented behavior without broadening access.
+
+## Sync conflicts and persistence
+
+- [ ] Simulate an external `data.json` update while Annotate is idle. Confirm the next local save preserves both independent comments and settings without erasing the external update.
+- [ ] Change the same thread in two synthetic copies. Confirm the plugin preserves conflicting data and presents a recovery path. Reload and verify the preserved versions are still recoverable.
+- [ ] Repeat external updates during a streamed response and a local edit. Confirm saved messages, drafts, and unrelated annotations survive. Restore fixtures after each check.
+
+## Distribution and first tag
+
+- [ ] Run the full release validation described in the repository instructions against the exact build to be distributed. Record hashes, environment, scenario results, and screenshot evidence in `Validation results.md`.
+- [ ] Confirm `manifest.json` declares desktop-only support. Test supported desktop platforms or record the untested platforms as pending without claiming validation there.
+- [ ] Inspect the release archive and tag assets. Confirm the plugin ID is `annotate`, the manifest version matches the tag without a `v` prefix, and only the intended current release files are packaged.
+- [ ] Inspect `main.js` for the project's license and required third-party notices. Confirm the distributed files retain applicable copyright and license text.
+- [ ] Review README, assistant privacy documentation, security reporting, and contribution instructions against the actual build. Confirm they do not promise unavailable permissions or unverified security guarantees.
