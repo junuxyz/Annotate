@@ -3,6 +3,10 @@
 Use a feature branch and describe the problem, expected behavior, and validation
 in your pull request. For security reports, follow [SECURITY.md](SECURITY.md).
 
+Agents start with [AGENTS.md](AGENTS.md). Use the [documentation map](docs/README.md)
+to find the relevant reference. Read [architecture](docs/architecture.md) before
+changing a subsystem and [agent tools](docs/agent-tools.md) for permission changes.
+
 ## Set up
 
 Use Node.js 22.13 or newer in the 22 series, or Node.js 24 or later.
@@ -20,6 +24,9 @@ Before every commit, run `npm run lint:fix`, review its changes, and rerun affec
 validation. Prettier handles formatting separately. See
 [development](docs/development.md) for build, local installation, and real-app
 validation instructions.
+The [testing guide](docs/testing.md) maps source changes to automated suites and
+real-app scopes. Update the relevant docs alongside behavior changes, especially
+tool contracts, saved-data compatibility, defaults, and visible shortcuts.
 
 ## Test data and assistant access
 

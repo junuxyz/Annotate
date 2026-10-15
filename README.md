@@ -54,8 +54,8 @@ Palette and shape changes update existing Annotate highlights while the plugin i
 
 Choose **Color** in the selection menu to change text color or restore the default.
 Text colors follow the active theme and can be combined with highlights.
-The command palette also offers **Annotate: Color selected text with last color**;
-assign a shortcut in Obsidian Hotkeys if you use it often.
+The command palette also offers **Annotate: Color selected text with last color**.
+It has no default shortcut; assign one in Obsidian Hotkeys if you use it often.
 
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments
@@ -81,10 +81,14 @@ context disclosure, and folder-scoped note access.
 
 ## Documentation
 
+- [Documentation map](docs/README.md): entry points for users, contributors, and agents.
 - [Usage](docs/usage.md): editing, resolving, Markdown, and math.
 - [Assistant replies](docs/assistants.md): ChatGPT and Claude setup, privacy, and recovery.
 - [Storage and limits](docs/storage-and-limits.md): backups, missing text, and supported content.
 - [Development](docs/development.md): local updates, validation, and releases.
+- [Architecture](docs/architecture.md), [agent tools and permissions](docs/agent-tools.md),
+  and [testing](docs/testing.md): source ownership, contracts, invariants, and checks.
+- [First-release changes and readiness](docs/first-release.md): hardening work and pending release gates.
 - [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
 ## License

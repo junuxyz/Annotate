@@ -6,6 +6,10 @@ Local comments do not require an assistant account. In Annotate settings, select
 an assistant and enable it to request replies. With assistants disabled, plain
 messages stay local. Type `@` for assistant mentions and `@comment`.
 
+For implementation context, see [agent tools and permissions](agent-tools.md)
+and [the request flow](architecture.md#assistant-request-flow). For recovery-file
+locations, see [storage and limits](storage-and-limits.md).
+
 ## Accounts and availability
 
 | Assistant | Account and setup                                                                                                                                                                              | Mention    |

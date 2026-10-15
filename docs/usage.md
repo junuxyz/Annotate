@@ -15,7 +15,7 @@
   the ribbon or command palette to find resolved threads and reopen them.
 - Thread and comment deletion require a second click.
 
-### Markdown and math
+## Markdown and math
 
 Comments use Obsidian's native Markdown renderer, including bold, italics, lists,
 tables, code blocks, callouts, highlights, footnotes, links, tags, and math.
@@ -27,13 +27,23 @@ display as plain code, without running language-specific plugin processors.
 Comment rendering does not automatically load remote resources or embedded notes.
 Set your display name in the plugin settings.
 
-### Text highlights
+## Text highlights and colors
 
-Select note text to open the compact **Highlight | Annotate** menu. Choose
+Select note text to open the compact **Highlight | Color | Annotate** menu. Choose
 **Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
 on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
 **Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
 Reassign either shortcut in Obsidian Hotkeys.
+
+Choose **Color** to set or remove text color. The command
+**Annotate: Color selected text with last color** reapplies your last choice.
+It has no default shortcut. Assign one under **Settings → Hotkeys**.
+
+| Command                                       | Default shortcut |
+| --------------------------------------------- | ---------------- |
+| Annotate: Comment on selection                | Cmd/Ctrl+Shift+M |
+| Annotate: Highlight selection with last color | Cmd/Ctrl+Shift+H |
+| Annotate: Color selected text with last color | None             |
 
 Under **Settings → Annotate → Advanced**, customize the palette with color names,
 color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may
@@ -43,3 +53,4 @@ Palette and shape changes update existing Annotate highlights while the plugin i
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments
 are left unchanged. Editor highlighting and recoloring can be undone normally.
+Text colors use inline `<span>` elements and can be combined with highlights.

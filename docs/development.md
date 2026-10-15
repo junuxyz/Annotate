@@ -4,6 +4,10 @@
 
 Run these commands from the repository root.
 
+Start with [architecture](architecture.md) for source ownership and request flow.
+Read [agent tools and permissions](agent-tools.md) before changing assistant
+capabilities. [Testing](testing.md) maps changed behavior to checks.
+
 ```sh
 npm ci
 npm run lint
@@ -19,12 +23,11 @@ TypeScript checks include unhandled promises and exhaustive switches.
 separately. CI and `npm run check` run lint before building.
 Use Node.js 22.13 or newer in the 22 series, or Node.js 24 or later.
 
-Source files cover the plugin UI (`main.ts`), anchors and storage (`model.ts`),
-Reading mode mapping (`reading.ts`), mentions (`mentions.ts`), comment Markdown (`markdown.ts`), LaTeX delimiters (`math.ts`),
-and the Codex app-server connection (`codex.ts`). Obsidian and CodeMirror are
-provided by the host and excluded from the bundle.
+Obsidian and CodeMirror are provided by the host and excluded from the bundle.
+The [source map](architecture.md#source-map) includes both provider transports,
+permission enforcement, note tools, recovery history, and development updates.
 
-### Fast development updates
+## Fast development updates
 
 Install the development build once into your development vault:
 
@@ -67,7 +70,7 @@ Validate development updates with:
 npm run check -- --dev-build --only smoke,sync,auto-update --record
 ```
 
-### Validation
+## Validation
 
 Unit and interaction tests use a substituted Obsidian host. With Docker running,
 run real-app development checks in a disposable Linux container with a virtual display:
@@ -80,10 +83,12 @@ The runner uses the adjacent `../test-vault/` when present, otherwise the includ
 `test-vault/`. It creates fresh settings and synthetic comment data when needed.
 See [the E2E checklist](../test-vault/E2E%20checklist.md) for full release validation.
 See [Linux E2E setup](../e2e/README-linux.md) for prerequisites and evidence output.
+See [testing](testing.md) for focused suites, permission checks, provider fixtures,
+and live account checks.
 Development checks alone do not certify a release. The older `e2e/run-*.mjs`
 scripts require the isolated instance's `CDP_PORT` and run from `e2e/`.
 
-### Releases
+## Releases
 
 Update versions without creating a tag first:
 
@@ -158,10 +163,14 @@ Full release validation is separate.
 ### Live Codex tool verification
 
 Run `npm run check:codex-tools` to verify the signed-in Codex CLI with a synthetic
-note. The check requires actual command-execution and built-in web-search events,
-checks a randomly generated file's contents after copying it with a terminal tool,
-and checks the streamed answer. It never copies credentials into test-vault.
+note. The check verifies the restrictive named filesystem profile, execution of
+an Annotate host note tool, unavailable native tools, and the streamed answer. Production terminal access
+remains disabled. It never copies credentials into test-vault.
+On macOS it also directly verifies denial of an outside synthetic sentinel read.
 `ANNOTATE_CODEX_EXECUTABLE` and `ANNOTATE_CODEX_MODEL` override automatic CLI
 selection and the account's model for this check. On macOS, automatic discovery
 and saved standard Homebrew or user-local Codex paths prefer the CLI shipped
 with ChatGPT/Codex when installed. Custom executable paths remain unchanged.
+
+`npm run check:codex-skills` checks that native skills stay unavailable. See
+[testing](testing.md#verify-the-installed-codex-boundary) for environment limits.
