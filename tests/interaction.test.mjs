@@ -521,9 +521,10 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     assert.equal(plugin.data.threads.length, 1);
     assert.ok(document.querySelector('.annotate-highlight'));
     assert.equal(document.querySelector('.annotate-count').textContent, '1');
-    assert.equal(
+    assert.equal(plugin.data.threads[0].comments[0].body, '<img src=x onerror=alert(1)>');
+    assert.match(
       document.querySelector('.annotate-messages .annotate-message-body').textContent,
-      '<img src=x onerror=alert(1)>',
+      /img src=x/,
     );
     same(document.querySelector('.annotate-messages img'), null);
     await send('a reply\nsecond line');
@@ -737,6 +738,7 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   plugin.connectionLabels.set('chatgpt', settingsWindow.document.createElement('p'));
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: fixture, surroundingContent: false },
@@ -835,9 +837,13 @@ for (const timing of ['completed', 'streaming']) {
     plugin.source = 'synthetic note';
     plugin.loadData = async () => ({
       version: 1,
+      agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
       author: 'You',
       threads: [],
-      codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
+      codex: {
+        enabled: true,
+        executable: new URL('./codex-fixture.cjs', import.meta.url).pathname,
+      },
     });
     await plugin.onload();
     let restored;
@@ -908,6 +914,7 @@ test('interrupted responses recover as unknown and require explicit new conversa
   const plugin = new Plugin();
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [
       {
@@ -957,6 +964,7 @@ test('legacy native sessions are replaced while their annotation transcript is p
   const plugin = new Plugin();
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [
       {
@@ -1002,6 +1010,7 @@ test('a missing Markdown note fails before sending a model turn', async () => {
   isolatedFactory(plugin);
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
@@ -1171,6 +1180,7 @@ test('selected reply quotes stay in the thread, survive reload, and reach resume
   plugin.source = 'synthetic note';
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
@@ -1363,6 +1373,7 @@ test('Claude mentions route without changing settings first and connection probe
   };
   try {
     plugin.data.codex.enabled = true;
+    plugin.data.agent.folders = ['.'];
     plugin.configureCodex();
     plugin.compose({
       kind: 'editor',
@@ -1477,6 +1488,7 @@ test('slash skills filter, complete without sending, and route the selected skil
     },
   });
   plugin.data.codex.enabled = true;
+  plugin.data.agent.folders = ['.'];
   plugin.configureCodex();
   try {
     plugin.compose({
@@ -1655,6 +1667,31 @@ test('queued saves retain edits made while an earlier write is pending', async (
   } finally {
     plugin.onunload();
     await plugin.persist();
+    await tick();
+  }
+});
+
+test('legacy assistant settings require new consent before connecting or sharing context', async () => {
+  const plugin = new Plugin();
+  plugin.loadData = async () => ({
+    version: 1,
+    author: 'Synthetic user',
+    threads: [],
+    codex: { enabled: true, executable: 'never-launch-this-cli' },
+  });
+  try {
+    await plugin.onload();
+    assert.equal(plugin.data.codex.enabled, false);
+    assert.equal(plugin.backend, null);
+    assert.deepEqual(plugin.data.agent.folders, []);
+    assert.equal(plugin.data.agent.webSearch, false);
+    assert.deepEqual(plugin.data.agent.services, []);
+    assert.equal(plugin.data.agent.consentVersion, 1);
+    await plugin.persist();
+    assert.equal(plugin.saved.codex.enabled, false);
+    assert.equal(plugin.saved.agent.consentVersion, 1);
+  } finally {
+    plugin.onunload();
     await tick();
   }
 });
