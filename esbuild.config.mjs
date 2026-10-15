@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { resolve } from 'node:path';
 import { watch as watchFile } from 'node:fs';
 import { publishDevelopmentBuild } from './scripts/development-build.mjs';
+import { bundleBanner } from './scripts/release.mjs';
 
 const args = process.argv.slice(2);
 const vaultIndex = args.indexOf('--vault');
@@ -27,6 +28,7 @@ const options = {
   platform: 'browser',
   sourcemap: false,
   minify: true,
+  banner: { js: bundleBanner(process.cwd(), development) },
   define: {
     ANNOTATE_DEVELOPMENT: JSON.stringify(development),
     ANNOTATE_BUILD_DIRECTORY: JSON.stringify(development ? developmentDirectory : ''),
@@ -50,6 +52,7 @@ const options = {
             await esbuild.build({
               ...options,
               outfile: resolve(developmentDirectory, 'main.js'),
+              banner: { js: bundleBanner(process.cwd(), true) },
               define: {
                 ANNOTATE_DEVELOPMENT: 'true',
                 ANNOTATE_BUILD_DIRECTORY: JSON.stringify(developmentDirectory),

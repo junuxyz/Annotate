@@ -73,6 +73,7 @@ import {
 } from './model';
 import { mentionMenu } from './mentions';
 import { CommentMarkdown } from './markdown';
+import { AgentAccess } from './agent-access';
 import logoUrl from '../assets/annotate-icon.png';
 
 declare const ANNOTATE_DEVELOPMENT: boolean;
@@ -283,6 +284,7 @@ export default class Annotate extends Plugin {
   private storedData = dataFingerprint(emptyData());
   private conflictBackup: string | null = null;
   private conflictNotified = false;
+  private conflictBackups = new Map<string, string>();
   backend: AssistantBackend | null = null;
   connectionLabels = new Map<ProviderId, HTMLElement>();
   chatgptModels: Record<string, string> = {};
@@ -307,9 +309,32 @@ export default class Annotate extends Plugin {
   private pulseTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshPending = false;
   private skillsRequest: Promise<CodexSkill[]> | null = null;
+  private accessController: AgentAccess | null = null;
+  private contextRequests = new Map<string, AbortController>();
+  get agentAccess(): AgentAccess {
+    return (this.accessController ??= new AgentAccess({
+      app: this.app,
+      directory: () => this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`,
+      settings: () => this.data.agent,
+      save: () => this.persistOrThrow(),
+      reconfigure: () => this.configureCodex(),
+    }));
+  }
   createBackend(provider: ProviderId = this.data.assistant.provider): AssistantBackend {
     const update = () => this.paintCodex();
-    if (provider === 'chatgpt') return createAssistant({ provider, ...this.data.codex }, update);
+    if (provider === 'chatgpt')
+      return createAssistant(
+        {
+          provider,
+          ...this.data.codex,
+          security: {
+            tools: this.agentAccess.tools(),
+            webSearch: this.data.agent.webSearch,
+            home: this.agentAccess.codexHome(),
+          },
+        },
+        update,
+      );
     return createAssistant({ provider, ...this.data.assistant.claude }, update);
   }
   private assistantName(): string {
@@ -337,6 +362,8 @@ export default class Annotate extends Plugin {
     })());
   }
   configureCodex(): void {
+    this.accessController?.cancelApprovals();
+    for (const request of this.contextRequests.values()) request.abort();
     this.skillsRequest = null;
     this.connectionChecks.delete(this.data.assistant.provider);
     this.backend?.disable();
@@ -693,15 +720,29 @@ export default class Annotate extends Plugin {
     if (!backend || !this.data.codex.enabled) return;
     this.submissions.add(thread.id);
     this.cancellations.delete(thread.id);
+    const contextRequest = new AbortController();
+    this.contextRequests.set(thread.id, contextRequest);
 
     let response: Thread['comments'][number] | undefined;
     const provider = this.data.assistant.provider;
     if ((thread.codex?.provider ?? 'chatgpt') !== provider)
       thread.codex = { status: 'idle', provider };
+    if (thread.codex?.historyDirty) {
+      thread.codex.sessionId = undefined;
+      thread.codex.historyDirty = false;
+    }
     thread.codex = { ...thread.codex, provider, status: 'pending', error: undefined };
     this.paintCodex();
     try {
       const sessionId = await backend.session(thread.codex.sessionId);
+      if (
+        !(await this.agentAccess.ensureContext(
+          thread.path,
+          providers[provider].name,
+          contextRequest.signal,
+        ))
+      )
+        throw new Error('Note access was declined. No note context was sent.');
       if (
         this.disposed ||
         this.backend !== backend ||
@@ -782,6 +823,7 @@ export default class Annotate extends Plugin {
       this.changed();
       this.paintCodex();
     } finally {
+      this.contextRequests.delete(thread.id);
       this.submissions.delete(thread.id);
       this.paintCodex();
     }
@@ -857,6 +899,7 @@ export default class Annotate extends Plugin {
       ...(quote ? { quote } : {}),
       createdAt: Date.now(),
     });
+    if (question === null && thread.codex) thread.codex.historyDirty = true;
     this.changed();
     await this.persistOrThrow();
     if (question !== null) void this.requestCodex(thread, question, history, quote, skill);
@@ -877,19 +920,7 @@ export default class Annotate extends Plugin {
       this.data = parsed.data;
     }
     this.storedData = dataFingerprint(this.data);
-    for (const thread of this.data.threads)
-      if (thread.codex && ['pending', 'streaming'].includes(thread.codex.status)) {
-        const interrupted = thread.comments.find((c) => c.id === thread.codex?.turnMessageId);
-        if (interrupted) interrupted.status = 'unknown';
-        thread.codex.status = 'unknown';
-        thread.codex.error = 'Obsidian closed during this response. It will not be resent.';
-      }
-    for (const thread of this.data.threads)
-      if (thread.codex && thread.codex.contextVersion !== 2) {
-        thread.codex.sessionId = undefined;
-        thread.codex.contextVersion = 2;
-        if (!['unknown', 'unavailable'].includes(thread.codex.status)) thread.codex.status = 'idle';
-      }
+    this.recoverConversations(this.data);
     this.configureCodex();
     this.scheduleSave();
     // The nested CodeMirror class has its own `this`.
@@ -1216,6 +1247,9 @@ export default class Annotate extends Plugin {
 
   onunload(): void {
     this.disposed = true;
+    this.accessController?.dispose();
+    for (const request of this.contextRequests.values()) request.abort();
+    this.contextRequests.clear();
     this.stopDevelopmentUpdates?.();
     this.stopDevelopmentUpdates = null;
     this.hideSelectionTools();
@@ -1882,16 +1916,46 @@ export default class Annotate extends Plugin {
       if (!this.disposed && this.storageHealthy) await this.checkExternalData();
     }).catch(() => {});
   }
+  private recoverConversations(data: PluginData): void {
+    if (data.agent.consentVersion < 1) {
+      data.codex.enabled = false;
+      data.agent = { folders: [], webSearch: false, services: [], consentVersion: 1 };
+      for (const thread of data.threads) if (thread.codex) thread.codex.sessionId = undefined;
+      new Notice(
+        'Annotate: assistant access now uses approved note folders. Review the sharing information in settings before enabling AI again.',
+        10000,
+      );
+    }
+    for (const thread of data.threads)
+      if (thread.codex && ['pending', 'streaming'].includes(thread.codex.status)) {
+        const interrupted = thread.comments.find((c) => c.id === thread.codex?.turnMessageId);
+        if (interrupted) interrupted.status = 'unknown';
+        thread.codex.status = 'unknown';
+        thread.codex.error = 'Obsidian closed during this response. It will not be resent.';
+      }
+    for (const thread of data.threads)
+      if (thread.codex && thread.codex.contextVersion !== 2) {
+        thread.codex.sessionId = undefined;
+        thread.codex.contextVersion = 2;
+        if (!['unknown', 'unavailable'].includes(thread.codex.status)) thread.codex.status = 'idle';
+      }
+  }
   private async preserveConflict(external: unknown): Promise<never> {
-    this.conflictBackup ??= `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`}/conflict-${Date.now()}-${crypto.randomUUID()}.json`;
+    const directory = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`;
+    const revision = JSON.stringify(external ?? null);
+    const path =
+      this.conflictBackups.get(revision) ??
+      `${directory}/conflict-${Date.now()}-${crypto.randomUUID()}.json`;
+    this.conflictBackups.set(revision, path);
+    this.conflictBackup ??= path;
     await this.app.vault.adapter.write(
-      this.conflictBackup,
+      path,
       JSON.stringify({ savedAt: Date.now(), local: this.data, external }, null, 2),
     );
     if (!this.conflictNotified) {
       this.conflictNotified = true;
       new Notice(
-        `Annotate: synced data conflicts with local changes. Both copies are preserved in ${this.conflictBackup}. Saves are paused. Reload Annotate to load synced data.`,
+        `Annotate: synced data conflicts with local changes. Copies are preserved in conflict-*.json files in ${directory}. Saves are paused. Reload Annotate to load synced data.`,
         0,
       );
     }
@@ -1916,6 +1980,8 @@ export default class Annotate extends Plugin {
     this.data = external;
     this.storedData = fingerprint;
     if (this.disposed) return true;
+    this.recoverConversations(this.data);
+    this.scheduleSave();
     for (const [path, text] of this.documents) this.reconcile(path, text);
     this.configureCodex();
     this.refreshHighlightStyles();
@@ -2146,12 +2212,18 @@ export default class Annotate extends Plugin {
     submit: (body: string, quote?: ReplyQuote) => Promise<boolean>,
     allowQuote = false,
     draftKey?: string,
+    notePath?: string,
   ): void {
     const doc = panel.ownerDocument,
       form = doc.createElement('form'),
       input = doc.createElement('textarea'),
       button = doc.createElement('button');
     form.className = 'annotate-composer';
+    const context = doc.createElement('p');
+    context.className = 'annotate-context-preview';
+    context.textContent = `AI context: complete note ${notePath ?? ''}, selected passage, and earlier thread messages. @comment saves locally without starting a request; it can enter later AI context.`;
+    context.hidden = true;
+    panel.append(context);
     input.placeholder = label;
     const inputLabel = doc.createElement('label');
     input.id = `annotate-composer-${crypto.randomUUID()}`;
@@ -2182,6 +2254,7 @@ export default class Annotate extends Plugin {
         // Submission reports conflicting assistant mentions.
       }
       form.classList.toggle('annotate-asking-ai', asking !== null);
+      context.hidden = asking === null;
       button.setAttribute(
         'aria-label',
         asking ? `Ask ${providers[asking.provider].name}` : 'Send comment',
@@ -2351,6 +2424,7 @@ export default class Annotate extends Plugin {
       },
       false,
       `new:${target.path}:${target.anchor.from}:${target.anchor.to}`,
+      target.path,
     );
     this.position(panel, rect, panel.ownerDocument);
   }
@@ -2395,6 +2469,7 @@ export default class Annotate extends Plugin {
     const remove = iconButton(owner, 'trash', 'Delete thread', 'annotate-delete');
     actions.append(remove);
     remove.addEventListener('click', () => {
+      this.contextRequests.get(thread.id)?.abort();
       if (thread.codex?.sessionId)
         void this.backend?.interrupt(thread.codex.sessionId).catch(() => {});
       const index = this.data.threads.indexOf(thread);
@@ -2432,6 +2507,7 @@ export default class Annotate extends Plugin {
       bar.append(cancel);
       cancel.addEventListener('click', () => {
         this.cancellations.add(thread.id);
+        this.contextRequests.get(thread.id)?.abort();
         if (thread.codex?.sessionId)
           void this.backend
             ?.interrupt(thread.codex.sessionId)
@@ -2472,6 +2548,7 @@ export default class Annotate extends Plugin {
         },
         true,
         `thread:${thread.id}`,
+        thread.path,
       );
     this.paintCodex();
     list.scrollTop = list.scrollHeight;
@@ -2620,7 +2697,7 @@ class CommentsSettings extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Ask AI in comments')
       .setDesc(
-        'Messages ask the default assistant. Start with @comment to save a comment without an AI reply. Use @chatgpt or @claude to choose another assistant.',
+        'AI requests send the complete current note, selected passage, question, and prior thread messages to OpenAI or Anthropic. Earlier @comment messages may be included later. Review folder access below. Start with @comment to save without starting a request.',
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
@@ -2703,6 +2780,9 @@ class CommentsSettings extends PluginSettingTab {
       });
     }
     this.plugin.paintConnections();
+
+    const access = containerEl.createDiv({ cls: 'annotate-agent-settings' });
+    this.plugin.agentAccess.renderSettings(access);
 
     const advanced = containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
     advanced.createEl('summary', { text: 'Advanced' });

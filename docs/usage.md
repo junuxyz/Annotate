@@ -18,11 +18,13 @@
 ### Markdown and math
 
 Comments use Obsidian's native Markdown renderer, including bold, italics, lists,
-tables, code blocks, callouts, highlights, footnotes, links, tags, embeds, and math.
+tables, code blocks, callouts, highlights, footnotes, links, tags, and math.
 LaTeX supports `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`.
 
-Links and embeds resolve relative to the commented note. Editing keeps the original
-Markdown source. HTML follows Obsidian's sanitization rules.
+Note links resolve relative to the commented note. Editing keeps the original
+Markdown source. Images, embeds, and raw HTML display as inert text. Code blocks
+display as plain code, without running language-specific plugin processors.
+Comment rendering does not automatically load remote resources or embedded notes.
 Set your display name in the plugin settings.
 
 ### Text highlights

@@ -1423,3 +1423,17 @@ button.annotate-count:hover {
     animation: none;
   }
 }
+/* Assistant context and approvals use the host theme and keep full arguments reviewable. */
+.annotate-context-preview {
+  margin: 0;
+  padding: var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+
+.annotate-access-preview {
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

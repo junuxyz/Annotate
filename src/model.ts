@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { providerSchema } from './ai';
 import { highlightSettingsSchema, defaultHighlights } from './highlight';
+import { agentSettingsSchema, emptyAgentSettings } from './agent-settings';
 import type { ChangeDesc } from '@codemirror/state';
 const anchorSchema = z
   .object({
@@ -45,6 +46,7 @@ const threadSchema = z.object({
       sessionId: z.string().optional(),
       provider: providerSchema.optional(),
       contextVersion: z.literal(2).optional(),
+      historyDirty: z.boolean().optional(),
       status: z.enum([
         'idle',
         'pending',
@@ -72,6 +74,7 @@ export const dataSchema = z.object({
   author: z.string(),
   highlights: highlightSettingsSchema.default(defaultHighlights),
   threads: z.array(threadSchema),
+  agent: agentSettingsSchema.prefault({}),
   assistant: z
     .object({
       provider: providerSchema.default('chatgpt'),
@@ -102,6 +105,7 @@ export const emptyData = (): PluginData => ({
   author: 'You',
   highlights: defaultHighlights(),
   threads: [],
+  agent: emptyAgentSettings(),
   codex: { enabled: false, executable: 'codex', model: '' },
   assistant: {
     provider: 'chatgpt',

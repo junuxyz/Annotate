@@ -521,9 +521,10 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     assert.equal(plugin.data.threads.length, 1);
     assert.ok(document.querySelector('.annotate-highlight'));
     assert.equal(document.querySelector('.annotate-count').textContent, '1');
-    assert.equal(
+    assert.equal(plugin.data.threads[0].comments[0].body, '<img src=x onerror=alert(1)>');
+    assert.match(
       document.querySelector('.annotate-messages .annotate-message-body').textContent,
-      '<img src=x onerror=alert(1)>',
+      /img src=x/,
     );
     same(document.querySelector('.annotate-messages img'), null);
     await send('a reply\nsecond line');
@@ -737,6 +738,7 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   plugin.connectionLabels.set('chatgpt', settingsWindow.document.createElement('p'));
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: fixture, surroundingContent: false },
@@ -827,10 +829,92 @@ test('Codex streams in the existing annotation, retains draft, cancels and resto
   }
 });
 
+for (const timing of ['completed', 'streaming']) {
+  test(`local comments after a ${timing} turn reach the next Codex conversation once after reload`, async () => {
+    globalThis.require = createRequire(import.meta.url);
+    const plugin = new Plugin();
+    isolatedFactory(plugin);
+    plugin.source = 'synthetic note';
+    plugin.loadData = async () => ({
+      version: 1,
+      agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
+      author: 'You',
+      threads: [],
+      codex: {
+        enabled: true,
+        executable: new URL('./codex-fixture.cjs', import.meta.url).pathname,
+      },
+    });
+    await plugin.onload();
+    let restored;
+    try {
+      await plugin.backend.connect();
+      plugin.compose({
+        kind: 'editor',
+        path: 'test.md',
+        anchor: { from: 0, to: 9, quote: 'synthetic', prefix: '', suffix: '', orphaned: false },
+        text: () => 'synthetic note',
+      });
+      await send('@chatgpt explain');
+      const thread = plugin.data.threads[0];
+      if (timing === 'completed')
+        await until(() => thread.codex.status === 'completed', 'first response completes');
+      else assert.ok(['pending', 'streaming'].includes(thread.codex.status));
+      const quote = { messageId: thread.comments[0].id, text: 'explain' };
+      await plugin.record(thread, '@comment My local addendum', quote);
+      await until(() => thread.codex.status === 'completed', 'first response completes');
+      assert.equal(thread.codex.historyDirty, true);
+      await plugin.persist();
+      const saved = structuredClone(plugin.saved);
+      plugin.onunload();
+
+      restored = new Plugin();
+      isolatedFactory(restored);
+      restored.source = 'synthetic note';
+      restored.loadData = async () => saved;
+      await restored.onload();
+      await restored.backend.connect();
+      const requests = [],
+        sessions = [];
+      const ask = restored.backend.ask.bind(restored.backend);
+      const session = restored.backend.session.bind(restored.backend);
+      restored.backend.session = (id) => {
+        sessions.push(id);
+        return session(id);
+      };
+      restored.backend.ask = (id, content, ...rest) => {
+        requests.push(JSON.parse(content));
+        return ask(id, content, ...rest);
+      };
+      const resumed = restored.data.threads[0];
+      await restored.record(resumed, '@chatgpt use the addendum');
+      await until(() => resumed.codex.status === 'completed', 'followup completes');
+      assert.equal(sessions[0], undefined, 'rebuild history in a fresh Codex conversation');
+      assert.deepEqual(requests[0].conversationHistory, [
+        { role: 'user', content: 'explain' },
+        { role: 'assistant', content: 'Hello world' },
+        { role: 'user', content: 'My local addendum', quote },
+      ]);
+      assert.equal(requests[0].question, 'use the addendum');
+      assert.equal(resumed.codex.historyDirty, false);
+      const resumedId = resumed.codex.sessionId;
+      await restored.record(resumed, '@chatgpt continue');
+      await until(() => resumed.codex.status === 'completed', 'next followup completes');
+      assert.equal(sessions[1], resumedId, 'continue the rebuilt conversation');
+      assert.deepEqual(requests[1].conversationHistory, [], 'do not repeat imported history');
+    } finally {
+      plugin.onunload();
+      restored?.onunload();
+      await tick();
+    }
+  });
+}
+
 test('interrupted responses recover as unknown and require explicit new conversation', async () => {
   const plugin = new Plugin();
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [
       {
@@ -880,6 +964,7 @@ test('legacy native sessions are replaced while their annotation transcript is p
   const plugin = new Plugin();
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [
       {
@@ -925,6 +1010,7 @@ test('a missing Markdown note fails before sending a model turn', async () => {
   isolatedFactory(plugin);
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
@@ -1094,6 +1180,7 @@ test('selected reply quotes stay in the thread, survive reload, and reach resume
   plugin.source = 'synthetic note';
   plugin.loadData = async () => ({
     version: 1,
+    agent: { folders: ['.'], webSearch: false, services: [], consentVersion: 1 },
     author: 'You',
     threads: [],
     codex: { enabled: true, executable: new URL('./codex-fixture.cjs', import.meta.url).pathname },
@@ -1286,6 +1373,7 @@ test('Claude mentions route without changing settings first and connection probe
   };
   try {
     plugin.data.codex.enabled = true;
+    plugin.data.agent.folders = ['.'];
     plugin.configureCodex();
     plugin.compose({
       kind: 'editor',
@@ -1400,6 +1488,7 @@ test('slash skills filter, complete without sending, and route the selected skil
     },
   });
   plugin.data.codex.enabled = true;
+  plugin.data.agent.folders = ['.'];
   plugin.configureCodex();
   try {
     plugin.compose({
@@ -1455,6 +1544,152 @@ test('slash skills filter, complete without sending, and route the selected skil
     await tick();
     assert.equal(selected, undefined, 'local slash text never invokes a skill');
     assert.equal(plugin.data.threads[0].comments.at(-1).body, '/synthetic-review ordinary comment');
+  } finally {
+    plugin.onunload();
+    await tick();
+  }
+});
+test('sequential sync conflicts keep each remote revision recoverable', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.data.author = 'Local';
+    plugin.saved.author = 'Remote revision one';
+    await plugin.onExternalSettingsChange();
+    plugin.saved.author = 'Remote revision two';
+    await plugin.onExternalSettingsChange();
+    assert.ok(
+      [...plugin.recovery.values()].some((text) => text.includes('Remote revision one')),
+      'The first conflicting synced revision must remain recoverable',
+    );
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+  }
+});
+
+test('incoming interrupted assistant state can be recovered', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.saved.threads.push({
+      id: 'remote-thread',
+      path: 'test.md',
+      resolved: false,
+      anchor: { quote: 'hello', prefix: '', suffix: '', from: 0, to: 5, orphaned: false },
+      comments: [
+        {
+          id: 'remote-comment',
+          author: 'Codex',
+          body: 'partial',
+          role: 'assistant',
+          status: 'streaming',
+          createdAt: 1,
+        },
+      ],
+      codex: {
+        status: 'streaming',
+        turnMessageId: 'remote-comment',
+        sessionId: 'remote-session',
+        contextVersion: 2,
+      },
+    });
+    await plugin.onExternalSettingsChange();
+    assert.equal(
+      plugin.data.threads[0].codex.status,
+      'unknown',
+      'Incoming streaming state is interrupted on this instance',
+    );
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+  }
+});
+
+test('a clean sync does not discard a comment edit draft', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    plugin.source = 'passage';
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    await send('original');
+    await plugin.persist();
+    click(document.querySelector('.annotate-message-edit'));
+    const editor = document.querySelector('.annotate-message-editor textarea');
+    editor.value = 'unsaved edit that should survive';
+    editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+    plugin.saved.author = 'Remote author';
+    await plugin.onExternalSettingsChange();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(editor.isConnected, 'Unsaved comment edit remains accessible after sync');
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('queued saves retain edits made while an earlier write is pending', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    const originalSave = plugin.saveData.bind(plugin);
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let entered;
+    const writing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    plugin.saveData = async (snapshot) => {
+      entered();
+      await gate;
+      await originalSave(snapshot);
+    };
+    plugin.data.author = 'First edit';
+    const first = plugin.persist();
+    await writing;
+    plugin.data.author = 'Edit during pending write';
+    const second = plugin.persist();
+    release();
+    await Promise.all([first, second]);
+    assert.equal(plugin.saved.author, 'Edit during pending write');
+    assert.equal(plugin.recovery.size, 0);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('legacy assistant settings require new consent before connecting or sharing context', async () => {
+  const plugin = new Plugin();
+  plugin.loadData = async () => ({
+    version: 1,
+    author: 'Synthetic user',
+    threads: [],
+    codex: { enabled: true, executable: 'never-launch-this-cli' },
+  });
+  try {
+    await plugin.onload();
+    assert.equal(plugin.data.codex.enabled, false);
+    assert.equal(plugin.backend, null);
+    assert.deepEqual(plugin.data.agent.folders, []);
+    assert.equal(plugin.data.agent.webSearch, false);
+    assert.deepEqual(plugin.data.agent.services, []);
+    assert.equal(plugin.data.agent.consentVersion, 1);
+    await plugin.persist();
+    assert.equal(plugin.saved.codex.enabled, false);
+    assert.equal(plugin.saved.agent.consentVersion, 1);
   } finally {
     plugin.onunload();
     await tick();

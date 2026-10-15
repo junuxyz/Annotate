@@ -161,37 +161,44 @@ test('reply quotes identify the latest target and survive conversation reconstru
   assert.equal(Object.keys(payload).at(-1), 'question');
 });
 
-test('Codex executes terminal tools and reports search activity without losing the answer', async () => {
-  const observed = new Set();
-  const b = new CodexBackend(
-    fixture,
-    () => {
-      for (const activity of b.activity?.values() ?? []) observed.add(activity);
-    },
-    runtime(),
-  );
+test('host tools dispatch only for active turns and receive cancellation context', async () => {
+  let called = 0;
+  const b = new CodexBackend(fixture, () => {}, runtime(), {
+    tools: [
+      {
+        name: 'read_note',
+        description: 'Read selected notes',
+        inputSchema: { type: 'object' },
+        async execute(args, context) {
+          called++;
+          assert.deepEqual(args, { path: 'Selected/note.md' });
+          assert.equal(context.signal.aborted, false);
+          assert.equal(context.callId, 'op-1');
+          return 'host-note';
+        },
+      },
+    ],
+  });
   try {
     await b.enable();
     const result = await response(b, await b.session(), 'tools');
-    assert.equal(result.state, 'completed', result.error);
-    assert.equal(result.chunks, 'terminal-executed');
-    assert.ok(observed.has('commandExecution'));
-    assert.ok(observed.has('webSearch'));
-    assert.equal(b.activity.size, 0);
+    assert.equal(result.state, 'completed');
+    assert.equal(result.chunks, JSON.stringify('host-note'));
+    assert.equal(called, 1);
   } finally {
     b.disable();
   }
 });
 
-test('active command approvals proceed and explicit model choices survive a stale catalog', async () => {
+test('native command approvals are denied and explicit model choices survive a stale catalog', async () => {
   const b = new CodexBackend(fixture, () => {}, runtime());
   b.preferredModel = 'account-model-not-in-stale-catalog';
   try {
     await b.enable();
     assert.equal(b.model, 'account-model-not-in-stale-catalog');
     const result = await response(b, await b.session(), 'approval');
-    assert.equal(result.state, 'completed');
-    assert.equal(result.chunks, 'approved');
+    assert.equal(result.state, 'failed');
+    assert.equal(result.chunks, 'rejected');
   } finally {
     b.disable();
   }
@@ -245,25 +252,151 @@ test('available inherited CLI model takes precedence over the account default', 
   }
 });
 
-test('discovered skills are sent as explicit app-server skill inputs', async () => {
+test('native skill discovery and explicit invocation cannot bypass note tools', async () => {
   const b = new CodexBackend(fixture, () => {}, runtime());
   try {
     await b.enable();
-    const skills = await b.listSkills();
-    assert.equal(skills[0].name, 'synthetic-review');
-    let body = '';
-    let finish;
-    const done = new Promise((resolve) => (finish = resolve));
-    await b.ask(
-      await b.session(),
-      questionContext('note', 'passage', 'review', []),
-      (delta) => (body += delta),
-      (state) => finish(state),
-      skills[0],
+    assert.deepEqual(await b.listSkills(), []);
+    await assert.rejects(
+      b.ask(
+        await b.session(),
+        'question',
+        () => {},
+        () => {},
+        {
+          name: 'outside-skill',
+          path: '/outside/SKILL.md',
+          description: '',
+          enabled: true,
+        },
+      ),
+      /Native Codex skills are unavailable/,
     );
-    assert.equal(await done, 'completed');
-    assert.equal(body, 'skill-input-verified');
   } finally {
+    b.disable();
+  }
+});
+
+test('unregistered and stale dynamic calls cannot reach host tools', async () => {
+  let calls = 0;
+  const b = new CodexBackend(fixture, () => {}, runtime(), {
+    tools: [
+      {
+        name: 'read_note',
+        description: 'Read',
+        inputSchema: { type: 'object' },
+        async execute() {
+          calls++;
+          return 'unexpected';
+        },
+      },
+    ],
+  });
+  try {
+    await b.enable();
+    for (const question of ['stale-tool', 'unknown-tool']) {
+      const result = await response(b, await b.session(), question);
+      assert.match(result.chunks, /unavailable|no longer active/);
+    }
+    assert.equal(calls, 0);
+  } finally {
+    b.disable();
+  }
+});
+
+test('disable aborts a pending host request and never returns its result to another process', async () => {
+  let entered;
+  const started = new Promise((resolve) => (entered = resolve));
+  let release;
+  const approved = new Promise((resolve) => (release = resolve));
+  let signal;
+  const b = new CodexBackend(fixture, () => {}, runtime(), {
+    tools: [
+      {
+        name: 'read_note',
+        description: 'Read',
+        inputSchema: { type: 'object' },
+        async execute(_args, context) {
+          signal = context.signal;
+          entered();
+          await approved;
+          return 'late-result';
+        },
+      },
+    ],
+  });
+  try {
+    await b.enable();
+    const result = response(b, await b.session(), 'pending-tool');
+    await started;
+    b.disable();
+    assert.equal(signal.aborted, true);
+    release();
+    assert.equal((await result).state, 'unknown');
+    await b.enable();
+    assert.equal((await response(b, await b.session(), 'question')).chunks, 'Hello world');
+  } finally {
+    release();
+    b.disable();
+  }
+});
+
+test('unsupported or substituted permission profiles fail closed', async () => {
+  for (const flag of ['unsupportedProfile', 'wrongProfile']) {
+    const environment = runtime();
+    mkdirSync(environment.home);
+    writeFileSync(join(environment.home, 'fixture-models.json'), JSON.stringify({ [flag]: true }));
+    const b = new CodexBackend(fixture, () => {}, environment);
+    try {
+      if (flag === 'unsupportedProfile')
+        await assert.rejects(b.enable(), /cannot enforce Annotate note boundaries/);
+      else {
+        await b.enable();
+        await assert.rejects(b.session());
+      }
+    } finally {
+      b.disable();
+    }
+  }
+});
+
+test('turn start failure aborts pending host permission before a late write', async () => {
+  let entered;
+  const started = new Promise((resolve) => (entered = resolve));
+  let release;
+  const approved = new Promise((resolve) => (release = resolve));
+  let signal;
+  let writes = 0;
+  const b = new CodexBackend(fixture, () => {}, runtime(), {
+    tools: [
+      {
+        name: 'edit_note',
+        description: 'Edit',
+        inputSchema: { type: 'object' },
+        async execute(_args, context) {
+          signal = context.signal;
+          entered();
+          await approved;
+          if (!signal.aborted) writes++;
+          return 'late-write';
+        },
+      },
+    ],
+  });
+  try {
+    await b.enable();
+    const id = await b.session();
+    const result = response(b, id, 'failed-start-tool');
+    await started;
+    assert.equal((await result).state, 'failed');
+    assert.equal(signal.aborted, true);
+    release();
+    await delay(20);
+    assert.equal(writes, 0);
+    assert.equal((await response(b, id, 'explicit followup')).state, 'completed');
+    assert.equal(b.launches, 1);
+  } finally {
+    release();
     b.disable();
   }
 });

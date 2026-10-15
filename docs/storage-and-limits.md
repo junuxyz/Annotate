@@ -16,8 +16,11 @@ Obsidian preserve threads; renames made outside Obsidian cannot be tracked relia
   custom rendering and equations. Use editing mode for those selections.
 - Synced comment data reloads when there are no unsaved local changes and the
   comment window is closed. Open composers and message edits stay in place. Conflicting
-  changes pause saves and preserve both copies in a `conflict-*.json` file beside
+  changes pause saves and preserve copies in `conflict-*.json` files beside
   `data.json`. Reload Annotate to load the synced copy, then recover local comments
-  from the recovery file's `local` field. Back up both files before editing them.
+  from each recovery file's `local` field. Back up both files before editing them.
   Annotate does not merge simultaneous edits on multiple devices.
-- Mobile is permitted by the manifest but has not been validated.
+- This release requires desktop Obsidian 1.14.4 or newer. Mobile is unavailable.
+- Conflict detection checks external data before saving. Obsidian has no atomic
+  compare-and-save API, so truly simultaneous writes from separate devices can
+  still race. Keep backups and avoid editing the same comment data on two open devices.

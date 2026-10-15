@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node esbuild.config.mjs",
+    "release:verify": "node scripts/release.mjs",
     "build:dev": "tsc --noEmit && node esbuild.config.mjs --dev",
     "dev": "node esbuild.config.mjs --watch",
     "test": "node scripts/test.mjs",

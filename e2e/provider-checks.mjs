@@ -23,11 +23,19 @@ export async function checkProviders({
 }) {
   const P = `const p=app.plugins.plugins['annotate'];`;
   const sendQuestion = async (provider, question) => {
+    const previous = await ev(`${P}return p.data.threads.at(-1)?.codex?.turnMessageId??null`);
     await ev(`document.querySelector('.annotate-composer textarea').focus()`);
     await type(`@${provider} ${question}`);
     await press('Enter');
+    await until(
+      `${P}const t=p.data.threads.at(-1);return p.submissions.has(t?.id)||(!!t?.codex?.turnMessageId&&t.codex.turnMessageId!==${JSON.stringify(previous)})`,
+      'new assistant request starts',
+    );
   };
   if (only.includes('providers')) {
+    await ev(
+      `${P}p.data.agent.folders=['Fixtures'];p.data.agent.consentVersion=1;await p.persist()`,
+    );
     const dir = join(root, 'provider-fixtures');
     mkdirSync(dir, { recursive: true });
     const backend = join(dir, 'backend.cjs');
@@ -406,79 +414,29 @@ export async function checkProviders({
       },
     );
     await step(
-      'providers [chatgpt]: terminal and web search activity reach the thread',
+      'providers [chatgpt]: native commands are denied and native skills are unavailable',
       async () => {
-        await sendQuestion('chatgpt', 'tools');
+        await sendQuestion('chatgpt', 'approval');
         await until(
-          `${P}return p.data.threads.at(-1)?.codex?.status==='completed'`,
-          'tool-enabled turn completes',
+          `${P}return p.data.threads.at(-1)?.codex?.status==='failed'`,
+          'native command rejected',
         );
         assert(
-          await ev(`${P}return p.data.threads.at(-1).comments.at(-1).body==='terminal-executed'`),
-          'tool result rendered in the annotation',
+          await ev(`${P}return p.data.threads.at(-1).comments.at(-1).body==='rejected'`),
+          'no automatic command approval',
+        );
+        assert(
+          await ev(`${P}return (await p.backend.listSkills()).length===0`),
+          'native skill discovery disabled',
+        );
+        // A native command refusal is a failed answer, so recover explicitly for remaining routing checks.
+        await sendQuestion('chatgpt', 'continue');
+        await until(
+          `${P}return p.data.threads.at(-1)?.codex?.status==='completed'`,
+          'context-only continuation',
         );
       },
     );
-    for (const mode of modes)
-      for (const theme of themes)
-        await step(
-          `skills [${mode}/${theme}]: slash picker invokes a discovered skill`,
-          async () => {
-            await resetThreads();
-            await ev(
-              `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
-            );
-            await createComment(mode, '@comment Skill fixture');
-            await ev(`document.querySelector('.annotate-composer textarea').focus()`);
-            await type('/synthetic');
-            await ev(
-              `document.querySelector('.annotate-composer textarea').dispatchEvent(new Event('input',{bubbles:true}))`,
-            );
-            assert(
-              await ev(`return document.querySelector('.annotate-mention-menu').hidden`),
-              'bare slash does not open skills',
-            );
-            await ev(
-              `const input=document.querySelector('.annotate-composer textarea');input.value='';input.dispatchEvent(new Event('input',{bubbles:true}))`,
-            );
-            await type('@chatgpt /synthetic');
-            await until(
-              `return !document.querySelector('.annotate-mention-menu').hidden&&document.querySelector('.annotate-skill-option strong')?.textContent==='/synthetic-review'`,
-              'skill picker loaded',
-            );
-            assert(
-              await ev(
-                `const option=document.querySelector('.annotate-skill-option'),panel=document.querySelector('.annotate-panel');return getComputedStyle(option).color===getComputedStyle(panel).color`,
-              ),
-              'skill picker uses neutral text instead of green',
-            );
-            await shot(`skills-${mode}-${theme}`);
-            await press('Tab');
-            assert(
-              await ev(
-                `${P}return document.querySelector('.annotate-composer textarea').value==='@chatgpt /synthetic-review '&&p.data.threads[0].comments.length===1`,
-              ),
-              'Tab completes without posting',
-            );
-            await type('review the passage');
-            await press('Enter');
-            await until(
-              `${P}return p.data.threads[0].codex?.status==='completed'&&p.data.threads[0].comments.at(-1).body==='skill-input-verified'`,
-              'explicit skill input reaches Codex',
-            );
-            await until(
-              `return !!document.querySelector('.annotate-skill-mention')`,
-              'skill token rendered',
-            );
-            assert(
-              await ev(
-                `return getComputedStyle(document.querySelector('.annotate-skill-mention')).color===${JSON.stringify(theme === 'dark' ? 'rgb(101, 214, 162)' : 'rgb(23, 131, 79)')}`,
-              ),
-              'posted skill uses theme-specific green',
-            );
-            await shot(`skills-${mode}-${theme}-posted`);
-          },
-        );
     await step(
       'providers: switching assistants keeps history and replaces session identity',
       async () => {

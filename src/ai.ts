@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { CodexBackend, type ConnectionState, type ResponseState, type CodexSkill } from './codex';
+import {
+  CodexBackend,
+  type ConnectionState,
+  type ResponseState,
+  type CodexSkill,
+  type BackendSecurity,
+} from './codex';
 import { ClaudeBackend } from './claude';
 
 export const providerSchema = z.enum(['chatgpt', 'claude']);
@@ -114,13 +120,18 @@ export interface AssistantBackend {
 }
 
 type AssistantConfig =
-  | { provider: 'chatgpt'; executable: string; model?: string }
+  | { provider: 'chatgpt'; executable: string; model?: string; security?: BackendSecurity }
   | { provider: 'claude'; executable: string; model: string };
 
 export function createAssistant(config: AssistantConfig, update: () => void): AssistantBackend {
   switch (config.provider) {
     case 'chatgpt': {
-      const backend = new CodexBackend(resolveExecutable(config.executable), update);
+      const backend = new CodexBackend(
+        resolveExecutable(config.executable),
+        update,
+        undefined,
+        config.security,
+      );
       backend.preferredModel = config.model ?? '';
       return backend;
     }
