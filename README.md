@@ -6,7 +6,7 @@
 
 **Keep context attached to your notes.**
 
-**Annotate** is an obsidian plugin that lets you select a passage, leave a comment, and click its highlight to revisit it or add a reply.
+**Annotate** is a desktop Obsidian plugin that lets you select a passage, leave a comment, and click its highlight to revisit it or add a reply.
 
 https://github.com/user-attachments/assets/b64ded00-4c37-46e0-a9a0-9e790734fa87
 
@@ -14,14 +14,13 @@ https://github.com/user-attachments/assets/b64ded00-4c37-46e0-a9a0-9e790734fa87
 
 - 💬 **Comment on any passage.** Start a thread, reply, edit, resolve, or reopen it from the highlight or comments list. Quote selected text, copy messages or entire threads, and expand longer conversations. Comments support Obsidian Markdown, note links, embeds, code blocks, and LaTeX, and follow text edits and Obsidian renames.
 - 🖍️ **Highlight and color text.** Choose highlight and text colors from the selection menu, combine them, or remove them. Customize the highlight palette, opacity, and Rounded, Flat, or Underline shape. **Cmd/Ctrl+Shift+H** reapplies your last highlight color. Bold, italics, and strikethrough stay formatted.
-- 🤖 **Ask an assistant.** When enabled, messages ask your default assistant. Start with `@comment` to save a comment without an AI reply, or use `@chatgpt` / `@claude` to choose an assistant. Answers use your current note and highlighted passage as context. Optional, desktop only.
+- 🤖 **Ask an assistant.** When enabled, messages ask your default assistant. Start with `@comment` to save a comment without an AI reply, or use `@chatgpt` / `@claude` to choose an assistant. Requests supply the full current note, highlighted passage, question, and conversation, including earlier local comments. Assistant access is optional. ChatGPT can work on notes inside explicitly permitted vault folders. See the setup guide for context and permission controls.
   - Comments stay in your vault without changing your notes. Assistant requests share note content with the selected provider. See [assistant setup and privacy](docs/assistants.md).
-- 🛠️ **Use Codex skills.** Type `/` after mentioning an assistant to search installed skills, then send `@chatgpt /skill-name your question` to run one. Desktop only.
 - 🎨 **Fit your Obsidian theme.** The interface uses your theme's colors, accent color, and typography to blend into Obsidian in light and dark mode. Highlight colors remain customizable.
 
 ## Install
 
-Build from source with Node.js 22 or newer:
+Build from source with Node.js 22.13 or newer in the 22 series, or Node.js 24 or later:
 
 ```sh
 git clone https://github.com/junuxyz/Annotate.git
@@ -63,12 +62,30 @@ shape remain available in Reading mode without Annotate. Code and HTML tag fragm
 are left unchanged. Text colors are saved as inline `<span>` elements.
 Editor highlighting and recoloring can be undone normally.
 
+## Assistant privacy
+
+Local comments work without an assistant account. Enabling Claude requires a
+Claude subscription login through Claude Code and sends supplied context to
+Anthropic. ChatGPT uses an authenticated Codex account and sends supplied context
+to OpenAI when its integration is available. Annotate does not include a provider
+subscription. Provider account limits and data policies apply.
+
+`@comment` saves without starting an AI request. That comment can still become
+context in a later assistant request. Do not include information you do not want
+to share in a note or conversation you send to an assistant.
+
+Terminal commands and Codex skills are unavailable in the first release. Web
+search and selected remote MCP services have separate opt-in controls. Read
+[assistant setup and privacy](docs/assistants.md) for the current tool limitations,
+context disclosure, and folder-scoped note access.
+
 ## Documentation
 
 - [Usage](docs/usage.md): editing, resolving, Markdown, and math.
 - [Assistant replies](docs/assistants.md): ChatGPT and Claude setup, privacy, and recovery.
 - [Storage and limits](docs/storage-and-limits.md): backups, missing text, and supported content.
 - [Development](docs/development.md): local updates, validation, and releases.
+- [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
 ## License
 
