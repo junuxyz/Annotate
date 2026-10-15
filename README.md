@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/b64ded00-4c37-46e0-a9a0-9e790734fa87
 
 ## Features
 
-- 💬 **Comment on any passage.** Start a thread, reply, edit, resolve, or reopen it from the highlight or comments list. Quote selected text, copy messages or entire threads, and expand longer conversations. Comments support Obsidian Markdown, note links, embeds, code blocks, and LaTeX, and follow text edits and Obsidian renames.
+- 💬 **Comment on any passage.** Start a thread, reply, edit, resolve, or reopen it from the highlight or comments list. Quote selected text, copy messages or entire threads, and expand longer conversations. Comments support Obsidian Markdown, note links, code blocks, and LaTeX, and follow text edits and Obsidian renames.
 - 🖍️ **Highlight and color text.** Choose highlight and text colors from the selection menu, combine them, or remove them. Customize the highlight palette, opacity, and Rounded, Flat, or Underline shape. **Cmd/Ctrl+Shift+H** reapplies your last highlight color. Bold, italics, and strikethrough stay formatted.
 - 🤖 **Ask an assistant.** When enabled, messages ask your default assistant. Start with `@comment` to save a comment without an AI reply, or use `@chatgpt` / `@claude` to choose an assistant. Requests supply the full current note, highlighted passage, question, and conversation, including earlier local comments. Assistant access is optional. ChatGPT can work on notes inside explicitly permitted vault folders. See the setup guide for context and permission controls.
   - Comments stay in your vault without changing your notes. Assistant requests share note content with the selected provider. See [assistant setup and privacy](docs/assistants.md).

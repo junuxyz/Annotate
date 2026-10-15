@@ -46,7 +46,7 @@ Add checks for any changed behavior that this list does not cover. Restore fixtu
 ## LaTeX in comments
 
 - [ ] In Reading, Live Preview, and Source modes, submit comments and replies containing `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`. Confirm fractions, matrices and Greek symbols render, and reopen the thread to confirm original LaTeX persists.
-- [ ] Confirm native Markdown formatting and sanitized HTML render in comments. Confirm Korean text, escaped dollars, currency, fenced and inline code, and unclosed expressions remain intact. Confirm invalid TeX leaves the thread usable.
+- [ ] Confirm native Markdown formatting renders and raw HTML stays inert in comments. Confirm Korean text, escaped dollars, currency, fenced and inline code, and unclosed expressions remain intact. Confirm invalid TeX leaves the thread usable.
 - [ ] Stream a response with a complete equation and an incomplete equation. Confirm complete equations remain rendered as text arrives and the incomplete equation renders after its closing delimiter arrives.
 - [ ] Check wide display equations scroll inside the comment, the popup fits the viewport, and math remains visible in light and dark themes.
 - [ ] Reload the app and confirm saved equations render again.
@@ -63,9 +63,8 @@ Add checks for any changed behavior that this list does not cover. Restore fixtu
 ## Comment Markdown
 
 - [ ] Run `npm run check -- --only smoke,ui,list,markdown --modes live,source,reading --shots --record` for native Markdown rendering in all note modes and both themes.
-- [ ] Confirm headings, bold, italics, strikethrough, highlights, code, callouts, nested and task lists, tables, rules, footnotes, tags, wiki links, embeds, and math render with Obsidian's renderer.
+- [ ] Confirm headings, bold, italics, strikethrough, highlights, code, callouts, nested and task lists, tables, rules, footnotes, tags, wiki links, and math render with Obsidian's renderer.
 - [ ] Confirm wiki links resolve relative to the note, edits preserve raw Markdown, reopening renders the saved text, and partial and completed streamed responses use the latest content.
-
 
 ## Privacy, permissions, and recoverable edits
 
@@ -99,3 +98,5 @@ expose it. An unverified permission boundary remains pending and blocks release.
 - [ ] Inspect the release archive and tag assets. Confirm the plugin ID is `annotate`, the manifest version matches the tag without a `v` prefix, and only the intended current release files are packaged.
 - [ ] Inspect `main.js` for the project's license and required third-party notices. Confirm the distributed files retain applicable copyright and license text.
 - [ ] Review README, assistant privacy documentation, security reporting, and contribution instructions against the actual build. Confirm they do not promise unavailable permissions or unverified security guarantees.
+
+- [ ] Run `npm run check -- --only resources --modes live,source,reading --record`. Confirm comment images, HTML resources, embeds, and named code processors stay inert, the loopback request trap receives nothing, and original source remains editable.

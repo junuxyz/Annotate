@@ -25,8 +25,8 @@ accepts aliases such as `sonnet` or `opus`.
 
 An assistant request supplies the complete current note, selected passage,
 question, reply quotes, and annotation conversation. The conversation can include
-earlier local comments and edited messages. Open the context preview before
-sending to review the current note and prior messages. Remove sensitive information from the supplied note or conversation.
+earlier local comments and edited messages. The composer shows the current note's path and explains that earlier thread
+messages are included. Review the note and conversation before sending. Remove sensitive information from the supplied note or conversation.
 
 Start with `@comment` to save without an AI reply. Annotate removes that prefix
 from the saved text. This prevents an immediate request. It does not permanently
@@ -63,10 +63,15 @@ folder. Access to another folder asks for that specific folder; cancelling leave
 it inaccessible. Review and remove folder grants in settings.
 
 Annotate handles note operations through Obsidian APIs and checks each path.
-Within permitted folders, ChatGPT may read, search, create, edit, rename, and
-reorganize notes without asking for each edit. Deletion moves a note to trash.
+Within permitted folders, ChatGPT may read, search, create, edit, and trash notes
+without asking for each edit. Deletion moves a note to trash.
 Hidden folders, `.obsidian`, plugin code, credentials, and unrelated folders are
 excluded. External filesystem folders are unavailable.
+
+Other installed Obsidian plugins are trusted code and may process note contents
+after an edit. Annotate's permissions do not sandbox those plugins. Comment
+rendering itself makes automatic media, embeds, HTML, and named code processors
+inert.
 
 Agent writes save local snapshots in Annotate's plugin data folder. Open change
 history in settings to review and undo a grouped operation. History is recovery
@@ -110,3 +115,7 @@ skills can read files outside Annotate's checked note operations, so Annotate do
 not inherit installed skills. A slash command in a comment cannot grant file,
 terminal, web, or service permissions. Claude's context-only integration does not
 gain tools from a slash command.
+
+Organization-managed Claude policies and hooks may still apply, including hooks
+that receive request content. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference#cli-flags)
+and [managed hook controls](https://code.claude.com/docs/en/hooks#disable-or-remove-hooks).
