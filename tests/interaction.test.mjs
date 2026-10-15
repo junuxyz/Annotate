@@ -442,6 +442,9 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     assert.deepEqual(plugin.commands.find((c) => c.id === 'highlight-selection').hotkeys, [
       { modifiers: ['Mod', 'Shift'], key: 'h' },
     ]);
+    assert.deepEqual(plugin.commands.find((c) => c.id === 'color-selection-text').hotkeys, [
+      { modifiers: ['Mod', 'Shift'], key: 'j' },
+    ]);
     const editor = {
       getSelection: () => view.state.sliceDoc(7, 15),
       getValue: () => view.state.doc.toString(),

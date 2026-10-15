@@ -1041,6 +1041,7 @@ export default class Annotate extends Plugin {
     this.addCommand({
       id: 'color-selection-text',
       name: 'Color selected text with last color',
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'j' }],
       checkCallback: (checking) => {
         const selected = this.selectedNote();
         if (!selected) return false;

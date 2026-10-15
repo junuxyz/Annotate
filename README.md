@@ -55,7 +55,8 @@ Palette and shape changes update existing Annotate highlights while the plugin i
 Choose **Color** in the selection menu to change text color or restore the default.
 Text colors follow the active theme and can be combined with highlights.
 The command palette also offers **Annotate: Color selected text with last color**.
-It has no default shortcut; assign one in Obsidian Hotkeys if you use it often.
+**Cmd+Shift+J** on macOS, or **Ctrl+Shift+J** on Windows/Linux, reapplies your last
+chosen text color. Reassign it in Obsidian Hotkeys if needed.
 
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments

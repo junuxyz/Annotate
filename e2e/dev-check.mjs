@@ -208,7 +208,7 @@ const press = async (k, modifiers = 0) => {
   const p = {
     key: k,
     code: k.length === 1 ? 'Key' + k.toUpperCase() : k,
-    windowsVirtualKeyCode: { Enter: 13, Escape: 27, m: 77, h: 72, z: 90, y: 89 }[k] ?? 0,
+    windowsVirtualKeyCode: { Enter: 13, Escape: 27, m: 77, h: 72, j: 74, z: 90, y: 89 }[k] ?? 0,
     modifiers,
     ...(k === 'Enter' ? { text: '\r' } : {}),
   };
@@ -309,9 +309,9 @@ const openMode = (m) =>
     `open ${m}`,
   );
 const select = (m, quote = QUOTE) =>
-  ev(
+  (m === 'reading' ? until : ev)(
     m === 'reading'
-      ? `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}throw new Error('quote not in reading view')`
+      ? `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}return false`
       : `const e=app.workspace.activeLeaf.view.editor,i=e.getValue().indexOf(${JSON.stringify(quote)});if(i<0)throw new Error('quote not in note');e.focus();e.setSelection(e.offsetToPos(i),e.offsetToPos(i+${quote.length}));return true`,
     'select quote',
   );
@@ -424,7 +424,13 @@ if (only.includes('settings-layout'))
       }
     });
 
-if (only.includes('palette'))
+if (only.includes('palette')) {
+  await step('palette: text color shortcut has no other default command binding', async () => {
+    const conflicts = await ev(
+      `return Object.values(app.commands.commands).filter(c=>c.id!=='annotate:color-selection-text'&&(app.hotkeyManager.getDefaultHotkeys(c.id)??[]).some(h=>h.key.toLowerCase()==='j'&&h.modifiers.length===2&&h.modifiers.includes('Mod')&&h.modifiers.includes('Shift'))).map(c=>c.id)`,
+    );
+    assert(conflicts.length === 0, `Conflicting default commands: ${conflicts.join(', ')}`);
+  });
   for (const theme of themes)
     for (const mode of modes)
       await step(
@@ -651,6 +657,28 @@ if (only.includes('palette'))
               'text color removal restores note exactly',
             );
             await select(mode);
+            await press('j', 8 | 2);
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-color="blue"'))`,
+              'Ctrl Shift J reapplies the most recent text color',
+            );
+            if (mode !== 'source')
+              await until(
+                `return [...document.querySelectorAll('[data-annotate-color="blue"]')].some(e=>e.getBoundingClientRect().width>0)`,
+                'shortcut text color is rendered before selecting again',
+              );
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'actions return after the text color shortcut',
+            );
+            await toolClick('Color');
+            await toolClick('Remove');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s===${JSON.stringify(original)})`,
+              'shortcut text color removal restores note exactly',
+            );
+            await select(mode);
             await press('h', 8 | 2);
             await until(
               `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
@@ -716,6 +744,7 @@ if (only.includes('palette'))
           }
         },
       );
+}
 
 if (only.includes('formatting'))
   for (const mode of modes)

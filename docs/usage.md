@@ -37,13 +37,14 @@ Reassign either shortcut in Obsidian Hotkeys.
 
 Choose **Color** to set or remove text color. The command
 **Annotate: Color selected text with last color** reapplies your last choice.
-It has no default shortcut. Assign one under **Settings → Hotkeys**.
+Use **Cmd+Shift+J** on macOS or **Ctrl+Shift+J** on Windows/Linux.
+Reassign it under **Settings → Hotkeys** if needed.
 
 | Command                                       | Default shortcut |
 | --------------------------------------------- | ---------------- |
 | Annotate: Comment on selection                | Cmd/Ctrl+Shift+M |
 | Annotate: Highlight selection with last color | Cmd/Ctrl+Shift+H |
-| Annotate: Color selected text with last color | None             |
+| Annotate: Color selected text with last color | Cmd/Ctrl+Shift+J |
 
 Under **Settings → Annotate → Advanced**, customize the palette with color names,
 color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may
