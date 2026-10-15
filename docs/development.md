@@ -85,10 +85,47 @@ scripts require the isolated instance's `CDP_PORT` and run from `e2e/`.
 
 ### Releases
 
-Use `npm version patch`, `npm version minor`, or `npm version major` to update
-`package.json`, `manifest.json`, and `versions.json` together. Obsidian release tags
-use the manifest version without a `v` prefix; attach `main.js`, `manifest.json`,
-and `styles.css` only after full release validation.
+Update versions without creating a tag first:
+
+```sh
+npm version patch --no-git-tag-version
+npm run build
+npm run release:verify
+```
+
+Use `minor` or `major` instead of `patch` when appropriate. The version command
+updates `package.json`, `package-lock.json`, `manifest.json`, and `versions.json`.
+Review and commit those changes. Distribution `main.js` includes Annotate's MIT
+license and the third-party notices. The development snapshot has a separate
+build marker and must never be released.
+
+Complete the full [release validation checklist](../test-vault/E2E%20checklist.md)
+against the current distribution files before packaging, installing into another
+vault, or publishing. Record the three validated SHA-256 hashes in the validation
+report. Save a machine-readable copy outside the release directory:
+
+```sh
+node scripts/release.mjs > /path/to/validated-build.json
+```
+
+This command checks artifact identity and prints hashes. It does not run or
+certify release validation. After validation, check the exact tag and compare
+the current files with the saved hash record:
+
+```sh
+npm run release:verify -- --tag 0.3.1 --hashes /path/to/validated-build.json
+```
+
+Replace `0.3.1` with the manifest version. Obsidian tags use that exact version,
+without a `v` prefix. The verifier rejects inconsistent versions, stale manifests
+or styles, development bundles, missing notices, and changed validated files.
+Any change after validation requires rebuilding and repeating affected validation.
+
+Create any package from a fresh empty staging directory containing only the
+verified `main.js`, `manifest.json`, and `styles.css`. Never reuse an old `release/`
+directory or ZIP. Check the staged files against the saved hashes before uploading
+those three files to the matching tag. Local `release/` and ZIP files are ignored
+by Git and may contain obsolete plugin identities or old builds.
 
 ## Assistant implementation
 
