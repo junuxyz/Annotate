@@ -320,7 +320,7 @@ const threads = () =>
   );
 const resetThreads = () =>
   ev(
-    `${P}p.closePopup();p.data.threads=[];await p.saveData(p.data);app.workspace.activeLeaf?.view?.previewMode?.rerender?.(true);app.workspace.activeLeaf?.view?.editor?.cm?.dispatch({})`,
+    `${P}p.closePopup();p.data.threads=[];await p.persist();app.workspace.activeLeaf?.view?.previewMode?.rerender?.(true);app.workspace.activeLeaf?.view?.editor?.cm?.dispatch({})`,
   );
 const openComposer = async (m, quote = QUOTE) => {
   await openMode(m);
@@ -1972,6 +1972,95 @@ if (only.includes('auto-update')) {
         }
         await ev(
           `${P}p.drafts.delete('synthetic-dev-draft');await p.persist();delete window.annotateBeforeAuto;delete window.annotateAfterAuto;delete window.annotateBeforeRestore`,
+        );
+      }
+    },
+  );
+}
+
+if (only.includes('storage')) {
+  await step(
+    'storage: external comments reload and survive subsequent saves and reload',
+    async () => {
+      await resetThreads();
+      await createComment('live', 'Original synthetic comment');
+      await ev(
+        `${P}p.closePopup();await p.persist();const external=await p.loadData();const remote=structuredClone(external.threads[0]);remote.id='remote-sync-thread';remote.comments=[{id:'remote-sync-comment',author:'Remote',body:'Synced synthetic comment',createdAt:Date.now()}];external.threads.push(remote);const path=require('node:path').join(app.vault.adapter.getBasePath(),p.manifest.dir,'data.json');require('node:fs').writeFileSync(path,JSON.stringify(external));`,
+      );
+      await until(
+        `${P}return p.data.threads.some(t=>t.id==='remote-sync-thread')`,
+        'external-settings notification reloads the synced thread',
+        7000,
+      );
+      assert(
+        await ev(
+          `${P}p.data.author='Local after sync';await p.persist();const disk=await p.loadData();return disk.threads.length===2&&disk.threads.some(t=>t.id==='remote-sync-thread')&&disk.author==='Local after sync'&&!p.conflictBackup`,
+        ),
+        'a local save must retain the externally added comment',
+      );
+      await ev(
+        `await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+      );
+      assert(
+        await ev(
+          `${P}const remote=p.data.threads.find(t=>t.id==='remote-sync-thread');if(!remote)return false;p.openThread(remote);return p.data.threads.length===2&&remote.comments[0].body==='Synced synthetic comment'`,
+        ),
+        'both threads survive plugin reload',
+      );
+      await until(
+        `return document.querySelector('.annotate-message-body')?.textContent==='Synced synthetic comment'`,
+        'synced comment renders after reload',
+      );
+    },
+  );
+  await step(
+    'storage: sync leaves an unsaved message edit open until the thread closes',
+    async () => {
+      await ev(
+        `${P}p.closePopup();p.openThread(p.data.threads.find(t=>t.id!=='remote-sync-thread'));document.querySelector('.annotate-message-edit').click();const input=document.querySelector('.annotate-message-editor textarea');input.value='Unsent synthetic edit';input.dispatchEvent(new Event('input',{bubbles:true}));const external=await p.loadData();external.author='Remote while editing';const path=require('node:path').join(app.vault.adapter.getBasePath(),p.manifest.dir,'data.json');require('node:fs').writeFileSync(path,JSON.stringify(external));await p.onExternalSettingsChange();`,
+      );
+      assert(
+        await ev(
+          `${P}return document.querySelector('.annotate-message-editor textarea')?.value==='Unsent synthetic edit'&&p.data.author==='Local after sync'&&(await p.loadData()).author==='Remote while editing'`,
+        ),
+        'sync must not close or replace an unsaved message editor',
+      );
+      assert(
+        await ev(
+          `${P}p.closePopup();await p.onExternalSettingsChange();const updated=p.data.author==='Remote while editing';p.data.author='Local after sync';await p.persist();return updated&&!p.conflictBackup`,
+        ),
+        'closing the thread applies the deferred sync and resumes normal saves',
+      );
+    },
+  );
+  await step(
+    'storage: conflicting copies are recoverable and synced data survives reload',
+    async () => {
+      try {
+        assert(
+          await ev(
+            `${P}p.closePopup();await p.persist();const external=await p.loadData();external.threads[0].comments[0].body='Remote conflicting comment';p.data.threads[0].comments[0].body='Local conflicting comment';const path=require('node:path').join(app.vault.adapter.getBasePath(),p.manifest.dir,'data.json');require('node:fs').writeFileSync(path,JSON.stringify(external));await p.persist();window.annotateStorageRecovery=p.conflictBackup;const disk=await p.loadData();const recovery=JSON.parse(await app.vault.adapter.read(p.conflictBackup));return disk.threads[0].comments[0].body==='Remote conflicting comment'&&recovery.local.threads[0].comments[0].body==='Local conflicting comment'&&recovery.external.threads[0].comments[0].body==='Remote conflicting comment'`,
+          ),
+          'save preflight preserves both conflicting comments and leaves synced data untouched',
+        );
+        assert(
+          await ev(
+            `${P}p.data.author='Later unsaved local name';await p.persist();const recovery=JSON.parse(await app.vault.adapter.read(p.conflictBackup));return recovery.local.author==='Later unsaved local name'&&(await p.loadData()).author==='Local after sync'`,
+          ),
+          'paused saves keep later local changes in the recovery file',
+        );
+        await ev(
+          `await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+        );
+        assert(
+          await ev(
+            `${P}await p.persist();const recovery=JSON.parse(await app.vault.adapter.read(window.annotateStorageRecovery));return !p.conflictBackup&&p.data.threads.length===2&&p.data.threads[0].comments[0].body==='Remote conflicting comment'&&recovery.local.threads[0].comments[0].body==='Local conflicting comment'`,
+          ),
+          'reload resumes normal saves without losing either conflicting copy',
+        );
+      } finally {
+        await ev(
+          `if(window.annotateStorageRecovery){await app.vault.adapter.remove(window.annotateStorageRecovery);delete window.annotateStorageRecovery}`,
         );
       }
     },

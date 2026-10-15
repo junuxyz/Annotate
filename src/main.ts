@@ -217,6 +217,8 @@ function collapse(item: HTMLElement): void {
 }
 const initial = (name: string) => (name.trim() || '?').slice(0, 1).toUpperCase();
 const thinking = (status?: string) => status === 'pending' || status === 'streaming';
+class StorageConflict extends Error {}
+const dataFingerprint = (data: PluginData): string => JSON.stringify(dataSchema.parse(data));
 function messageBody(comment: Thread['comments'][number]): string {
   if (comment.body) return comment.body;
   if (comment.role !== 'assistant' || thinking(comment.status)) return '';
@@ -278,6 +280,9 @@ export default class Annotate extends Plugin {
   private saveQueue: Promise<void> = Promise.resolve();
   private disposed = false;
   private storageHealthy = true;
+  private storedData = dataFingerprint(emptyData());
+  private conflictBackup: string | null = null;
+  private conflictNotified = false;
   backend: AssistantBackend | null = null;
   connectionLabels = new Map<ProviderId, HTMLElement>();
   chatgptModels: Record<string, string> = {};
@@ -876,6 +881,7 @@ export default class Annotate extends Plugin {
       }
       this.data = parsed.data;
     }
+    this.storedData = dataFingerprint(this.data);
     for (const thread of this.data.threads)
       if (thread.codex && ['pending', 'streaming'].includes(thread.codex.status)) {
         const interrupted = thread.comments.find((c) => c.id === thread.codex?.turnMessageId);
@@ -1473,7 +1479,11 @@ export default class Annotate extends Plugin {
         separator.className = 'annotate-palette-divider';
         separator.setAttribute('aria-hidden', 'true');
         bar.append(separator);
-        const remove = button('Remove', () => void this.applyHighlight(target, null, true), 'eraser');
+        const remove = button(
+          'Remove',
+          () => void this.applyHighlight(target, null, true),
+          'eraser',
+        );
         remove.className = 'annotate-highlight-remove';
         remove.title = 'Remove highlight';
         remove.setAttribute('aria-label', 'Remove highlight');
@@ -1500,7 +1510,11 @@ export default class Annotate extends Plugin {
         separator.className = 'annotate-palette-divider';
         separator.setAttribute('aria-hidden', 'true');
         bar.append(separator);
-        const remove = button('Remove', () => void this.applyTextColor(target, null, true), 'eraser');
+        const remove = button(
+          'Remove',
+          () => void this.applyTextColor(target, null, true),
+          'eraser',
+        );
         remove.className = 'annotate-highlight-remove';
         remove.title = 'Default color';
         remove.setAttribute('aria-label', 'Remove text color');
@@ -1566,11 +1580,7 @@ export default class Annotate extends Plugin {
     );
   }
 
-  private applyTextColor(
-    target: Target,
-    color: TextColor | null,
-    reopen = false,
-  ): Promise<void> {
+  private applyTextColor(target: Target, color: TextColor | null, reopen = false): Promise<void> {
     return this.applyWrap(
       target,
       'span',
@@ -1595,9 +1605,7 @@ export default class Annotate extends Plugin {
     if (!view?.file || view.file.path !== target.path) return;
     const transform = (source: string) => {
       const anchor = locateAnchor(target.anchor, source);
-      return anchor.orphaned
-        ? null
-        : wrap(source, anchor.from, anchor.to);
+      return anchor.orphaned ? null : wrap(source, anchor.from, anchor.to);
     };
     try {
       if (target.kind === 'editor' && view.getMode() !== 'preview') {
@@ -1874,10 +1882,65 @@ export default class Annotate extends Plugin {
   persist(): Promise<void> {
     return this.persistOrThrow().catch(() => {});
   }
+  onExternalSettingsChange(): Promise<void> {
+    return this.queueStorage(async () => {
+      if (!this.disposed && this.storageHealthy) await this.checkExternalData();
+    }).catch(() => {});
+  }
+  private async preserveConflict(external: unknown): Promise<never> {
+    this.conflictBackup ??= `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`}/conflict-${Date.now()}-${crypto.randomUUID()}.json`;
+    await this.app.vault.adapter.write(
+      this.conflictBackup,
+      JSON.stringify({ savedAt: Date.now(), local: this.data, external }, null, 2),
+    );
+    if (!this.conflictNotified) {
+      this.conflictNotified = true;
+      new Notice(
+        `Annotate: synced data conflicts with local changes. Both copies are preserved in ${this.conflictBackup}. Saves are paused. Reload Annotate to load synced data.`,
+        0,
+      );
+    }
+    throw new StorageConflict('Synced data changed; local changes were preserved for recovery.');
+  }
+  private async checkExternalData(): Promise<boolean> {
+    const raw: unknown = await this.loadData();
+    const parsed = dataSchema.safeParse(raw ?? emptyData());
+    if (this.conflictBackup || !parsed.success) return this.preserveConflict(raw);
+    const external = parsed.data;
+    const fingerprint = JSON.stringify(external);
+    if (fingerprint === this.storedData) return false;
+    if (
+      dataFingerprint(this.data) !== this.storedData ||
+      this.data.threads.some((thread) => this.threadBusy(thread))
+    )
+      return this.preserveConflict(raw);
+    // Do not dismiss an open composer or an unsaved message edit for a sync update.
+    if (this.popup && !this.disposed) return true;
+    this.closePopup();
+    this.hideSelectionTools();
+    this.data = external;
+    this.storedData = fingerprint;
+    if (this.disposed) return true;
+    for (const [path, text] of this.documents) this.reconcile(path, text);
+    this.configureCodex();
+    this.refreshHighlightStyles();
+    this.refreshViews();
+    if (this.settingsTab?.containerEl?.isShown()) this.settingsTab.display();
+    return true;
+  }
   private persistOrThrow(): Promise<void> {
-    const snapshot = structuredClone(this.data);
-    const write = this.saveQueue.then(() => this.saveData(snapshot));
+    return this.queueStorage(async () => {
+      if (!this.storageHealthy) throw new Error('Saved Annotate data is invalid.');
+      if (await this.checkExternalData()) return;
+      const snapshot = structuredClone(this.data);
+      await this.saveData(snapshot);
+      this.storedData = dataFingerprint(snapshot);
+    });
+  }
+  private queueStorage(action: () => Promise<void>): Promise<void> {
+    const write = this.saveQueue.then(action);
     this.saveQueue = write.catch((error) => {
+      if (error instanceof StorageConflict) return;
       console.error('Annotate: unable to save', error);
       new Notice('Annotate could not save comments. Check vault storage and try again.');
     });
@@ -1904,6 +1967,7 @@ export default class Annotate extends Plugin {
       this.draft = null;
       this.refreshViews();
     }
+    if (panel && !this.disposed) void this.onExternalSettingsChange();
   }
   private retire(panel: HTMLElement): void {
     panel.remove();

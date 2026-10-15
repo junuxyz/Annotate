@@ -89,6 +89,141 @@ const send = async (text) => {
   await tick();
 };
 
+test('synced data reloads when clean and survives a local save before the notification arrives', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.saved.author = 'Remote author';
+    await plugin.onExternalSettingsChange();
+    assert.equal(plugin.data.author, 'Remote author');
+    plugin.saved.author = 'Another remote author';
+    await plugin.persist();
+    assert.equal(plugin.data.author, 'Another remote author');
+    assert.equal(plugin.saved.author, 'Another remote author');
+    plugin.data.highlights.shape = 'flat';
+    await plugin.persist();
+    assert.equal(plugin.saved.author, 'Another remote author');
+    assert.equal(plugin.saved.highlights.shape, 'flat');
+    assert.equal(plugin.recovery.size, 0);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('sync waits for an open composer to close without losing its draft', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    const input = document.querySelector('.annotate-composer textarea');
+    input.value = 'Unsent local draft';
+    input.dispatchEvent(new win.Event('input', { bubbles: true }));
+    plugin.saved.author = 'Remote author';
+    await plugin.onExternalSettingsChange();
+    await plugin.persist();
+    assert.equal(input.isConnected, true);
+    assert.equal(input.value, 'Unsent local draft');
+    assert.equal(plugin.data.author, 'You');
+    plugin.closePopup();
+    await plugin.onExternalSettingsChange();
+    assert.equal(plugin.data.author, 'Remote author');
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    assert.equal(document.querySelector('.annotate-composer textarea').value, 'Unsent local draft');
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('conflicting sync preserves both copies, pauses writes, and survives plugin reload', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.data.author = 'Unsaved local author';
+    plugin.saved.author = 'Synced author';
+    await plugin.onExternalSettingsChange();
+    assert.equal(plugin.saved.author, 'Synced author');
+    assert.equal(plugin.data.author, 'Unsaved local author');
+    assert.equal(plugin.recovery.size, 1);
+    const [path, text] = [...plugin.recovery][0];
+    assert.match(path, /^\.obsidian\/plugins\/annotate\/conflict-.*\.json$/);
+    const recovery = JSON.parse(text);
+    assert.equal(recovery.local.author, 'Unsaved local author');
+    assert.equal(recovery.external.author, 'Synced author');
+    plugin.data.author = 'Later local author';
+    await plugin.persist();
+    assert.equal(plugin.saved.author, 'Synced author');
+    assert.equal(plugin.recovery.size, 1);
+    assert.equal(JSON.parse(plugin.recovery.get(path)).local.author, 'Later local author');
+    plugin.onunload();
+    await plugin.persist();
+    const restored = new Plugin();
+    restored.saved = structuredClone(plugin.saved);
+    await restored.onload();
+    assert.equal(restored.data.author, 'Synced author');
+    restored.onunload();
+    await restored.persist();
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('save checks preserve a conflicting external edit even without a sync callback', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.data.author = 'Local';
+    plugin.saved.author = 'Remote';
+    await plugin.persist();
+    assert.equal(plugin.saved.author, 'Remote');
+    const recovery = JSON.parse([...plugin.recovery.values()][0]);
+    assert.equal(recovery.local.author, 'Local');
+    assert.equal(recovery.external.author, 'Remote');
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('invalid synced data is preserved instead of being overwritten', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.saved = { version: 999, threads: ['unrecognized data'] };
+    await plugin.onExternalSettingsChange();
+    await plugin.persist();
+    assert.equal(plugin.saved.version, 999);
+    const recovery = JSON.parse([...plugin.recovery.values()][0]);
+    assert.equal(recovery.external.version, 999);
+    assert.equal(recovery.local.version, 1);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
 test('ChatGPT mention picker completes with keyboard and mouse without submitting, including replies', async () => {
   const plugin = new Plugin();
   await plugin.onload();
@@ -267,7 +402,8 @@ test('selection color palette survives delayed mouseup and selection events, the
     selectText();
     await until(
       () =>
-        document.querySelector('.annotate-selection-tools')?.textContent === 'HighlightColorAnnotate',
+        document.querySelector('.annotate-selection-tools')?.textContent ===
+        'HighlightColorAnnotate',
       'New selection restores action menu',
     );
   } finally {

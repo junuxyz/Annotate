@@ -13,6 +13,8 @@ export class Plugin {
   extensions = [];
   commands = [];
   saved = null;
+  manifest = { id: 'annotate', dir: '.obsidian/plugins/annotate' };
+  recovery = new Map();
   postProcessors = [];
   activeView = { file: { path: 'test.md' }, getMode: () => 'source' };
   source = '';
@@ -29,16 +31,18 @@ export class Plugin {
       getLeavesOfType: () => [],
     },
     vault: {
+      adapter: { write: async (path, text) => this.recovery.set(path, text) },
       on: () => ({}),
       getAbstractFileByPath: (path) => new TFile(path),
       cachedRead: async () => this.source,
     },
   };
   async loadData() {
-    return null;
+    return structuredClone(this.saved);
   }
   async saveData(data) {
     this.saved = structuredClone(data);
+    this.loadData = async () => structuredClone(this.saved);
   }
   registerMarkdownPostProcessor(processor) {
     this.postProcessors.push(processor);
