@@ -155,3 +155,49 @@ void test('older saved data gets the default palette and settings reject CSS inj
     false,
   );
 });
+
+void test('highlighting keeps emphasis delimiters outside HTML for Live Preview', () => {
+  const source = '**제목** : 가운데만 보이는 **터널 시각**이 나타남. *기울임*과 ~~취소선~~';
+  const { result } = apply(source, 0, source.length);
+  assert.match(result, /\*\*<mark[^>]*>터널 시각<\/mark>\*\*<mark[^>]*>이/);
+  assert.match(result, /\*<mark[^>]*>기울임<\/mark>\*/);
+  assert.match(result, /~~<mark[^>]*>취소선<\/mark>~~/);
+  assert.equal(result.replace(/<[^>]+>/g, ''), source);
+  const partial = apply(source, source.indexOf('시각'), source.indexOf('나타남') + 3).result;
+  assert.match(partial, /터널 <mark[^>]*>시각<\/mark>\*\*<mark[^>]*>이 나타남<\/mark>/);
+});
+
+void test('formatting survives color, highlight, recolor and removal with existing HTML', () => {
+  const source = '**제목** : **터널 시각**이 나타남.';
+  const colored = color(source, 0, source.length).result;
+  assert.match(colored, /\*\*<span[^>]*>터널 시각<\/span>\*\*/);
+  let result = apply(colored, 0, colored.length).result;
+  assert.match(result, /\*\*<span[^>]*><mark[^>]*>터널 시각<\/mark><\/span>\*\*/);
+  result = apply(result, 0, result.length, pink).result;
+  result = apply(result, 0, result.length, null).result;
+  assert.equal(result, colored);
+  assert.equal(color(result, 0, result.length, null).result, source);
+  const legacy = `<mark data-annotate-highlight="yellow">${source}</mark>`;
+  const repaired = apply(legacy, 0, legacy.length, pink).result;
+  assert.match(repaired, /\*\*<mark[^>]*>터널 시각<\/mark>\*\*/);
+});
+
+void test('partial recoloring preserves bold styling and comment anchors without accumulating styles', () => {
+  const source = '**터널 시각**이 나타남.';
+  const first = apply(source, 0, source.length);
+  let result = first.result;
+  let anchor = mapAnchor(makeAnchor(source, 2, 7), first.changes, result);
+  for (let i = 0; i < 3; i++) {
+    const from = result.indexOf('시각');
+    const next = apply(result, from, from + 2, pink);
+    anchor = mapAnchor(anchor, next.changes, next.result);
+    result = next.result;
+  }
+  assert.equal(anchor.orphaned, false);
+  assert.equal(anchor.quote.replace(/<[^>]+>/g, ''), '터널 시각');
+  for (const mark of result.matchAll(/<mark\b[^>]*>([^<]*)/g))
+    assert.equal(
+      (mark[0].match(/font-weight:/g) ?? []).length,
+      /터널|시각/.test(mark[1] ?? '') ? 1 : 0,
+    );
+});

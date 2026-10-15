@@ -97,6 +97,8 @@ export function wrapEdit(
   if (from < 0 || to > source.length || from >= to || !source.slice(from, to).trim()) return null;
   const marks: (Mark & { depth: number; owned: boolean })[] = [];
   const stack: Open[] = [];
+  const syntax: { from: number; to: number }[] = [];
+  const formatting: { from: number; to: number; style: string }[] = [];
   let invalid = false;
   markdown.parse(source).iterate({
     enter(node) {
@@ -104,6 +106,20 @@ export function wrapEdit(
         if (node.from < to && node.to > from) invalid = true;
         return false;
       }
+      const style =
+        node.name === 'StrongEmphasis'
+          ? 'font-weight: var(--bold-weight, 700);'
+          : node.name === 'Emphasis'
+            ? 'font-style: italic;'
+            : node.name === 'Strikethrough'
+              ? 'text-decoration: line-through;'
+              : '';
+      if (style) formatting.push({ from: node.from, to: node.to, style });
+      if (
+        ['EmphasisMark', 'StrikethroughMark', 'LinkMark', 'HTMLTag'].includes(node.name) ||
+        (['URL', 'LinkTitle', 'LinkLabel'].includes(node.name) && node.node.parent?.name === 'Link')
+      )
+        syntax.push({ from: node.from, to: node.to });
       if (node.name !== 'HTMLTag') return;
       const text = source.slice(node.from, node.to);
       if ((from > node.from && from < node.to) || (to > node.from && to < node.to)) invalid = true;
@@ -143,42 +159,98 @@ export function wrapEdit(
   const strip = (a: number, b: number) => {
     let text = '',
       cursor = a;
+    const protectedRanges: { from: number; to: number }[] = [];
+    const styles: { from: number; to: number; style: string }[] = [];
+    const append = (from: number, to: number) => {
+      for (const range of syntax) {
+        const start = Math.max(from, range.from),
+          end = Math.min(to, range.to);
+        if (start < end)
+          protectedRanges.push({ from: text.length + start - from, to: text.length + end - from });
+      }
+      for (const range of formatting) {
+        const start = Math.max(from, range.from),
+          end = Math.min(to, range.to);
+        if (start < end)
+          styles.push({
+            from: text.length + start - from,
+            to: text.length + end - from,
+            style: range.style,
+          });
+      }
+      text += source.slice(from, to);
+    };
     for (const mark of overlaps) {
       for (const [x, y] of [
         [mark.from, mark.start],
         [mark.end, mark.to],
       ]) {
         if (x === undefined || y === undefined || y <= cursor || x >= b) continue;
-        text += source.slice(cursor, Math.max(cursor, x));
+        append(cursor, Math.max(cursor, x));
         cursor = Math.min(b, y);
       }
     }
-    return text + source.slice(cursor, b);
+    append(cursor, b);
+    return { text, protectedRanges, styles };
   };
   const close = `</${tag}>`;
-  const wrap = (text: string, opener: string) =>
-    text
+  const wrap = ({ text, protectedRanges, styles }: ReturnType<typeof strip>, opener: string) => {
+    const fragment = (from: number, to: number) => {
+      // Live Preview renders inline HTML as a widget, outside Markdown's font styling.
+      const style = styles
+        .filter((range) => range.from <= from && range.to >= to)
+        .map((range) => range.style)
+        .join(' ');
+      let styled = opener;
+      if (style) {
+        const attribute = /\sstyle\s*=\s*(["'])(.*?)\1/i.exec(opener);
+        if (attribute) {
+          const current = attribute[2] ?? '';
+          if (!current.includes(style))
+            styled = opener.replace(
+              attribute[0],
+              ` style=${attribute[1]}${current}; ${style}${attribute[1]}`,
+            );
+        } else styled = opener.slice(0, -1) + ` style="${style}">`;
+      }
+      return `${styled}${text.slice(from, to)}${close}`;
+    };
+    let offset = 0;
+    return text
       .split('\n')
       .map((line) => {
+        const lineFrom = offset;
+        offset += line.length + 1;
         // Keep block syntax outside inline HTML so headings and lists still render.
         const match = /^(\s*(?:(?:>\s*)+)?(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?)(.*?)(\s*)$/.exec(line);
         if (!match?.[2]) return line;
-        // Wrap around other inline tags so mark and span stay properly nested.
-        const body = match[2]
-          .split(/(<\/?(?:mark|span)\b[^>]*>)/i)
-          .map((part, index) => (index % 2 || !part ? part : `${opener}${part}${close}`))
-          .join('');
+        const from = lineFrom + (match[1]?.length ?? 0),
+          to = from + match[2].length;
+        let body = '',
+          cursor = from;
+        // Formatting delimiters stay outside HTML, including when a selection crosses them.
+        for (const range of protectedRanges) {
+          if (range.to <= cursor || range.from >= to) continue;
+          const start = Math.max(cursor, range.from),
+            end = Math.min(to, range.to);
+          if (cursor < start) body += fragment(cursor, start);
+          body += text.slice(start, end);
+          cursor = end;
+        }
+        if (cursor < to) body += fragment(cursor, to);
         return `${match[1] ?? ''}${body}${match[3] ?? ''}`;
       })
       .join('\n');
+  };
   const before = strip(start, from),
     after = strip(to, end),
     selected = strip(from, to);
-  const prefix = before && first && from > first.start ? wrap(before, first.open) : before;
-  const suffix = after && last && to < last.end ? wrap(after, last.open) : after;
-  const middle = open ? wrap(selected, open) : selected;
+  const prefix =
+    before.text && first && from > first.start ? wrap(before, first.open) : before.text;
+  const suffix = after.text && last && to < last.end ? wrap(after, last.open) : after.text;
+  const middle = open ? wrap(selected, open) : selected.text;
   const insert = prefix + middle + suffix;
-  const selectedOffset = middle.indexOf(selected);
+  const selectedOffset = middle.indexOf(selected.text);
   const leading = open && middle.startsWith(open) ? open.length : 0,
     trailing = middle.endsWith(close) ? close.length : 0;
   return {
@@ -189,7 +261,7 @@ export function wrapEdit(
     selectionTo:
       start +
       prefix.length +
-      (selectedOffset >= 0 ? selectedOffset + selected.length : middle.length - trailing),
+      (selectedOffset >= 0 ? selectedOffset + selected.text.length : middle.length - trailing),
   };
 }
 

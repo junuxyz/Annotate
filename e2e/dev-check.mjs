@@ -706,6 +706,84 @@ if (only.includes('palette'))
         },
       );
 
+if (only.includes('formatting'))
+  for (const mode of modes)
+    for (const { sample, bold, fixture } of [
+      {
+        fixture: 'nested-color',
+        bold: '터널 시각',
+        sample:
+          '**<span data-annotate-color="blue" style="color: blue;">굵은 제목</span>** : 주변 시각을 잃는 질환. 가운데만 보이는 **터널 시각**이 나타날 수 있음.',
+      },
+      {
+        fixture: 'existing-highlight',
+        bold: '주변과 비교하여 밝기 차이와 경계를 강조한다',
+        sample:
+          '<mark data-annotate-highlight="yellow" style="background: #ffe98f80; box-shadow: none; border-radius: 0.2em;">시각계는 지점의 밝기를 독립적으로 처리하지 않고, **주변과 비교하여 밝기 차이와 경계를 강조한다**는 것</mark>.',
+      },
+    ])
+      await step(
+        `formatting [${mode}/${fixture}]: highlighting preserves Korean bold text`,
+        async () => {
+          await closeModals();
+          await resetThreads();
+          const original = await ev(
+            `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+          );
+          try {
+            await ev(
+              `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+            );
+            await openMode(mode);
+            if (mode === 'reading') {
+              await ev(
+                `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl;const p=[...root.querySelectorAll('p')].find(p=>p.textContent.includes(${JSON.stringify(bold)}));const r=document.createRange();r.selectNodeContents(p);getSelection().removeAllRanges();getSelection().addRange(r)`,
+              );
+            } else {
+              await ev(
+                `const e=app.workspace.activeLeaf.view.editor;e.focus();e.setSelection(e.offsetToPos(0),e.offsetToPos(e.getValue().length))`,
+              );
+            }
+            await until(`${P}return !!p.selectedNote()`, 'formatted passage selected');
+            await ev(`app.commands.executeCommandById('annotate:highlight-selection')`);
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight'))`,
+              'formatted highlight saved',
+            );
+            await openMode('live');
+            await ev(
+              `const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+            );
+            await sleep(200);
+            const live = await ev(
+              `const root=app.workspace.activeLeaf.view.containerEl.querySelector('.cm-content');return {text:[...root.querySelectorAll('.cm-line')].map(e=>e.textContent).join(' '),bold:[...root.querySelectorAll('mark')].filter(e=>e.textContent===${JSON.stringify(bold)}).map(e=>getComputedStyle(e).fontWeight),html:root.innerHTML}`,
+            );
+            assert(
+              live.bold.some((weight) => Number(weight) >= 600) && !live.text.includes('**'),
+              JSON.stringify(live),
+            );
+            await shot(`formatting-live-${mode}-${fixture}`);
+            await openMode('reading');
+            await until(
+              `const root=app.workspace.activeLeaf.view.previewMode.containerEl;return root.querySelector('mark')`,
+              'highlight rendered',
+            );
+            const rendered = await ev(
+              `const root=app.workspace.activeLeaf.view.previewMode.containerEl;return {text:root.textContent,strong:[...root.querySelectorAll('strong')].map(e=>e.textContent),html:root.querySelector('p')?.innerHTML}`,
+            );
+            assert(
+              rendered.strong.includes(bold) && !rendered.text.includes('**'),
+              JSON.stringify(rendered),
+            );
+            await shot(`formatting-${mode}-${fixture}`);
+          } finally {
+            await ev(
+              `${P}p.hideSelectionTools();p.closePopup();await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+            );
+          }
+        },
+      );
+
 if (only.includes('combo'))
   for (const theme of themes)
     for (const mode of modes)
