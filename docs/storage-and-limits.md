@@ -14,5 +14,10 @@ Obsidian preserve threads; renames made outside Obsidian cannot be tracked relia
 - Markdown notes only; no PDFs, Canvas, attachments, or collaborative editing.
 - Reading mode skips passages it cannot map reliably to Markdown, including some
   custom rendering and equations. Use editing mode for those selections.
-- There is no merge protocol for simultaneous edits on multiple devices.
+- Synced comment data reloads when there are no unsaved local changes and the
+  comment window is closed. Open composers and message edits stay in place. Conflicting
+  changes pause saves and preserve both copies in a `conflict-*.json` file beside
+  `data.json`. Reload Annotate to load the synced copy, then recover local comments
+  from the recovery file's `local` field. Back up both files before editing them.
+  Annotate does not merge simultaneous edits on multiple devices.
 - Mobile is permitted by the manifest but has not been validated.
