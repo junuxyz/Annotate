@@ -1,0 +1,9 @@
+{
+  "platform": "darwin",
+  "arch": "arm64",
+  "electron": "39.8.3",
+  "loader": "1.12.7",
+  "app": "1.14.4",
+  "loaderSha256": "d8e392731d32feb97e80dd5fb8938d54c61bb7221f9eff5ff95965f6febeefdb",
+  "appSha256": "146ef8470d8cbb4a6db209bdc19bf2bad13350444186c0fd93c31087b142b92f"
+}

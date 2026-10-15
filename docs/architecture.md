@@ -46,8 +46,8 @@ storage paths with different recovery behavior.
 
 1. `record` parses the invocation. `@comment` saves locally. A plain message uses
    the enabled default provider, and an explicit mention selects one provider.
-2. `requestCodex` orchestrates either backend. Its legacy name does not mean that
-   all requests use ChatGPT. Provider changes replace the saved session identity.
+2. `requestCodex` orchestrates the selected backend. Provider changes replace the
+   saved session identity.
 3. `AgentAccess.ensureContext` checks the note path and asks for its folder if
    needed. Cancellation stops context delivery. Authentication or connection
    setup can occur before this prompt; note context is sent afterward.
@@ -72,16 +72,15 @@ internal API; its capabilities and returned bindings are checked before use.
 The recorder uses a modal key scope, checks command collisions, and rolls back
 in-memory overrides if native persistence fails.
 
-`dataSchema` in `model.ts` defines the saved format. `version` remains `1`.
-Legacy `codex` fields still hold the shared enable switch and thread session
-state. `assistant` selects the provider, and messages retain their own provider
-identity. Missing historical provider values mean ChatGPT.
+`dataSchema` in `model.ts` defines saved format version `1`. The `codex` fields
+hold the shared enable switch and thread session state. `assistant` selects the
+provider, and messages retain their own provider identity. A missing provider
+value defaults to ChatGPT.
 
 New settings use `emptyAgentSettings` with consent version `1`. Missing settings
 parse with consent version `0`; `recoverConversations` disables AI, clears grants,
-services, and old session IDs, then requires the user to review access again.
-Replacing that migration default with the fresh-install default would bypass
-renewed consent.
+services and session IDs, then requires the user to review access. A missing
+consent version must require review, even though fresh installs start at `1`.
 
 Comment saves run through a queue and compare the current external data with the
 last observed fingerprint. Clean incoming data can reload after a popup closes.

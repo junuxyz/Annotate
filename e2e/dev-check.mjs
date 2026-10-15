@@ -1,9 +1,10 @@
-// One-command development check in an isolated Obsidian on a Linux virtual display.
+// Development checks in native macOS Obsidian with offscreen windows from creation.
 // usage: node e2e/dev-check.mjs [--only smoke,ui,list,polish] [--modes live,source,reading] [--themes light,dark]
-//                               [--shots] [--record] [--stop] [--profile <dir>] [--port <n>]
-// Sets up (or reuses) its own profile, syncs test-vault + current build, resets fixtures and comment data,
+//                               [--shots] [--record] [--port <n>]
+// Creates its own profile, syncs test-vault + current build, resets fixtures and comment data,
 // reloads the plugin, runs the selected scenarios with per-step timeouts, and prints a short report.
-import { spawn, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { startOffscreen, freePort } from './macos/runtime.mjs';
 import {
   existsSync,
   mkdirSync,
@@ -13,7 +14,7 @@ import {
   writeFileSync,
   appendFileSync,
   readdirSync,
-  openSync,
+  mkdtempSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,8 @@ import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
-if (process.platform !== 'linux') throw new Error('Use npm run check to run E2E through Docker.');
+if (process.platform !== 'darwin')
+  throw new Error('Use macOS offscreen validation. No native window fallback.');
 const HERE = dirname(fileURLToPath(import.meta.url)),
   PLUGIN = resolve(HERE, '..'),
   VAULT_SRC = existsSync(resolve(PLUGIN, '../test-vault'))
@@ -36,25 +38,16 @@ const list = (name, def) => arg(name, def).split(',').filter(Boolean);
 const only = list('only', 'smoke,ui,list,polish'),
   modes = list('modes', 'live'),
   themes = list('themes', 'light,dark');
-// Each checkout gets its own profile and port so parallel sessions never share an instance.
-const key = createHash('sha1').update(PLUGIN).digest('hex').slice(0, 8);
-const profile = resolve(arg('profile', join(tmpdir(), `annotate-dev-check-${key}`, 'profile')));
-const port = Number(
-  arg('port', process.env.CDP_PORT || 9500 + (parseInt(key.slice(0, 4), 16) % 400)),
-);
+if (flag('profile')) throw Error('Profiles are created and owned by this run.');
+const profile = join(mkdtempSync(join(tmpdir(), 'annotate-offscreen-')), 'profile');
+const port = await freePort(arg('port', process.env.CDP_PORT));
 const root = dirname(profile),
   vault = join(root, 'test-vault'),
-  shotsDir = join(process.env.E2E_OUTPUT || root, 'shots');
-const stop = () => {
-  try {
-    execFileSync('pkill', ['-f', `remote-debugging-port=${port}( |$)`]);
-  } catch {}
-};
-if (flag('stop')) {
-  stop();
-  console.log('stopped', profile);
-  process.exit(0);
-}
+  evidence = process.env.E2E_OUTPUT || join(PLUGIN, 'e2e/evidence', Date.now().toString()),
+  shotsDir = join(evidence, 'shots');
+mkdirSync(evidence, { recursive: true });
+if (flag('stop'))
+  throw Error('Runs stop their own processes automatically; no shared instance to stop.');
 
 const t0 = Date.now(),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -120,45 +113,15 @@ writeFileSync(
 rmSync(shotsDir, { recursive: true, force: true });
 mkdirSync(shotsDir, { recursive: true });
 
-const display = process.env.DISPLAY;
-const executable = process.env.OBSIDIAN_BIN;
-if (!display || !executable) throw new Error('Run E2E with Docker or OBSIDIAN_BIN under Xvfb.');
-const displays = execFileSync('pgrep', ['-a', 'Xvfb'], { encoding: 'utf8' });
-if (!displays.split('\n').some((line) => line.split(/\s+/).includes(display)))
-  throw new Error('The test display must be owned by Xvfb.');
-const startupLog = join(process.env.E2E_OUTPUT || profile, 'obsidian-startup.log');
-const output = openSync(startupLog, 'a');
-const obsidian = spawn(
-  executable,
-  [
-    `--user-data-dir=${profile}`,
-    `--remote-debugging-port=${port}`,
-    '--disable-gpu',
-    '--password-store=basic',
-    ...(process.getuid() === 0 ? ['--no-sandbox'] : []),
-  ],
-  { stdio: ['ignore', output, output] },
-);
-let startupError, page;
-obsidian.on('error', (error) => {
-  startupError = error;
+const runtime = await startOffscreen({
+  profile,
+  port,
+  evidence,
+  cache: join(PLUGIN, 'e2e/evidence/native-cache'),
 });
-const deadline = Date.now() + 45_000;
-while (Date.now() < deadline) {
-  if (startupError || obsidian.exitCode !== null || obsidian.signalCode !== null)
-    throw new Error(
-      `Obsidian launch failed: ${startupError || readFileSync(startupLog, 'utf8').slice(-4000)}`,
-    );
-  try {
-    page = (await (await fetch(`http://localhost:${port}/json`)).json()).find(
-      (p) => p.type === 'page' && p.url.startsWith('app://') && p.title.includes('test-vault'),
-    );
-  } catch {}
-  if (page) break;
-  await sleep(100);
-}
-if (!page)
-  throw new Error(`Obsidian startup timed out: ${readFileSync(startupLog, 'utf8').slice(-4000)}`);
+const page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find(
+  (p) => p.type === 'page' && p.url.startsWith('app://') && p.title.includes('test-vault'),
+);
 
 // ---------- CDP ----------
 const ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -291,9 +254,11 @@ await ev(
 );
 await closeModals();
 // Screenshots should show settled UI, not a frame from an entrance animation.
-await ev(
-  `if(!document.getElementById('annotate-dev-check-still'))document.head.append(Object.assign(document.createElement('style'),{id:'annotate-dev-check-still',textContent:'*,*::before,*::after{animation:none!important;transition:none!important}'}))`,
-);
+const disableAnimations = () =>
+  ev(
+    `if(!document.getElementById('annotate-dev-check-still'))document.head.append(Object.assign(document.createElement('style'),{id:'annotate-dev-check-still',textContent:'*,*::before,*::after{animation:none!important;transition:none!important}'}))`,
+  );
+await disableAnimations();
 await ev(
   `const previous=app.plugins.plugins['annotate'];if(previous){previous.data=${JSON.stringify(data)};previous.configureCodex();await previous.persist();}await app.plugins.setEnable(true);await app.plugins.disablePlugin('annotate');await app.plugins.enablePluginAndSave('annotate');`,
   'reload plugin',
@@ -311,7 +276,7 @@ const openMode = (m) =>
 const select = (m, quote = QUOTE) =>
   (m === 'reading' ? until : ev)(
     m === 'reading'
-      ? `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}return false`
+      ? `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));return n.isConnected&&getSelection().toString()===${JSON.stringify(quote)}&&!app.plugins.plugins.annotate.refreshPending}}return false`
       : `const e=app.workspace.activeLeaf.view.editor,i=e.getValue().indexOf(${JSON.stringify(quote)});if(i<0)throw new Error('quote not in note');e.focus();e.setSelection(e.offsetToPos(i),e.offsetToPos(i+${quote.length}));return true`,
     'select quote',
   );
@@ -350,7 +315,7 @@ const openComposer = async (m, quote = QUOTE) => {
         );
     }
   }
-  await press('m', 8 | 2);
+  await press('m', 8 | 4);
 };
 const createComment = async (m, text, quote = QUOTE) => {
   await openComposer(m, quote);
@@ -478,7 +443,7 @@ if (only.includes('palette')) {
             );
             await shot(`palette-actions-${mode}-${theme}`);
             await toolClick('Highlight');
-            // Wait beyond the deferred mouseup/selection callback that previously closed the colors.
+            // Wait for deferred selection handling before checking the palette.
             await sleep(350);
             assert(
               await ev(
@@ -508,7 +473,7 @@ if (only.includes('palette')) {
             assert((await noteText()).includes(QUOTE), 'highlight preserves selected text');
             // Selecting highlighted text and using the shortcut applies the same most recent color.
             await select(mode);
-            await press('h', 8 | 2);
+            await press('h', 8 | 4);
             await until(`${P}return p.data.highlights.recent==='pink'`, 'shortcut uses last color');
             const marked = await noteText();
             assert(
@@ -539,12 +504,12 @@ if (only.includes('palette')) {
                 JSON.stringify(await ev(`${P}return p.data.threads.map(t=>t.anchor)`)),
             );
             if (mode !== 'reading') {
-              await press('z', 2);
+              await press('z', 4);
               await until(
                 `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="pink"'))`,
                 'undo restores previous color',
               );
-              await press('y', 2);
+              await press('z', 4 | 8);
               await until(
                 `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
                 'redo restores chosen color',
@@ -568,10 +533,10 @@ if (only.includes('palette')) {
               );
             await shot(`palette-highlight-${mode}-${theme}`);
             await select(mode);
-            await press('m', 8 | 2);
+            await press('m', 8 | 4);
             await until(
               `return !!document.querySelector('.annotate-new-comment textarea')`,
-              'Ctrl Shift M opens Annotate',
+              'Cmd Shift M opens Annotate',
             );
             await press('Escape');
             await until(
@@ -657,10 +622,10 @@ if (only.includes('palette')) {
               'text color removal restores note exactly',
             );
             await select(mode);
-            await press('j', 8 | 2);
+            await press('j', 8 | 4);
             await until(
               `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-color="blue"'))`,
-              'Ctrl Shift J reapplies the most recent text color',
+              'Cmd Shift J reapplies the most recent text color',
             );
             if (mode !== 'source')
               await until(
@@ -679,10 +644,10 @@ if (only.includes('palette')) {
               'shortcut text color removal restores note exactly',
             );
             await select(mode);
-            await press('h', 8 | 2);
+            await press('h', 8 | 4);
             await until(
               `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
-              'Ctrl Shift H applies most recent color without opening palette',
+              'Cmd Shift H applies most recent color without opening palette',
             );
             await ev(
               `${P}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
@@ -985,6 +950,25 @@ if (only.includes('smoke')) {
     );
   });
 }
+if (only.includes('smoke')) {
+  await step('smoke: app reload preserves saved comments in offscreen windows', async () => {
+    await ev(`${P}p.closePopup();await p.persist()`);
+    await ev(`app.commands.executeCommandById('app:reload')`).catch(() => {});
+    await sleep(300);
+    await until(
+      `${P}return !!p?.data?.threads?.some(t=>t.comments.some(c=>c.body==='smoke comment'))`,
+      'saved comments after app reload',
+      10000,
+    );
+    assert(
+      await ev(
+        `return require('@electron/remote').BrowserWindow.getAllWindows().every(w=>w.webContents.isOffscreen()&&!w.isVisible()&&!w.isFocused())`,
+      ),
+      'reload must retain offscreen windows',
+    );
+    await disableAnimations();
+  });
+}
 if (only.includes('ui'))
   for (const theme of themes)
     for (const m of modes) {
@@ -1015,17 +999,19 @@ if (only.includes('ui'))
           `const a=document.querySelector('.annotate-message');return {av:a.querySelector('.annotate-avatar')?.textContent,name:a.querySelector('strong')?.textContent,time:a.querySelector('time')?.textContent}`,
         );
         assert(v.av && v.name && v.time === 'Just now', JSON.stringify(v));
-        assert(
-          await ev(
-            `const r=document.querySelector('.annotate-popover').getBoundingClientRect();return Math.abs(r.width-${composerWidth})<1&&Math.abs(r.width-(innerWidth<=600?innerWidth-24:Math.min(640,innerWidth*.52,innerWidth-24)))<1&&r.height<=Math.min(420,innerHeight*.5,innerHeight-24)+1&&r.left>=0&&r.right<=innerWidth`,
-          ),
-          'composer and thread keep the same compact, viewport-safe dimensions',
+        await until(
+          `const r=document.querySelector('.annotate-popover').getBoundingClientRect();return Math.abs(r.width-${composerWidth})<1&&Math.abs(r.width-(innerWidth<=600?innerWidth-24:Math.min(640,innerWidth*.52,innerWidth-24)))<1&&r.height<=Math.min(420,innerHeight*.5,innerHeight-24)+1&&r.left>=0&&r.right<=innerWidth`,
+          'composer and thread keep the same compact, viewport-safe dimensions after animation',
         );
         await hoverComposer();
         await type('ask @ch');
         await until(
           `const m=document.querySelector('.annotate-mention-menu');return m&&!m.hidden`,
           'mention menu',
+        );
+        await until(
+          `const p=document.querySelector('.annotate-popover').getBoundingClientRect(),m=document.querySelector('.annotate-mention-menu').getBoundingClientRect();return p.top>=0&&p.bottom<=innerHeight&&p.left>=0&&p.right<=innerWidth&&m.height>20&&m.top>=p.top&&m.bottom<=p.bottom+1`,
+          'mention menu and popover positioned within the viewport',
         );
         const lay = await ev(
           `const p=document.querySelector('.annotate-popover').getBoundingClientRect(),m=document.querySelector('.annotate-mention-menu').getBoundingClientRect();return {inView:p.top>=0&&p.bottom<=innerHeight&&p.left>=0&&p.right<=innerWidth,menuInside:m.height>20&&m.top>=p.top&&m.bottom<=p.bottom+1}`,
@@ -2122,7 +2108,7 @@ if (only.includes('shortcuts')) {
     ev,
     step,
     until,
-    press,
+    press: (key, modifiers = 0) => press(key, modifiers & 2 ? (modifiers & ~2) | 4 : modifiers),
     modes,
     themes,
     shot,
@@ -2137,7 +2123,51 @@ if (only.includes('shortcuts')) {
 // ---------- cleanup + report ----------
 await ev(`${P}p.closePopup();app.changeTheme('moonstone')`).catch(() => {});
 await resetThreads().catch(() => {});
-results.push({ name: 'display: isolated Linux virtual display', ok: true });
+const scenario = arg('scenario', '');
+if (scenario) {
+  if (
+    ![
+      'core-checks.mjs',
+      'anchor-checks.mjs',
+      'editing-checks.mjs',
+      'math-checks.mjs',
+      'menu-checks.mjs',
+    ].includes(scenario)
+  )
+    throw Error('Unknown scenario');
+  await step(
+    `scenario: ${scenario}`,
+    () =>
+      new Promise((resolveCheck, reject) => {
+        execFile(
+          process.execPath,
+          [scenario],
+          {
+            cwd: HERE,
+            env: {
+              ...process.env,
+              CDP_PORT: String(port),
+              SHOTS_DIR: shotsDir,
+              OWNED_OFFSCREEN_PROFILE: profile,
+            },
+            timeout: 120_000,
+            maxBuffer: 2 * 1024 * 1024,
+          },
+          (error, stdout, stderr) => {
+            console.log(stdout);
+            if (stderr) console.error(stderr);
+            if (error) reject(error);
+            else resolveCheck();
+          },
+        );
+      }),
+  );
+}
+const isolation = await runtime.stop();
+results.push({
+  name: 'native macOS offscreen: zero test activations and visible windows',
+  ok: true,
+});
 if (errors.length)
   results.push({
     name: 'no console errors during run',
@@ -2146,8 +2176,7 @@ if (errors.length)
   });
 const failed = results.filter((r) => !r.ok),
   secs = ((Date.now() - t0) / 1000).toFixed(1);
-const appVersion = await ev("return require('@electron/remote').app.getVersion()");
-const env = `Obsidian ${appVersion}, Linux / Xvfb`;
+const env = `Obsidian ${isolation.app}, Electron ${isolation.electron}, macOS offscreen`;
 console.log(
   `\n${failed.length ? 'FAILED' : 'OK'} ${results.length - failed.length}/${results.length} in ${secs}s · ${env} · port ${port}`,
 );
@@ -2157,12 +2186,12 @@ if (flag('record')) {
     `\n## ${new Date().toISOString().slice(0, 10)} — dev-check (${only.join(', ')}; modes ${modes.join('/')}; themes ${themes.join('/')})`,
     '',
     `- Build: v${version}, main.js \`${hashes['main.js']}\`, styles.css \`${hashes['styles.css']}\``,
-    `- Env: ${env}, isolated hidden profile \`${profile}\``,
+    `- Env: ${env}, isolated synthetic test-vault`,
     ...results.map((r) => `- ${r.ok ? 'PASS' : 'FAIL'} ${r.name}${r.err ? ` — ${r.err}` : ''}`),
     ...(shotNote ? [`- ${shotNote}`] : []),
     `- Duration: ${secs}s. Development validation only; release validation pending.`,
   ].join('\n');
-  const report = join(process.env.E2E_OUTPUT || VAULT_SRC, 'Validation results.md');
+  const report = join(evidence, 'Validation results.md');
   appendFileSync(report, md + '\n');
   console.log(`recorded to ${report}`);
 }

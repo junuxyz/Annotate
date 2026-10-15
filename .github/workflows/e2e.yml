@@ -7,19 +7,24 @@ permissions:
   contents: read
 jobs:
   e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
-      - name: Build and validate in real Obsidian on Xvfb
-        run: node e2e/run-linux.mjs --only smoke,ui,list,highlight,quote,copy,access,resources,storage,providers,markdown --modes live,source,reading --shots --record
+      - run: npm ci
+      - name: Prepare pinned Obsidian in the disposable runner
+        run: node e2e/macos/provision-ci.mjs
+      - name: Build and validate native offscreen Obsidian
+        run: npm run check:full -- --shots
       - name: Save validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: obsidian-e2e-evidence
-          path: e2e/evidence/
+          path: |
+            e2e/evidence/
+            !e2e/evidence/native-cache/**
           if-no-files-found: warn

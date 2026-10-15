@@ -2,8 +2,10 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 const shots = process.env.SHOTS_DIR || 'shots';
 mkdirSync(shots, { recursive: true });
+if (!process.env.OWNED_OFFSCREEN_PROFILE)
+  throw Error('Run this scenario through the owned offscreen runner.');
 const port = process.env.CDP_PORT;
-if (!port) throw new Error('Set CDP_PORT to your isolated hidden test instance.');
+if (!port) throw new Error('Set CDP_PORT to your owned offscreen test instance.');
 const list = await (await fetch(`http://localhost:${port}/json`)).json();
 const page = list.find(
   (p) =>
@@ -20,17 +22,6 @@ ws.onmessage = (e) => {
   pending.delete(m.id);
 };
 await new Promise((r) => (ws.onopen = r));
-await new Promise((r) => {
-  const i = ++id;
-  pending.set(i, r);
-  ws.send(
-    JSON.stringify({
-      id: i,
-      method: 'Emulation.setFocusEmulationEnabled',
-      params: { enabled: true },
-    }),
-  );
-});
 const send = (method, params = {}) =>
   new Promise((r) => {
     const i = ++id;
@@ -49,6 +40,12 @@ const ev = async (expr) => {
     );
   return r.result.result.value;
 };
+const owned = await ev(`return require('@electron/remote').app.__offscreenTest?.profile`);
+if (owned !== process.env.OWNED_OFFSCREEN_PROFILE) {
+  ws.close();
+  throw Error('Refusing an unrelated Obsidian instance');
+}
+await send('Emulation.setFocusEmulationEnabled', { enabled: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const vk = { Enter: 13, Escape: 27, ArrowDown: 40, Backspace: 8, m: 77, '@': 50 };
 const key = async (k, m = 0) => {

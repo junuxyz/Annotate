@@ -1,6 +1,9 @@
 import * as h from './e2e.mjs';
 const { ev, key, type, click, shot, check, sleep, P, CMD, SHIFT } = h;
 const Q = 'violet flower';
+const expectedCommands = await ev(
+  `return Object.keys(app.commands.commands).filter(c=>c.startsWith('annotate:')).length`,
+);
 await h.mode('live');
 await ev(`${P}p.closePopup()`);
 // create
@@ -96,7 +99,7 @@ const dup = await ev(
 );
 check(
   'disable/enable keeps threads, no duplicate commands or highlights',
-  a && a.n === 1 && dup.cmds === 3 && dup.pop === 0,
+  a && a.n === 1 && dup.cmds === expectedCommands && dup.pop === 0,
   JSON.stringify(dup),
 );
 // rename note & folder

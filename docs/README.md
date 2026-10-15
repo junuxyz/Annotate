@@ -10,7 +10,6 @@
 | Tool contracts and permission enforcement         | [Agent tools and permissions](agent-tools.md)                         |
 | Build, development updates, and releases          | [Development](development.md)                                         |
 | Automated suites and real-app scopes              | [Testing](testing.md)                                                 |
-| First-release validation status                   | [Release readiness](first-release.md)                                 |
 | Contributions and security reports                | [Contributing](../CONTRIBUTING.md), [security policy](../SECURITY.md) |
 
 [AGENTS.md](../AGENTS.md) contains the local workflow instructions for agents.

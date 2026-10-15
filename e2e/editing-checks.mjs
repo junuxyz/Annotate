@@ -135,7 +135,6 @@ for (const mode of ['live', 'source', 'reading']) {
     ),
   );
   await click('.annotate-message-remove');
-  await click('.annotate-message-remove');
   await sleep(300);
   check(
     `[${mode}] removing final comment deletes thread and highlight`,

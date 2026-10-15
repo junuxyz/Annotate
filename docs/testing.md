@@ -1,120 +1,94 @@
-# Test a change
+# Testing
 
-Run commands from the plugin repository root with dependencies installed.
-Use synthetic notes in `test-vault`; enable assistants only for integration checks.
+Run commands from the repository root. Use synthetic notes in `test-vault`.
 
-## Run automated tests during implementation
-
-`npm test` runs each `tests/*.test.mjs` and `tests/*.test.ts` file separately with
-resource and time limits. It stops at the first failed suite. See
-[`scripts/test.mjs`](../scripts/test.mjs) for the current limits and overrides.
-
-For a focused suite, use the same TypeScript loader directly:
+## Development checks
 
 ```sh
-node --import tsx --test tests/note-tools.test.mjs
-```
-
-This focused command does not use the outer process-tree resource monitor.
-`npm test -- --test-name-pattern='pattern'` forwards the name filter to each
-discovered suite; it does not select one file.
-
-| Changed area                            | Automated suites                                             |
-| --------------------------------------- | ------------------------------------------------------------ |
-| Anchors, stored schemas, context        | `model.test.ts`, `interaction.test.mjs`                      |
-| Selection, composer, comments, settings | `interaction.test.mjs`                                       |
-| Reading-mode mapping                    | `reading.test.mjs`                                           |
-| Highlights and text color               | `highlight.test.ts`, `interaction.test.mjs`                  |
-| Markdown, math, streamed rendering      | `markdown.test.mjs`, `math.test.mjs`, `interaction.test.mjs` |
-| Provider routing and Claude transport   | `assistant.test.mjs`, `interaction.test.mjs`                 |
-| Codex sessions and host dispatch        | `codex.test.mjs`, `interaction.test.mjs`                     |
-| Note tools, editor text, grouped undo   | `note-tools.test.mjs`, `interaction.test.mjs`                |
-| Durable agent history                   | `operation-history.test.mjs`, `note-tools.test.mjs`          |
-| Remote MCP                              | `mcp.test.mjs`, `interaction.test.mjs`                       |
-| Local development updates               | `sync.test.mjs`                                              |
-| Release identity and notices            | `release.test.mjs`                                           |
-
-[`tests/host.mjs`](../tests/host.mjs) substitutes Obsidian APIs for interaction
-tests. Provider fixture CLIs exercise transport behavior without real accounts.
-
-## Finish with scoped real-app checks
-
-With Docker running, the default development command is:
-
-```sh
+npm test
 npm run check -- --record
 ```
 
-[`run-linux.mjs`](../e2e/run-linux.mjs) builds a disposable container, runs lint,
-build, and automated tests, then starts actual Obsidian under Xvfb. It does not
-mount host credentials or drive the user's native Obsidian window. The runner
-copies fixtures and manages its own build, profile, and reports.
+`npm test` runs each test file separately with time and resource limits. To run a
+single suite, use `node --import tsx --test tests/interaction.test.mjs`.
+This direct command does not use the outer resource monitor in `scripts/test.mjs`.
 
-`--modes live,source,reading` selects Live Preview, Source, and Reading modes.
-Themes default to light and dark. Use
-`--shots` to save screenshots for visual review. Default scopes are
-`smoke,ui,list,polish`.
+`npm run check` lints, builds, runs unit tests, and tests real Obsidian in a
+private offscreen instance. Default scopes are `smoke,ui,list,polish`, Live
+Preview, and both themes. Each run creates its own synthetic vault and profile.
+It never drives the user's Obsidian window or sends host keyboard and mouse input.
 
-| Change                                                    | Additional or selected real-app scope                                                 |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| CSS, composer, menus, layout                              | Default scopes with `--shots`; all modes for UI behavior                              |
-| Highlight or text color                                   | `highlight`, `palette`, `formatting`, or `combo`, according to the changed behavior   |
-| Copy or quoted replies                                    | `copy` or `quote`                                                                     |
-| Markdown or math                                          | `markdown` or `math`, across all modes and themes                                     |
-| Automatic resource loading or code processors             | `resources`                                                                           |
-| Consent, note tools, editor preservation, approvals, undo | `access`                                                                              |
-| Provider switching, streaming, cancellation, recovery     | `providers` with synthetic providers; matching live checks when the transport changes |
-| External comment-data changes or conflicts                | `storage`                                                                             |
-| Development update or rollback                            | `--dev-build --only smoke,sync,auto-update`                                           |
-| Distribution-only UI                                      | `distribution`                                                                        |
+Choose scopes for the change:
 
-For example, validate a permissions change with:
+| Change                                  | Scope                                                 |
+| --------------------------------------- | ----------------------------------------------------- |
+| Composer, menus, layout                 | Default scopes, `--modes live,source,reading --shots` |
+| Shortcuts                               | `shortcuts`, across all modes                         |
+| Highlight and text color                | `highlight,palette,formatting,combo`                  |
+| Markdown and math                       | `markdown,math`, across all modes                     |
+| Copy and quoted replies                 | `copy,quote`                                          |
+| Resource loading                        | `resources`                                           |
+| Consent, tools, approvals, undo         | `access`                                              |
+| Provider switching, streaming, recovery | `providers`                                           |
+| External data changes and conflicts     | `storage`                                             |
+| Distribution settings                   | `distribution`                                        |
+| Development updates and rollback        | `--dev-build --only smoke,sync,auto-update`           |
 
-```sh
-npm run check -- --only access,providers,storage,resources,distribution --modes live,source,reading --record
-```
-
-Some behaviors need scenarios outside `dev-check.mjs`. Anchor relocation, rename,
-restart, and lifecycle changes must use matching scenarios from the
-[E2E checklist](../test-vault/E2E%20checklist.md) and existing `e2e/run-*.mjs`
-scripts, or a new tagged scenario.
-
-Older scripts require an isolated instance and its `CDP_PORT`, and run from
-`e2e/`. Follow the workspace's hidden-instance instructions for native checks.
-Never reuse a debugging port started by another session or expose a test window.
-
-### Verify the installed Codex boundary
+For example:
 
 ```sh
-npm run check:codex-tools
+npm run check -- --only access,providers,storage --modes live,source,reading --record
 ```
 
-This opt-in check uses the real signed-in CLI with synthetic content. It verifies
-the named filesystem profile, host note-tool execution, unavailable native tools,
-and a streamed answer. On macOS it also directly probes an outside synthetic
-sentinel read denial. It does not grant production terminal access.
-`ANNOTATE_CODEX_EXECUTABLE` and `ANNOTATE_CODEX_MODEL` select the CLI and model.
+Provider scenarios use fixture CLIs without accounts. Test hosts in `tests/host.mjs`
+substitute Obsidian APIs for unit tests; the real-app runner uses actual Obsidian.
+Documentation-only changes require source and link review.
 
-`check:codex-skills` verifies disabled skill behavior. The `providers` scope uses
-fixture CLIs. `claude-live` requires a real Claude login and synthetic context.
+## Full offline validation
 
-The Linux container has no host authentication. Live CLI checks run separately
-in an authenticated host environment.
+```sh
+npm run check:full -- --shots
+```
 
-## Record what actually ran
+The full run covers all tagged scopes and the core, anchor, editing, math and
+menu scenarios in all three modes and both themes. It checks plugin reload,
+application reload, persistence and lifecycle. Development-build update checks
+run last, followed by restoration of the distribution build.
 
-The Docker runner saves reports, screenshots, and startup logs under
-`e2e/evidence/<timestamp>/`. It appends an available generated report to the
-canonical `test-vault/Validation results.md`, using adjacent `../test-vault` when
-present and included `test-vault` otherwise. See [Linux setup](../e2e/README-linux.md).
+The runner saves hashes, results, startup logs, guard probes, isolation
+measurements and requested screenshots under `e2e/evidence/<timestamp>/`.
+`--record` appends generated reports to `test-vault/Validation results.md`, using
+the adjacent `../test-vault` when present, otherwise the included vault.
+Inspect screenshots for visual changes. Report scopes, modes, themes and pending
+checks. Do not treat a build or unit-test pass as real-app validation.
 
-Report scopes, modes, themes, environment, and results, distinguishing fixture
-providers from live accounts. Mark unavailable required checks as pending.
+## Runtime and isolation
 
-Documentation-only changes need source and link review, not a build or real-app run.
+Requires macOS Apple silicon, Node.js and Xcode command line tools.
 
-## Certify a release separately
+```sh
+npm run check:compat
+```
 
-Development scopes do not complete the
-[release checklist](../test-vault/E2E%20checklist.md). See the
-[release procedure](development.md#releases) for validation, hashes, and staging.
+This read-only check verifies installed versions and archive hashes against
+`e2e/macos/compatibility.json`. A mismatch prevents launch. The offscreen runner
+patches a disposable app copy, blocks activation and native prompts, and starts
+an independent visibility observer before the app. Any visible or active test
+window fails the run. See [runtime details](../e2e/macos/README.md) for debugging
+and the compatibility review procedure.
+
+GitHub Actions runs the same suite on a disposable macOS VM with pinned public
+application files. Caches and raw evidence stay out of Git.
+
+## Authenticated integration and releases
+
+The offscreen profile contains no host authentication. Run
+`npm run check:codex-tools` and `npm run check:codex-skills` separately with an
+explicitly authenticated test CLI and synthetic context. `claude-live` requires
+an authenticated Claude test environment. Native permission grants, login and
+OS shortcut registration success need separate validation because the offscreen
+runner denies those operations.
+
+Before release, complete the [E2E checklist](../test-vault/E2E%20checklist.md)
+and [release procedure](development.md#releases) against the exact distribution
+files. Full offline validation does not certify authenticated integrations.

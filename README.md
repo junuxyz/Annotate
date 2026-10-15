@@ -89,7 +89,6 @@ context disclosure, and folder-scoped note access.
 - [Development](docs/development.md): local updates, validation, and releases.
 - [Architecture](docs/architecture.md), [agent tools and permissions](docs/agent-tools.md),
   and [testing](docs/testing.md): source ownership, contracts, invariants, and checks.
-- [First-release changes and readiness](docs/first-release.md): hardening work and pending release gates.
 - [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
 ## License

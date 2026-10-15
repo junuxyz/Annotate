@@ -32,10 +32,11 @@ for (const mode of ['reading', 'live', 'source']) {
     `const b=document.querySelector('.annotate-message-body');return {math:b.querySelectorAll('mjx-container').length,display:b.querySelectorAll('.math-block').length,html:!!b.querySelector('b'),text:b.textContent,errors:b.querySelectorAll('mjx-merror').length}`,
   );
   check(
-    `[${mode}] inline/display math with native styles and HTML`,
+    `[${mode}] inline/display math with native styles and literal HTML`,
     snap.math === 4 &&
       snap.display === 2 &&
-      snap.html &&
+      !snap.html &&
+      snap.text.includes('<b>literal</b>') &&
       snap.text.includes('$code$') &&
       snap.text.includes('$z') &&
       snap.errors === 0,
