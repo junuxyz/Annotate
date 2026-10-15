@@ -13,7 +13,16 @@ const snapshotSchema = z
   .strict();
 const guidance =
   'Assistant history changed or is damaged. Note changes are blocked. Preserve every agent-history file, resolve conflicting snapshots from backups, then reload Annotate.';
-type Observed = { files: string[]; tip: string | null };
+type Observed = { files: string[]; tip: string | null; fingerprints: Map<string, string> };
+
+function fingerprints(records: NoteOperation[]): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const record of records) {
+    if (result.has(record.id)) throw new Error('Duplicate operation identifier.');
+    result.set(record.id, JSON.stringify(record));
+  }
+  return result;
+}
 
 /** Immutable snapshots retain every branch so sync conflicts cannot erase recovery data. */
 export class OperationHistoryStore {
@@ -68,9 +77,18 @@ export class OperationHistoryStore {
         }
         let tip = root;
         const visited = new Set<string>();
+        const operations = new Map<string, NoteOperation>();
         while (tip !== null) {
           if (visited.has(tip)) throw new Error('History ancestry contains a cycle.');
           visited.add(tip);
+          const snapshot = snapshots.get(tip);
+          if (!snapshot) throw new Error('History snapshot is missing.');
+          fingerprints(snapshot.records);
+          // Each snapshot contains only changed operations, in their current form.
+          for (const record of snapshot.records) {
+            operations.delete(record.id);
+            operations.set(record.id, record);
+          }
           const child = children.get(tip);
           if (!child) break;
           tip = child;
@@ -78,8 +96,9 @@ export class OperationHistoryStore {
         if (visited.size !== files.length) throw new Error('History ancestry is incomplete.');
         if (!this.sameFiles(files, await this.files()))
           throw new Error('History changed during load.');
-        this.observed = { files, tip };
-        return tip === null ? [] : structuredClone(snapshots.get(tip)?.records ?? []);
+        const records = [...operations.values()];
+        this.observed = { files, tip, fingerprints: fingerprints(records) };
+        return structuredClone(records);
       } catch (error) {
         throw new Error(guidance, { cause: error });
       }
@@ -94,18 +113,25 @@ export class OperationHistoryStore {
       try {
         if (!this.sameFiles(previous.files, await this.files()))
           throw new Error('History changed before save.');
+        const currentFingerprints = fingerprints(parsed);
+        if ([...previous.fingerprints.keys()].some((id) => !currentFingerprints.has(id)))
+          throw new Error('Operation history cannot discard saved operations.');
+        const changed = parsed.filter(
+          (record) => previous.fingerprints.get(record.id) !== currentFingerprints.get(record.id),
+        );
+        if (!changed.length) return;
         const { adapter, directory } = this.options;
         if (!(await adapter.exists(directory))) await adapter.mkdir(directory);
         const timestamp = Math.max(Date.now(), Number(previous.tip?.slice(0, 16) ?? 0) + 1);
         const name = `${String(timestamp).padStart(16, '0')}-${crypto.randomUUID()}.json`;
         await adapter.write(
           `${directory}/${name}`,
-          JSON.stringify({ format: 1, parent: previous.tip, records: parsed }),
+          JSON.stringify({ format: 1, parent: previous.tip, records: changed }),
         );
         const expected = [...previous.files, name].sort();
         if (!this.sameFiles(expected, await this.files()))
           throw new Error('Concurrent history snapshot detected.');
-        this.observed = { files: expected, tip: name };
+        this.observed = { files: expected, tip: name, fingerprints: currentFingerprints };
       } catch (error) {
         this.observed = null;
         throw new Error(guidance, { cause: error });

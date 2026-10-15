@@ -100,7 +100,10 @@ test('concurrent sibling snapshots remain preserved and reload fails closed', as
     if (++written === 2) release();
     await bothWritten;
   };
-  const results = await Promise.allSettled([a.save([record('a')]), b.save([record('b')])]);
+  const results = await Promise.allSettled([
+    a.save([record('seed'), record('a')]),
+    b.save([record('seed'), record('b')]),
+  ]);
   assert.ok(results.every((result) => result.status === 'rejected'));
   assert.equal(f.files.size, 3);
   await assert.rejects(f.store().load(), /Preserve every agent-history file/);
@@ -110,7 +113,7 @@ test('corrupted snapshots and missing parents block reload without modifying fil
   const store = f.store();
   await store.load();
   await store.save([record('first')]);
-  await store.save([record('second')]);
+  await store.save([record('first'), record('second')]);
   const entries = [...f.files.entries()].sort();
   f.files.set(entries[1][0], '{interrupted');
   await assert.rejects(f.store().load(), /history changed or is damaged/);
@@ -132,7 +135,7 @@ test('an interrupted backup preserves prior snapshots and blocks the caller note
   };
   let note = 'original';
   async function changeNote() {
-    await store.save([record('second')]);
+    await store.save([record('first'), record('second')]);
     note = 'changed';
   }
   await assert.rejects(changeNote(), /Note changes are blocked/);
@@ -148,7 +151,7 @@ test('load rejects cycles and multiple roots, and save requires successful load'
   await assert.rejects(store.save([]), /Note changes are blocked/);
   await store.load();
   await store.save([record('first')]);
-  await store.save([record('second')]);
+  await store.save([record('first'), record('second')]);
   const entries = [...f.files.entries()].sort();
   const first = JSON.parse(entries[0][1]);
   first.parent = entries[1][0].split('/').at(-1);
@@ -162,3 +165,45 @@ test('load rejects cycles and multiple roots, and save requires successful load'
   await assert.rejects(f.store().load(), /history changed or is damaged/);
 });
 test.after(async () => rm(temp, { recursive: true, force: true }));
+
+test('snapshots repeat only changed operations and reload preserves independent status changes', async () => {
+  const f = fixture();
+  const store = f.store();
+  await store.load();
+  const large = record('large');
+  large.changes[0].before = 'historical note '.repeat(20_000);
+  const small = { ...record('small'), status: 'pending' };
+  await store.save([large]);
+  await store.save([large, small]);
+  let entries = [...f.files.entries()].sort();
+  assert.deepEqual(JSON.parse(entries[1][1]).records, [small]);
+  assert.ok(Buffer.byteLength(entries[1][1]) < 1000);
+  assert.ok(Buffer.byteLength(entries[0][1]) > 200_000);
+  small.status = 'complete';
+  await store.save([large, small]);
+  large.status = 'undone';
+  await store.save([small, large]);
+  entries = [...f.files.entries()].sort();
+  assert.deepEqual(JSON.parse(entries[2][1]).records, [small]);
+  assert.deepEqual(JSON.parse(entries[3][1]).records, [large]);
+  assert.equal(f.files.size, 4);
+  assert.deepEqual(await f.store().load(), [small, large]);
+  await store.save([small, large]);
+  assert.equal(f.files.size, 4, 'an unchanged aggregate needs no new snapshot');
+});
+
+test('saved operation identifiers cannot silently disappear or be duplicated', async () => {
+  const f = fixture();
+  const store = f.store();
+  await store.load();
+  await store.save([record('one'), record('two')]);
+  await assert.rejects(store.save([record('two')]), /Note changes are blocked/);
+  assert.equal(f.files.size, 1);
+  const loaded = f.store();
+  assert.deepEqual(await loaded.load(), [record('one'), record('two')]);
+  await assert.rejects(
+    loaded.save([record('one'), record('two'), record('two')]),
+    /Note changes are blocked/,
+  );
+  assert.equal(f.files.size, 1);
+});
