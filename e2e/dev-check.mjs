@@ -1666,7 +1666,7 @@ if (only.includes('memory')) {
           'split retains note text',
         );
         await ev(
-          `for(const leaf of app.workspace.getLeavesOfType('markdown'))if(leaf.view.file?.path===${JSON.stringify(NOTE)})leaf.detach();const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true})`,
+          `const closing=app.workspace.getLeavesOfType('markdown').filter(leaf=>leaf.view.file?.path===${JSON.stringify(NOTE)});const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true});for(const leaf of closing)leaf.detach()`,
         );
         await until(`${P}return !p.documents.has(${JSON.stringify(NOTE)})`, 'closed note evicted');
         assert(

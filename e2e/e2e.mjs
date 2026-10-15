@@ -6,7 +6,10 @@ const port = process.env.CDP_PORT;
 if (!port) throw new Error('Set CDP_PORT to your isolated hidden test instance.');
 const list = await (await fetch(`http://localhost:${port}/json`)).json();
 const page = list.find(
-  (p) => p.type === 'page' && p.url.startsWith('app://') && p.title.includes('test-vault'),
+  (p) =>
+    p.type === 'page' &&
+    p.url.startsWith('app://obsidian.md/index.html') &&
+    p.title.includes('test-vault'),
 );
 const ws = new WebSocket(page.webSocketDebuggerUrl);
 let id = 0;
