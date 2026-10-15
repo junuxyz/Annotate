@@ -1537,3 +1537,124 @@ test('slash skills filter, complete without sending, and route the selected skil
     await tick();
   }
 });
+test('sequential sync conflicts keep each remote revision recoverable', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.data.author = 'Local';
+    plugin.saved.author = 'Remote revision one';
+    await plugin.onExternalSettingsChange();
+    plugin.saved.author = 'Remote revision two';
+    await plugin.onExternalSettingsChange();
+    assert.ok(
+      [...plugin.recovery.values()].some((text) => text.includes('Remote revision one')),
+      'The first conflicting synced revision must remain recoverable',
+    );
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+  }
+});
+
+test('incoming interrupted assistant state can be recovered', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    plugin.saved.threads.push({
+      id: 'remote-thread',
+      path: 'test.md',
+      resolved: false,
+      anchor: { quote: 'hello', prefix: '', suffix: '', from: 0, to: 5, orphaned: false },
+      comments: [
+        {
+          id: 'remote-comment',
+          author: 'Codex',
+          body: 'partial',
+          role: 'assistant',
+          status: 'streaming',
+          createdAt: 1,
+        },
+      ],
+      codex: {
+        status: 'streaming',
+        turnMessageId: 'remote-comment',
+        sessionId: 'remote-session',
+        contextVersion: 2,
+      },
+    });
+    await plugin.onExternalSettingsChange();
+    assert.equal(
+      plugin.data.threads[0].codex.status,
+      'unknown',
+      'Incoming streaming state is interrupted on this instance',
+    );
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+  }
+});
+
+test('a clean sync does not discard a comment edit draft', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    plugin.source = 'passage';
+    plugin.compose({
+      kind: 'editor',
+      path: 'test.md',
+      anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+      text: () => 'passage',
+    });
+    await send('original');
+    await plugin.persist();
+    click(document.querySelector('.annotate-message-edit'));
+    const editor = document.querySelector('.annotate-message-editor textarea');
+    editor.value = 'unsaved edit that should survive';
+    editor.dispatchEvent(new win.Event('input', { bubbles: true }));
+    plugin.saved.author = 'Remote author';
+    await plugin.onExternalSettingsChange();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.ok(editor.isConnected, 'Unsaved comment edit remains accessible after sync');
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('queued saves retain edits made while an earlier write is pending', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    await plugin.persist();
+    const originalSave = plugin.saveData.bind(plugin);
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let entered;
+    const writing = new Promise((resolve) => {
+      entered = resolve;
+    });
+    plugin.saveData = async (snapshot) => {
+      entered();
+      await gate;
+      await originalSave(snapshot);
+    };
+    plugin.data.author = 'First edit';
+    const first = plugin.persist();
+    await writing;
+    plugin.data.author = 'Edit during pending write';
+    const second = plugin.persist();
+    release();
+    await Promise.all([first, second]);
+    assert.equal(plugin.saved.author, 'Edit during pending write');
+    assert.equal(plugin.recovery.size, 0);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});

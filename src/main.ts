@@ -283,6 +283,7 @@ export default class Annotate extends Plugin {
   private storedData = dataFingerprint(emptyData());
   private conflictBackup: string | null = null;
   private conflictNotified = false;
+  private conflictBackups = new Map<string, string>();
   backend: AssistantBackend | null = null;
   connectionLabels = new Map<ProviderId, HTMLElement>();
   chatgptModels: Record<string, string> = {};
@@ -882,19 +883,7 @@ export default class Annotate extends Plugin {
       this.data = parsed.data;
     }
     this.storedData = dataFingerprint(this.data);
-    for (const thread of this.data.threads)
-      if (thread.codex && ['pending', 'streaming'].includes(thread.codex.status)) {
-        const interrupted = thread.comments.find((c) => c.id === thread.codex?.turnMessageId);
-        if (interrupted) interrupted.status = 'unknown';
-        thread.codex.status = 'unknown';
-        thread.codex.error = 'Obsidian closed during this response. It will not be resent.';
-      }
-    for (const thread of this.data.threads)
-      if (thread.codex && thread.codex.contextVersion !== 2) {
-        thread.codex.sessionId = undefined;
-        thread.codex.contextVersion = 2;
-        if (!['unknown', 'unavailable'].includes(thread.codex.status)) thread.codex.status = 'idle';
-      }
+    this.recoverConversations(this.data);
     this.configureCodex();
     this.scheduleSave();
     // The nested CodeMirror class has its own `this`.
@@ -1887,16 +1876,37 @@ export default class Annotate extends Plugin {
       if (!this.disposed && this.storageHealthy) await this.checkExternalData();
     }).catch(() => {});
   }
+  private recoverConversations(data: PluginData): void {
+    for (const thread of data.threads)
+      if (thread.codex && ['pending', 'streaming'].includes(thread.codex.status)) {
+        const interrupted = thread.comments.find((c) => c.id === thread.codex?.turnMessageId);
+        if (interrupted) interrupted.status = 'unknown';
+        thread.codex.status = 'unknown';
+        thread.codex.error = 'Obsidian closed during this response. It will not be resent.';
+      }
+    for (const thread of data.threads)
+      if (thread.codex && thread.codex.contextVersion !== 2) {
+        thread.codex.sessionId = undefined;
+        thread.codex.contextVersion = 2;
+        if (!['unknown', 'unavailable'].includes(thread.codex.status)) thread.codex.status = 'idle';
+      }
+  }
   private async preserveConflict(external: unknown): Promise<never> {
-    this.conflictBackup ??= `${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`}/conflict-${Date.now()}-${crypto.randomUUID()}.json`;
+    const directory = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/annotate`;
+    const revision = JSON.stringify(external ?? null);
+    const path =
+      this.conflictBackups.get(revision) ??
+      `${directory}/conflict-${Date.now()}-${crypto.randomUUID()}.json`;
+    this.conflictBackups.set(revision, path);
+    this.conflictBackup ??= path;
     await this.app.vault.adapter.write(
-      this.conflictBackup,
+      path,
       JSON.stringify({ savedAt: Date.now(), local: this.data, external }, null, 2),
     );
     if (!this.conflictNotified) {
       this.conflictNotified = true;
       new Notice(
-        `Annotate: synced data conflicts with local changes. Both copies are preserved in ${this.conflictBackup}. Saves are paused. Reload Annotate to load synced data.`,
+        `Annotate: synced data conflicts with local changes. Copies are preserved in conflict-*.json files in ${directory}. Saves are paused. Reload Annotate to load synced data.`,
         0,
       );
     }
@@ -1921,6 +1931,8 @@ export default class Annotate extends Plugin {
     this.data = external;
     this.storedData = fingerprint;
     if (this.disposed) return true;
+    this.recoverConversations(this.data);
+    this.scheduleSave();
     for (const [path, text] of this.documents) this.reconcile(path, text);
     this.configureCodex();
     this.refreshHighlightStyles();
