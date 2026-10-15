@@ -8,6 +8,8 @@
 
 **Annotate** is an obsidian plugin that lets you select a passage, leave a comment, and click its highlight to revisit it or add a reply.
 
+https://github.com/user-attachments/assets/b64ded00-4c37-46e0-a9a0-9e790734fa87
+
 ## Features
 
 - 💬 **Comment on any passage.** Start a thread, reply, edit, resolve, or reopen it from the highlight or comments list. Quote selected text, copy messages or entire threads, and expand longer conversations. Comments support Obsidian Markdown, note links, embeds, code blocks, and LaTeX, and follow text edits and Obsidian renames.
