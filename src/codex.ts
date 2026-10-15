@@ -170,7 +170,7 @@ export class CodexBackend {
       ...codexConfig,
       web_search: this.security.webSearch ? 'live' : 'disabled',
       'permissions.annotate.filesystem': {
-        '/': 'deny',
+        ':root': 'deny',
         ...(this.scratch ? { [this.scratch]: 'read' } : {}),
       },
       'permissions.annotate.network.enabled': false,
@@ -376,9 +376,9 @@ export class CodexBackend {
         throw new Error('Codex did not disable native terminal and MCP access.');
       const filesystem = configuration.config.permissions.annotate.filesystem;
       if (
-        filesystem['/'] !== 'deny' ||
+        filesystem[':root'] !== 'deny' ||
         Object.keys(filesystem).some(
-          (key) => key !== '/' && key !== this.scratch && key !== 'glob_scan_max_depth',
+          (key) => key !== ':root' && key !== this.scratch && key !== 'glob_scan_max_depth',
         ) ||
         filesystem[this.scratch] !== 'read'
       )

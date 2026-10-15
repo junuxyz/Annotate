@@ -36,7 +36,7 @@ if (process.platform === 'darwin') {
       : JSON.stringify(value);
   const executable = resolveExecutable(process.env.ANNOTATE_CODEX_EXECUTABLE || 'codex');
   const config = {
-    'permissions.annotate.filesystem': { '/': 'deny', ':minimal': 'read' },
+    'permissions.annotate.filesystem': { ':root': 'deny', ':minimal': 'read' },
     'permissions.annotate.network.enabled': false,
   };
   const probe = spawnSync(

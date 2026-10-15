@@ -61,7 +61,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
         mcp_servers: {},
         permissions: {
           annotate: {
-            filesystem: { '/': 'deny', [process.cwd()]: 'read' },
+            filesystem: { ':root': 'deny', [process.cwd()]: 'read' },
             network: { enabled: false },
           },
         },
