@@ -11,10 +11,30 @@ let session = 0,
   skillsDisabled = false;
 const timers = new Map();
 const approvals = new Map();
+const toolCalls = new Map();
+const sessionTools = new Map();
 const send = (x) => process.stdout.write(JSON.stringify(x) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
   if (!m.id) return;
+  if (!m.method && toolCalls.has(m.id)) {
+    const { id, turnId } = toolCalls.get(m.id);
+    toolCalls.delete(m.id);
+    send({
+      method: 'item/agentMessage/delta',
+      params: {
+        threadId: id,
+        turnId,
+        itemId: 'answer',
+        delta: m.result?.contentItems?.[0]?.text ?? 'missing-output',
+      },
+    });
+    send({
+      method: 'turn/completed',
+      params: { threadId: id, turn: { id: turnId, status: 'completed' } },
+    });
+    return;
+  }
   if (!m.method && approvals.has(m.id)) {
     const { id, turnId } = approvals.get(m.id);
     approvals.delete(m.id);
@@ -31,7 +51,22 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   }
   const reply = (result) => send({ id: m.id, result });
   if (m.method === 'initialize') reply({});
-  else if (m.method === 'config/read') reply({ config: { model: modelConfig.model ?? null } });
+  else if (m.method === 'permissionProfile/list')
+    reply({ data: [{ id: 'annotate', allowed: !modelConfig.unsupportedProfile }] });
+  else if (m.method === 'config/read')
+    reply({
+      config: {
+        model: modelConfig.model ?? null,
+        features: { shell_tool: false, unified_exec: false },
+        mcp_servers: {},
+        permissions: {
+          annotate: {
+            filesystem: { '/': 'deny', [process.cwd()]: 'read' },
+            network: { enabled: false },
+          },
+        },
+      },
+    });
   else if (m.method === 'account/read') reply({ account: { type: 'chatgpt' } });
   else if (m.method === 'skills/list')
     reply({
@@ -58,14 +93,31 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     !models.some((model) => model.model === m.params.model)
   )
     send({ id: m.id, error: { message: 'Model is unavailable for this account' } });
-  else if (m.method === 'thread/start') reply({ thread: { id: 'session-' + ++session } });
-  else if (m.method === 'thread/resume')
+  else if (m.method === 'thread/start') {
+    if (
+      m.params.permissions !== 'annotate' ||
+      m.params.sandbox ||
+      m.params.approvalPolicy !== 'on-request'
+    )
+      throw new Error('Unsafe thread');
+    const id = 'session-' + ++session;
+    sessionTools.set(id, m.params.dynamicTools);
+    reply({
+      thread: { id },
+      activePermissionProfile: { id: modelConfig.wrongProfile ? ':workspace' : 'annotate' },
+    });
+  } else if (m.method === 'thread/resume')
     m.params.threadId === 'missing'
       ? send({ id: m.id, error: { message: 'not found' } })
-      : reply({ thread: { id: m.params.threadId } });
+      : reply({
+          thread: { id: m.params.threadId },
+          activePermissionProfile: { id: modelConfig.wrongProfile ? ':workspace' : 'annotate' },
+        });
   else if (
     m.method === 'turn/start' &&
-    !['readOnly', 'dangerFullAccess'].includes(m.params.sandboxPolicy?.type)
+    (m.params.permissions !== 'annotate' ||
+      m.params.sandboxPolicy ||
+      m.params.approvalPolicy !== 'on-request')
   )
     send({ id: m.id, error: { message: 'Web access is disabled' } });
   else if (
@@ -113,47 +165,29 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       });
       return;
     }
-    if (JSON.parse(m.params.input[0].text).question === 'tools') {
-      if (m.params.sandboxPolicy?.type !== 'dangerFullAccess') {
-        send({
-          method: 'turn/completed',
-          params: {
-            threadId: id,
-            turn: {
-              id: turnId,
-              status: 'failed',
-              error: { message: 'Terminal tools are restricted' },
-            },
-          },
-        });
-        return;
-      }
+    if (
+      ['tools', 'stale-tool', 'unknown-tool', 'pending-tool'].includes(
+        JSON.parse(m.params.input[0].text).question,
+      )
+    ) {
+      const requestId = 'host-' + turnId;
+      toolCalls.set(requestId, { id, turnId });
+      const tool = sessionTools.get(id)?.[0];
+      if (!tool) throw new Error('Missing host tool');
       send({
-        method: 'item/started',
-        params: { threadId: id, turnId, item: { id: 'terminal', type: 'commandExecution' } },
-      });
-      const token = require('node:child_process')
-        .execFileSync(process.execPath, ['-e', 'process.stdout.write("terminal-executed")'])
-        .toString();
-      send({
-        method: 'item/completed',
-        params: { threadId: id, turnId, item: { id: 'terminal', type: 'commandExecution' } },
-      });
-      send({
-        method: 'item/started',
-        params: { threadId: id, turnId, item: { id: 'search', type: 'webSearch' } },
-      });
-      send({
-        method: 'item/completed',
-        params: { threadId: id, turnId, item: { id: 'search', type: 'webSearch' } },
-      });
-      send({
-        method: 'item/agentMessage/delta',
-        params: { threadId: id, turnId, itemId: 'answer', delta: token },
-      });
-      send({
-        method: 'turn/completed',
-        params: { threadId: id, turn: { id: turnId, status: 'completed' } },
+        id: requestId,
+        method: 'item/tool/call',
+        params: {
+          threadId: id,
+          turnId:
+            JSON.parse(m.params.input[0].text).question === 'stale-tool' ? 'stale-turn' : turnId,
+          callId: 'op-1',
+          tool:
+            JSON.parse(m.params.input[0].text).question === 'unknown-tool'
+              ? 'unregistered'
+              : tool.name,
+          arguments: { path: 'Selected/note.md' },
+        },
       });
       return;
     }
