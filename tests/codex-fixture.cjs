@@ -131,6 +131,27 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   else if (m.method === 'turn/start') {
     const id = m.params.threadId,
       turnId = 'turn-' + m.id;
+    if (JSON.parse(m.params.input[0].text).question === 'failed-start-tool') {
+      send({
+        method: 'turn/started',
+        params: { threadId: id, turn: { id: turnId, status: 'inProgress' } },
+      });
+      const requestId = 'host-' + turnId;
+      toolCalls.set(requestId, { id, turnId });
+      send({
+        id: requestId,
+        method: 'item/tool/call',
+        params: {
+          threadId: id,
+          turnId,
+          callId: 'op-failed',
+          tool: sessionTools.get(id)[0].name,
+          arguments: { path: 'Selected/note.md' },
+        },
+      });
+      setTimeout(() => send({ id: m.id, error: { message: 'Synthetic turn start failed' } }), 25);
+      return;
+    }
     reply({ turn: { id: turnId } });
     send({
       method: 'turn/started',

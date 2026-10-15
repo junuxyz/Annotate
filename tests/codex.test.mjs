@@ -359,3 +359,44 @@ test('unsupported or substituted permission profiles fail closed', async () => {
     }
   }
 });
+
+test('turn start failure aborts pending host permission before a late write', async () => {
+  let entered;
+  const started = new Promise((resolve) => (entered = resolve));
+  let release;
+  const approved = new Promise((resolve) => (release = resolve));
+  let signal;
+  let writes = 0;
+  const b = new CodexBackend(fixture, () => {}, runtime(), {
+    tools: [
+      {
+        name: 'edit_note',
+        description: 'Edit',
+        inputSchema: { type: 'object' },
+        async execute(_args, context) {
+          signal = context.signal;
+          entered();
+          await approved;
+          if (!signal.aborted) writes++;
+          return 'late-write';
+        },
+      },
+    ],
+  });
+  try {
+    await b.enable();
+    const id = await b.session();
+    const result = response(b, id, 'failed-start-tool');
+    await started;
+    assert.equal((await result).state, 'failed');
+    assert.equal(signal.aborted, true);
+    release();
+    await delay(20);
+    assert.equal(writes, 0);
+    assert.equal((await response(b, id, 'explicit followup')).state, 'completed');
+    assert.equal(b.launches, 1);
+  } finally {
+    release();
+    b.disable();
+  }
+});

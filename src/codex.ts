@@ -604,7 +604,9 @@ export class CodexBackend {
       active.turnId = result.turn.id;
       if (active.cancelled) await this.interrupt(id);
     } catch (error) {
+      active.controller.abort();
       if (this.active.get(id) === active) {
+        this.activity.delete(id);
         this.active.delete(id);
         finish(
           error instanceof OutcomeUnknown ? 'unknown' : 'failed',
