@@ -74,7 +74,7 @@ interface NoteToolsOptions {
   vault: Vault;
   fileManager: Pick<FileManager, 'trashFile'>;
   getFolders: () => string[];
-  requestFolderAccess: (folder: string) => Promise<boolean>;
+  requestFolderAccess: (folder: string, signal?: AbortSignal) => Promise<boolean>;
   /** Persist in plugin-private data, never in an agent-readable note folder. */
   saveHistory: (history: NoteOperation[]) => Promise<void>;
   history?: NoteOperation[];
@@ -89,20 +89,23 @@ export class NoteTools {
   get history(): NoteOperation[] {
     return structuredClone(this.records);
   }
-  private async persist(records: NoteOperation[]): Promise<void> {
+  private async persist(records: NoteOperation[], signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     if (JSON.stringify(records).length > 20_000_000)
       throw new Error(
         'Operation snapshots are full. Further note changes are blocked to preserve recovery history.',
       );
     await this.options.saveHistory(structuredClone(records));
     this.records = structuredClone(records);
+    signal?.throwIfAborted();
   }
   private serialized<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action);
     this.queue = next.catch(() => {});
     return next;
   }
-  private async verifyPhysicalPath(path: string): Promise<void> {
+  private async verifyPhysicalPath(path: string, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     const adapter = this.options.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter))
       throw new Error('Bounded note tools require a local filesystem vault.');
@@ -112,6 +115,7 @@ export class NoteTools {
       current = join(current, segment);
       try {
         const stat = await lstat(current);
+        signal?.throwIfAborted();
         if (stat.isSymbolicLink() || (stat.isFile() && stat.nlink > 1))
           throw new Error('Symbolic links and hard links are unavailable to note tools.');
       } catch (error) {
@@ -120,7 +124,8 @@ export class NoteTools {
       }
     }
   }
-  async assertAllowed(path: string): Promise<string> {
+  async assertAllowed(path: string, signal?: AbortSignal): Promise<string> {
+    signal?.throwIfAborted();
     const normalized = normalizeNoteFolder(path, this.options.vault.configDir);
     if (!normalized.toLowerCase().endsWith('.md'))
       throw new Error('Only Markdown notes are available.');
@@ -136,7 +141,8 @@ export class NoteTools {
       throw new Error(
         'This note is outside the approved folders. Request access to its folder first.',
       );
-    await this.verifyPhysicalPath(normalized);
+    await this.verifyPhysicalPath(normalized, signal);
+    signal?.throwIfAborted();
     return normalized;
   }
   private file(path: string): TFile {
@@ -145,18 +151,22 @@ export class NoteTools {
     if (file.stat.size > MAX_NOTE_LENGTH * 4) throw new Error('Note is too large.');
     return file;
   }
-  private async read(path: string): Promise<string> {
-    await this.assertAllowed(path);
-    return content.parse(await this.options.vault.read(this.file(path)));
+  private async read(path: string, signal?: AbortSignal): Promise<string> {
+    await this.assertAllowed(path, signal);
+    signal?.throwIfAborted();
+    const text = await this.options.vault.read(this.file(path));
+    signal?.throwIfAborted();
+    return content.parse(text);
   }
   private async change(
     path: string,
     before: string | null,
     after: string | null,
     id: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (!id || id.length > 200) throw new Error('A valid operation id is required.');
-    await this.assertAllowed(path);
+    await this.assertAllowed(path, signal);
     const existing = this.records.find((record) => record.id === id);
     if (existing?.status === 'pending')
       throw new Error('Resolve the unfinished operation before making further changes.');
@@ -164,7 +174,9 @@ export class NoteTools {
       throw new Error(
         'Operation history is full. Further note changes are blocked to preserve recovery snapshots.',
       );
-    const current = this.options.vault.getAbstractFileByPath(path) ? await this.read(path) : null;
+    const current = this.options.vault.getAbstractFileByPath(path)
+      ? await this.read(path, signal)
+      : null;
     if (current !== before) throw new Error('Note changed. Read it again before making changes.');
     if (existing?.status === 'undone') throw new Error('This operation was already undone.');
     const record: NoteOperation = existing
@@ -172,45 +184,62 @@ export class NoteTools {
       : { id, createdAt: Date.now(), status: 'pending', changes: [] };
     record.changes.push({ path, before, after });
     record.status = 'pending';
-    await this.persist([...this.records.filter((entry) => entry.id !== id), record]);
-    await this.write(path, before, after);
+    await this.persist([...this.records.filter((entry) => entry.id !== id), record], signal);
+    await this.write(path, before, after, signal);
     record.status = 'complete';
-    await this.persist([...this.records.filter((entry) => entry.id !== id), record]);
+    await this.persist([...this.records.filter((entry) => entry.id !== id), record], signal);
   }
-  private async write(path: string, before: string | null, after: string | null): Promise<void> {
-    await this.assertAllowed(path);
+  private async write(
+    path: string,
+    before: string | null,
+    after: string | null,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    await this.assertAllowed(path, signal);
+    signal?.throwIfAborted();
     if (before === null) {
       if (this.options.vault.getAbstractFileByPath(path)) throw new Error('Note already exists.');
       if (after !== null) await this.options.vault.create(path, after);
     } else if (after === null) {
-      if ((await this.read(path)) !== before)
+      if ((await this.read(path, signal)) !== before)
         throw new Error('Note changed. Read it again before deleting.');
+      signal?.throwIfAborted();
       await this.options.fileManager.trashFile(this.file(path));
     } else {
       await this.options.vault.process(this.file(path), (current) => {
+        signal?.throwIfAborted();
         if (current !== before) throw new Error('Note changed. Read it again before editing.');
         return after;
       });
     }
   }
-  execute(name: string, args: unknown, operationId: string): Promise<unknown> {
+  execute(
+    name: string,
+    args: unknown,
+    operationId: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     return this.serialized(async () => {
+      signal?.throwIfAborted();
       switch (name) {
         case 'read_note': {
           const { path } = schemas.read_note.parse(args);
-          return { path, content: await this.read(path) };
+          return { path, content: await this.read(path, signal) };
         }
         case 'search_notes': {
           const { query } = schemas.search_notes.parse(args);
           const matches: string[] = [];
           for (const file of this.options.vault.getMarkdownFiles()) {
             try {
-              await this.assertAllowed(file.path);
+              await this.assertAllowed(file.path, signal);
             } catch {
+              signal?.throwIfAborted();
               continue;
             }
             if (
-              (await this.read(file.path)).toLocaleLowerCase().includes(query.toLocaleLowerCase())
+              (await this.read(file.path, signal))
+                .toLocaleLowerCase()
+                .includes(query.toLocaleLowerCase())
             )
               matches.push(file.path);
             if (matches.length >= 50) break;
@@ -220,27 +249,30 @@ export class NoteTools {
         case 'request_note_folder': {
           const { folder } = schemas.request_note_folder.parse(args);
           const safe = normalizeNoteFolder(folder, this.options.vault.configDir);
-          await this.verifyPhysicalPath(safe);
+          await this.verifyPhysicalPath(safe, signal);
+          signal?.throwIfAborted();
           const entry =
             safe === '.'
               ? this.options.vault.getRoot()
               : this.options.vault.getAbstractFileByPath(safe);
           if (!entry || entry instanceof TFile) throw new Error('Choose an existing folder.');
-          return { folder: safe, approved: await this.options.requestFolderAccess(safe) };
+          const approved = await this.options.requestFolderAccess(safe, signal);
+          signal?.throwIfAborted();
+          return { folder: safe, approved };
         }
         case 'create_note': {
           const { path, content: text } = schemas.create_note.parse(args);
-          await this.change(path, null, text, operationId);
+          await this.change(path, null, text, operationId, signal);
           return { path, saved: true };
         }
         case 'edit_note': {
           const { path, content: text, expectedContent } = schemas.edit_note.parse(args);
-          await this.change(path, expectedContent, text, operationId);
+          await this.change(path, expectedContent, text, operationId, signal);
           return { path, saved: true };
         }
         case 'delete_note': {
           const { path, expectedContent } = schemas.delete_note.parse(args);
-          await this.change(path, expectedContent, null, operationId);
+          await this.change(path, expectedContent, null, operationId, signal);
           return { path, trashed: true };
         }
         default:
@@ -248,8 +280,9 @@ export class NoteTools {
       }
     });
   }
-  undo(operationId: string): Promise<void> {
+  undo(operationId: string, signal?: AbortSignal): Promise<void> {
     return this.serialized(async () => {
+      signal?.throwIfAborted();
       const record = this.records.find((entry) => entry.id === operationId);
       if (!record || record.status === 'undone') throw new Error('Operation is unavailable.');
       const paths = new Map<
@@ -268,9 +301,9 @@ export class NoteTools {
       // write may have failed before applying its final snapshot.
       const currentByPath = new Map<string, string | null>();
       for (const [path, change] of paths) {
-        await this.assertAllowed(path);
+        await this.assertAllowed(path, signal);
         const current = this.options.vault.getAbstractFileByPath(path)
-          ? await this.read(path)
+          ? await this.read(path, signal)
           : null;
         if (
           current !== change.after &&
@@ -283,12 +316,13 @@ export class NoteTools {
       for (const [path, change] of [...paths].reverse()) {
         const current = currentByPath.get(path);
         if (current !== undefined && current !== change.before)
-          await this.write(path, current, change.before);
+          await this.write(path, current, change.before, signal);
       }
       await this.persist(
         this.records.map((entry) =>
           entry.id === operationId ? { ...entry, status: 'undone' } : entry,
         ),
+        signal,
       );
     });
   }

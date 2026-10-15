@@ -30,7 +30,7 @@ await esbuild.build({
 });
 const bridge = require(join(temp, 'bridge.cjs'));
 const { normalizeNoteFolder } = bridge;
-async function fixture() {
+async function fixture(hooks = {}) {
   const base = await mkdtemp(join(temp, 'vault-'));
   await mkdir(join(base, 'Notes'));
   await mkdir(join(base, 'Other'));
@@ -63,6 +63,7 @@ async function fixture() {
     },
     process: async (file, fn) => {
       if (failWrite) throw Error('write failed');
+      await hooks.process?.();
       notes.set(file.path, fn(notes.get(file.path)));
     },
   };
@@ -76,12 +77,15 @@ async function fixture() {
       },
     },
     getFolders: () => allowed,
-    requestFolderAccess: async (folder) => {
+    requestFolderAccess: async (folder, signal) => {
+      await hooks.approve?.(folder, signal);
+      signal?.throwIfAborted();
       if (approved) allowed.push(folder);
       return approved;
     },
     saveHistory: async (history) => {
       if (failSave) throw Error('backup failed');
+      await hooks.save?.(history);
       saved = history;
     },
   });
@@ -256,5 +260,104 @@ test('an explicit vault-root grant permits root notes and still blocks protected
   await assert.rejects(f.tools.assertAllowed('Other/.secrets/data.md'));
   f.vault.configDir = 'Config';
   await assert.rejects(f.tools.assertAllowed('Config/settings.md'));
+});
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+test('aborting during snapshot persistence leaves notes untouched and preserves pending recovery', async () => {
+  const saving = deferred();
+  const release = deferred();
+  const f = await fixture({
+    save: async () => {
+      saving.resolve();
+      await release.promise;
+    },
+  });
+  const controller = new AbortController();
+  const pending = f.tools.execute(
+    'edit_note',
+    { path: 'Notes/a.md', content: 'new', expectedContent: 'original' },
+    'cancelled',
+    controller.signal,
+  );
+  await saving.promise;
+  controller.abort();
+  release.resolve();
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.equal(f.notes.get('Notes/a.md'), 'original');
+  assert.equal(f.tools.history[0].status, 'pending');
+  await f.tools.undo('cancelled');
+  assert.equal(f.notes.get('Notes/a.md'), 'original');
+});
+test('aborting during folder approval passes its signal and prevents a late grant', async () => {
+  const asking = deferred();
+  const release = deferred();
+  const controller = new AbortController();
+  const f = await fixture({
+    approve: async (folder, signal) => {
+      assert.equal(folder, 'Other');
+      assert.equal(signal, controller.signal);
+      asking.resolve();
+      await release.promise;
+    },
+  });
+  f.approved = true;
+  const pending = f.tools.execute(
+    'request_note_folder',
+    { folder: 'Other' },
+    'cancelled',
+    controller.signal,
+  );
+  await asking.promise;
+  controller.abort();
+  release.resolve();
+  await assert.rejects(pending, { name: 'AbortError' });
+  await assert.rejects(f.tools.assertAllowed('Other/private.md'), /outside/);
+});
+test('aborting while Vault.process waits prevents the guarded edit callback from writing', async () => {
+  const processing = deferred();
+  const release = deferred();
+  const f = await fixture({
+    process: async () => {
+      processing.resolve();
+      await release.promise;
+    },
+  });
+  const controller = new AbortController();
+  const pending = f.tools.execute(
+    'edit_note',
+    { path: 'Notes/a.md', content: 'new', expectedContent: 'original' },
+    'cancelled',
+    controller.signal,
+  );
+  await processing.promise;
+  controller.abort();
+  release.resolve();
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.equal(f.notes.get('Notes/a.md'), 'original');
+});
+test('an aborted queued call neither reads nor creates notes', async () => {
+  const f = await fixture();
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    f.tools.execute('read_note', { path: 'Notes/a.md' }, 'cancelled', controller.signal),
+    { name: 'AbortError' },
+  );
+  await assert.rejects(
+    f.tools.execute(
+      'create_note',
+      { path: 'Notes/b.md', content: 'new' },
+      'cancelled',
+      controller.signal,
+    ),
+    { name: 'AbortError' },
+  );
+  assert.equal(f.notes.has('Notes/b.md'), false);
+  assert.deepEqual(f.tools.history, []);
 });
 test.after(async () => rm(temp, { recursive: true, force: true }));
