@@ -1,8 +1,7 @@
 # Agent tools and permissions
 
-This reference describes tools exposed to assistants inside Annotate. It does
-not grant a development agent access to the user's computer. User-facing setup
-and data sharing are described in [Assistant replies](assistants.md).
+Tools exposed to assistants inside Annotate. For account setup and context
+sharing, see [Assistant replies](assistants.md).
 
 ## Capability matrix
 
@@ -17,8 +16,7 @@ and data sharing are described in [Assistant replies](assistants.md).
 
 The note-folder boundary is inside the open vault. `.` explicitly grants visible
 Markdown notes across the vault. It never grants hidden folders or the vault's
-configuration directory. A provider receives supplied context over the network.
-Folder consent is not a promise that provider requests remain on the device.
+configuration directory.
 
 ## Host tool contracts
 
@@ -37,8 +35,8 @@ Folder consent is not a promise that provider requests remain on the device.
 | `call_mcp_tool`       | `name`, `arguments`                  | Resolves an enabled remote tool and requests approval of its complete arguments          |
 
 There is no rename, directory-creation, arbitrary filesystem, or terminal tool.
-Do not document these as supported. Every note content value is limited to
-1,000,000 JavaScript string code units. Queries are limited to 500 code units.
+Note content is limited to 1,000,000 JavaScript string code units per value.
+Queries are limited to 500 code units.
 
 ### Path checks
 
@@ -63,11 +61,10 @@ serializes calls and rechecks access and cancellation around asynchronous work.
 Writes persist a pending snapshot before mutation, then record completion.
 Open notes use the current editor and `replaceRange`. Closed notes use
 `Vault.process` with an exact-content check. The active editor takes precedence
-when multiple Markdown views exist. Do not replace this with stale cached reads.
+when multiple Markdown views exist.
 
 Cancellation denies pending approvals and aborts host calls. An already dispatched
 Obsidian create or OS trash operation cannot be rolled back by an abort signal.
-Recovery history remains necessary even when cancellation is implemented.
 
 ## Operation history
 
@@ -83,8 +80,8 @@ concurrent changes block further history writes and preserve the files.
 
 History has limits of 1,000 operations and 20,000,000 serialized characters.
 Reaching a limit blocks further agent edits; it does not silently prune recovery
-data. Snapshot storage can include earlier note contents and may be copied by
-vault sync or backups. It is not encryption.
+data. Snapshots include earlier note contents and may be copied by vault sync
+or backups.
 
 Undo checks current grants and preflights every affected note against the saved
 state before restoring the operation. Intervening edits stop undo and preserve
@@ -97,7 +94,7 @@ later I/O failures can leave a partially restored operation.
 vault. `CodexBackend` uses that separate `CODEX_HOME` and an empty temporary working
 directory. It shares an existing file-based `auth.json` through a symlink, not a
 copy of personal settings. Keychain-only logins are not automatically shared and
-produce an actionable connection failure.
+fail to connect.
 
 The child receives an environment allowlist, excluding inherited API keys and
 transport overrides. `codexConfig` disables native shell and execution tools,
@@ -108,8 +105,7 @@ The named `annotate` permission profile denies the filesystem root, allows reads
 of the empty scratch directory, and disables command networking. Startup checks
 the effective configuration and permission-profile support. Session responses
 must confirm the active profile. An unsupported CLI fails before note context
-is sent. A `workspace-write` write restriction is not an equivalent private read
-boundary and must not replace this profile.
+is sent. Unlike this profile, `workspace-write` does not restrict outside reads.
 
 Native command, file, and permission callbacks are denied. Host dispatch checks
 the registered tool, namespace, active turn, and call ID; duplicate or stale calls
@@ -141,13 +137,4 @@ is a separate channel and does not require an MCP approval per query.
 `ClaudeBackend` uses safe mode, empty setting sources, strict empty MCP config,
 an empty tool set, and no persistent CLI session. It strips inherited API-key
 credentials and supplies saved history as text. Organization-managed hooks or
-policies can still receive request content. Do not claim that these flags disable
-organization-managed configuration or make the host CLI untrusted-code safe.
-
-## Change requirements
-
-Add denied-path and cancellation tests when changing a tool or permission.
-Include current-editor and recovery cases for writes. Changes to inherited
-configuration need both fixture assertions and a live synthetic Codex boundary
-check. Update [testing](testing.md), user-facing disclosure, and this reference
-when any capability changes.
+policies can still receive request content.

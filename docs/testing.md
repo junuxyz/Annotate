@@ -1,16 +1,13 @@
 # Test a change
 
-Run commands from the plugin repository root. Use Node.js 22.13 or newer in the
-22 series, or Node.js 24 or later. Run `npm ci` if dependencies are missing or the
-lockfile changed. Use synthetic notes in `test-vault` and leave assistants
-disabled except during explicit integration checks.
+Run commands from the plugin repository root with dependencies installed.
+Use synthetic notes in `test-vault`; enable assistants only for integration checks.
 
 ## Run automated tests during implementation
 
 `npm test` runs each `tests/*.test.mjs` and `tests/*.test.ts` file separately with
 resource and time limits. It stops at the first failed suite. See
 [`scripts/test.mjs`](../scripts/test.mjs) for the current limits and overrides.
-Do not raise the limits to hide a hang or memory regression.
 
 For a focused suite, use the same TypeScript loader directly:
 
@@ -39,7 +36,6 @@ discovered suite; it does not select one file.
 
 [`tests/host.mjs`](../tests/host.mjs) substitutes Obsidian APIs for interaction
 tests. Provider fixture CLIs exercise transport behavior without real accounts.
-Neither proves behavior in the actual Obsidian app or an installed provider CLI.
 
 ## Finish with scoped real-app checks
 
@@ -52,14 +48,12 @@ npm run check -- --record
 [`run-linux.mjs`](../e2e/run-linux.mjs) builds a disposable container, runs lint,
 build, and automated tests, then starts actual Obsidian under Xvfb. It does not
 mount host credentials or drive the user's native Obsidian window. The runner
-copies synthetic fixtures and manages its own app instance. Do not manually copy
-builds, create profiles, or write validation entries for this development path.
+copies fixtures and manages its own build, profile, and reports.
 
-Choose only the scopes needed for the change. `--modes live,source,reading` selects
-Live Preview, Source, and Reading modes. Themes default to light and dark. Use
-`--shots` for visible changes and inspect the affected screenshots. The current
-default scopes are `smoke,ui,list,polish`; the script defines the authoritative
-scope list.
+`--modes live,source,reading` selects Live Preview, Source, and Reading modes.
+Themes default to light and dark. Use
+`--shots` to save screenshots for visual review. Default scopes are
+`smoke,ui,list,polish`.
 
 | Change                                                    | Additional or selected real-app scope                                                 |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -83,7 +77,7 @@ npm run check -- --only access,providers,storage,resources,distribution --modes 
 Some behaviors need scenarios outside `dev-check.mjs`. Anchor relocation, rename,
 restart, and lifecycle changes must use matching scenarios from the
 [E2E checklist](../test-vault/E2E%20checklist.md) and existing `e2e/run-*.mjs`
-scripts, or a new tagged scenario. Do not infer coverage from a scope's name.
+scripts, or a new tagged scenario.
 
 Older scripts require an isolated instance and its `CDP_PORT`, and run from
 `e2e/`. Follow the workspace's hidden-instance instructions for native checks.
@@ -98,18 +92,14 @@ npm run check:codex-tools
 This opt-in check uses the real signed-in CLI with synthetic content. It verifies
 the named filesystem profile, host note-tool execution, unavailable native tools,
 and a streamed answer. On macOS it also directly probes an outside synthetic
-sentinel read denial. It does not grant production terminal access or copy
-credentials into the test vault.
+sentinel read denial. It does not grant production terminal access.
 `ANNOTATE_CODEX_EXECUTABLE` and `ANNOTATE_CODEX_MODEL` select the CLI and model.
 
-`check:codex-skills` verifies disabled skill behavior. It is not a supported skill
-discovery or execution feature. The `providers` real-app scope uses fixture CLIs;
-it must not be reported as a live provider-account test. `claude-live` is a
-separate opt-in scope requiring a real Claude login and synthetic context.
+`check:codex-skills` verifies disabled skill behavior. The `providers` scope uses
+fixture CLIs. `claude-live` requires a real Claude login and synthetic context.
 
-The Linux container does not inherit host authentication. Do not mount credentials
-to force a live scope to pass. Run a supported live check in the authenticated
-host environment and report its environment separately.
+The Linux container has no host authentication. Live CLI checks run separately
+in an authenticated host environment.
 
 ## Record what actually ran
 
@@ -118,23 +108,13 @@ The Docker runner saves reports, screenshots, and startup logs under
 canonical `test-vault/Validation results.md`, using adjacent `../test-vault` when
 present and included `test-vault` otherwise. See [Linux setup](../e2e/README-linux.md).
 
-Report the selected scopes, note modes, themes, Obsidian version, platform, and
-result. Distinguish synthetic provider fixtures from live account requests. Mark
-unavailable required checks as pending. Keep failed evidence when it explains a
-fix, then rerun the same affected command after correcting the failure.
+Report scopes, modes, themes, environment, and results, distinguishing fixture
+providers from live accounts. Mark unavailable required checks as pending.
 
-Documentation-only changes need source and link review. They do not need a build
-or real-app run. Before every commit, including documentation commits, run
-`npm run lint:fix` and review any automatic changes.
+Documentation-only changes need source and link review, not a build or real-app run.
 
 ## Certify a release separately
 
-Development scopes cover the changed behavior. They do not complete the
-[full release checklist](../test-vault/E2E%20checklist.md). Before packaging,
-publishing, or installing a release into another vault, complete every applicable
-release scenario against the same distribution files. Record the version,
-SHA-256 hashes, Obsidian version, platform, commands, and real-app evidence.
-
-Passing `release:verify` checks identity and file consistency only. A new build or
-behavior change after validation requires rebuilding and revalidating. Follow
-the [release procedure](development.md#releases) for staging and exact tag names.
+Development scopes do not complete the
+[release checklist](../test-vault/E2E%20checklist.md). See the
+[release procedure](development.md#releases) for validation, hashes, and staging.

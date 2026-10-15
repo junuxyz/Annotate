@@ -29,8 +29,8 @@ accepts aliases such as `sonnet` or `opus`.
 
 An assistant request supplies the complete current note, selected passage,
 question, reply quotes, and annotation conversation. The conversation can include
-earlier local comments and edited messages. The composer shows the current note's path and explains that earlier thread
-messages are included. Review the note and conversation before sending. Remove sensitive information from the supplied note or conversation.
+earlier local comments and edited messages. The composer identifies the note and
+explains that earlier thread messages are included.
 
 Start with `@comment` to save without an AI reply. Annotate removes that prefix
 from the saved text. This prevents an immediate request. It does not permanently
@@ -44,9 +44,7 @@ history cannot retract information already sent to a provider or another service
 
 ## Access boundaries
 
-Terminal execution is unavailable in this release. Annotate does not offer an
-exception that grants access to the whole computer. A write sandbox alone does
-not prevent reads outside a selected folder.
+Terminal execution is unavailable in this release.
 
 Claude receives supplied context as text and runs with its tools, custom
 instructions, plugins, and MCP configuration disabled. It cannot perform note
@@ -55,8 +53,7 @@ operations or use web search through Annotate.
 ChatGPT uses an isolated Annotate configuration and a restrictive permission
 profile. It does not inherit the user's Codex plugins, skills, instructions, or
 MCP services. If the installed CLI cannot apply the required profile, requests
-fail before Annotate sends note context. Your Codex login authenticates requests;
-isolating tool configuration does not make the provider request anonymous.
+fail before Annotate sends note context.
 
 ### Note folders and history
 
@@ -78,15 +75,13 @@ rendering itself makes automatic media, embeds, HTML, and named code processors
 inert.
 
 Agent writes save local snapshots in Annotate's plugin data folder. Open change
-history in settings to review and undo a grouped operation. History is recovery
-data and may contain earlier note text; protect it with the same care as notes.
-Undo can restore local content. It cannot retract information sent externally.
+history in settings to review and undo a grouped operation. Snapshots can contain
+earlier note text. See [storage and recovery](storage-and-limits.md).
 
 ### Web search and connected services
 
 Web search starts disabled and has its own opt-in. Search queries can disclose
-information from supplied context. Permission to read a note does not make it
-safe to include private information in a search query.
+information from supplied context.
 
 MCP services start disabled. Annotate accepts explicitly selected public HTTPS
 remote services, without inherited credentials. It does not launch local stdio
@@ -95,10 +90,8 @@ arguments in each external tool-call approval before allowing it. Denying the
 approval prevents that call. Messages, file uploads, publishing, and other
 external actions require approval, even within a permitted note folder.
 
-Enabling one service does not enable another. Enable only services you trust with
-the arguments you approve. A remote service receives those arguments under its
-own privacy and retention policies. Claude's context-only integration does not
-expose these note, web, or MCP tools.
+A remote service receives approved arguments under its own retention policies.
+Claude does not expose these note, web, or MCP tools.
 
 ## Conversations and recovery
 
@@ -108,17 +101,13 @@ or unavailable session without deleting saved messages. Switching assistants
 starts a new provider session and supplies the saved annotation history. Each
 saved response keeps its assistant name, including in copied conversations.
 
-Claude receives the saved conversation on each request. Edits, removals, and local
-comments must appear in subsequent context. A saved Codex session does not grant
-permission to bypass an unavailable or revoked capability.
+Edits, removals, and local comments enter subsequent context. Claude receives the
+saved conversation on each request; Codex starts a new session when history changes.
 
 ## Skills
 
-Codex skill discovery and execution are unavailable in the first release. Native
-skills can read files outside Annotate's checked note operations, so Annotate does
-not inherit installed skills. A slash command in a comment cannot grant file,
-terminal, web, or service permissions. Claude's context-only integration does not
-gain tools from a slash command.
+Codex skill discovery and execution are unavailable in the first release.
+Installed skills do not use Annotate's checked note operations and are not inherited.
 
 Organization-managed Claude policies and hooks may still apply, including hooks
 that receive request content. See the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference#cli-flags)

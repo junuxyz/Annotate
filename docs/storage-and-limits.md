@@ -2,12 +2,10 @@
 
 [Back to README](../README.md)
 
-Comments are stored in `.obsidian/plugins/annotate/data.json` with the default
-Obsidian configuration folder. A custom configuration folder changes this path.
-Comments do not change your notes. Back up that file to preserve comments.
-Text highlights and text colors are saved as inline HTML in the note itself.
-Assistant note tools can change notes after folder consent and keep separate
-recovery data.
+Comments live in the plugin data directory, normally
+`.obsidian/plugins/annotate/`. A custom Obsidian configuration folder changes this
+path. Comments leave note text unchanged; highlights and text colors use inline
+HTML. Assistant note tools can change notes after folder consent.
 
 ## Stored data
 
@@ -18,9 +16,9 @@ recovery data.
 | Plugin `agent-history/`                | Immutable snapshots of assistant note operations, including earlier note text                                            |
 | `~/.annotate/codex/<vault-path-hash>/` | Isolated Codex runtime state outside the vault, with a link to an available file-based login                             |
 
-Back up the plugin data directory along with notes. Vault sync may copy comment
-and recovery data to other devices or services. These files are not encrypted by
-Annotate. The isolated Codex runtime is not included in a vault-only backup.
+A complete vault backup includes notes and the plugin data directory. Vault sync
+may copy recovery data too. Annotate does not encrypt these files. The isolated
+Codex runtime is outside vault-only backups.
 
 ## Anchors and supported content
 
@@ -32,16 +30,15 @@ Obsidian preserve threads; renames made outside Obsidian cannot be tracked relia
 - Markdown notes only; no PDFs, Canvas, attachments, or collaborative editing.
 - Reading mode skips passages it cannot map reliably to Markdown, including some
   custom rendering and equations. Use editing mode for those selections.
-- Synced comment data reloads when there are no unsaved local changes and the
-  comment window is closed. Open composers and message edits stay in place. Conflicting
-  changes pause saves and preserve copies in `conflict-*.json` files beside
-  `data.json`. Reload Annotate to load the synced copy, then recover local comments
-  from each recovery file's `local` field. Back up both files before editing them.
-  Annotate does not merge simultaneous edits on multiple devices.
 - This release requires desktop Obsidian 1.14.4 or newer. Mobile is unavailable.
-- Conflict detection checks external data before saving. Obsidian has no atomic
-  compare-and-save API, so truly simultaneous writes from separate devices can
-  still race. Keep backups and avoid editing the same comment data on two open devices.
+
+## Comment-data sync
+
+Clean incoming data reloads when the comment window closes. Open composers and
+message edits stay in place. Conflicting changes pause saves and preserve copies
+in `conflict-*.json` beside `data.json`; Annotate does not merge them automatically.
+Obsidian has no atomic compare-and-save API, so simultaneous device writes can
+still race.
 
 ## Recover a comment-data conflict
 
@@ -50,12 +47,10 @@ Obsidian preserve threads; renames made outside Obsidian cannot be tracked relia
 2. Reload Annotate to load the synced copy. Unsaved local changes are preserved
    in the recovery files, not automatically merged into the synced version.
 3. Inspect each recovery file's `local` and `external` fields. Recover the needed
-   comments from `local` while retaining the current synced comments. Use copies
-   of the files for manual comparison.
+   comments from `local` while retaining the current synced comments.
 
-There is no automatic conflict-merge interface. Do not replace `data.json` with
-an entire recovery envelope; the envelope has a different schema. Invalid saved
-data blocks ordinary saves instead of silently resetting all comments.
+Recovery files wrap `local` and `external` data and cannot replace `data.json`
+directly. Invalid saved data blocks ordinary saves.
 
 ## Recover assistant note operations
 
@@ -65,9 +60,8 @@ that changed since the recorded operation, preserving snapshots for comparison.
 History can contain a pending operation if writing was interrupted.
 
 If Annotate reports conflicting or damaged assistant history, preserve every
-`agent-history` file and compare against backups before reloading. Do not delete
-a branch or reset history merely to make edits resume. There is no automatic
-history repair or pruning tool in this release. For the record format and limits,
+`agent-history` file and compare against backups before reloading. Automatic
+history repair and pruning are unavailable. For the record format and limits,
 see [operation history](agent-tools.md#operation-history).
 
 Recoverable history protects local content. It cannot retract content already

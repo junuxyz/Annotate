@@ -61,8 +61,7 @@ storage paths with different recovery behavior.
 
 Editing or removing conversation messages invalidates the old session. A local
 comment added to an existing conversation marks `historyDirty`, so the next
-request starts with the updated saved history. Session reuse must not bypass
-current folder grants or tool settings.
+request starts with the updated saved history.
 
 ## Persistence and recovery
 
@@ -82,9 +81,8 @@ last observed fingerprint. Clean incoming data can reload after a popup closes.
 Conflicting changes pause saves and create recovery files. There is no atomic
 cross-device compare-and-save operation. See [storage](storage-and-limits.md).
 
-Assistant note history uses a different queue and an immutable ancestry chain.
-Do not put snapshots in agent-readable note folders or merge them as if they
-were ordinary comment settings. See [agent tools](agent-tools.md#operation-history).
+Assistant note history uses a separate queue and an immutable ancestry chain
+in the plugin data directory. See [agent tools](agent-tools.md#operation-history).
 
 ## Rendering and lifecycle
 
@@ -96,8 +94,7 @@ expressions while a response arrives.
 
 Rendering owns Obsidian components that must unload when a panel or render is
 replaced. Plugin unload also stops backends, cancels approvals and pending context
-requests, removes UI and listeners, and stops development watching. Changes to
-these lifecycles need disable/re-enable or reload coverage.
+requests, removes UI and listeners, and stops development watching.
 
 ## Build outputs
 
@@ -107,5 +104,5 @@ identity used by `syncLocalBuild` and `watchDevelopmentBuild`. The watcher waits
 for idle UI, preserves data, and rolls back a failed revision without retry loops.
 
 The distribution banner carries license notices and manifest/style hashes.
-`release:verify` checks artifact identity and consistency; it does not prove that
-the source was tested. Full release validation must cover the exact staged files.
+`release:verify` checks artifact identity and consistency. See
+[development](development.md#releases) for the release procedure.
