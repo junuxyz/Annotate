@@ -68,6 +68,13 @@ body.theme-dark {
   --annotate-shadow-s: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
+/* ---------- Text color ---------- */
+/* A highlight inside colored text keeps that color instead of the theme's mark color. */
+[data-annotate-color] [data-annotate-highlight],
+[data-annotate-color] mark {
+  color: inherit !important;
+}
+
 /* ---------- Brand ---------- */
 .annotate-logo {
   display: block;
@@ -1167,6 +1174,7 @@ button.annotate-count:hover {
   display: none;
 }
 .annotate-settings-advanced {
+  container-type: inline-size;
   margin-top: 24px;
 }
 .annotate-settings-advanced > summary {
@@ -1174,6 +1182,38 @@ button.annotate-count:hover {
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   padding: 8px 0;
+}
+
+.annotate-settings-highlight-color {
+  display: block;
+  min-width: 0;
+}
+.annotate-settings-highlight-color .setting-item-info {
+  display: none;
+}
+.annotate-settings-highlight-color .setting-item-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) auto;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+.annotate-settings-highlight-color input[type='text'] {
+  width: 100%;
+  min-width: 0;
+}
+.annotate-settings-highlight-color input[type='color'] {
+  width: 28px;
+  min-width: 0;
+  margin: 0;
+}
+@container (max-width: 360px) {
+  .annotate-settings-highlight-color .setting-item-control {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+  .annotate-settings-highlight-color input[type='text']:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 .annotate-mention-menu {
@@ -1203,4 +1243,183 @@ button.annotate-count:hover {
 }
 .annotate-panel .annotate-skill-option span {
   color: var(--annotate-text-3);
+}
+
+.annotate-selection-tools {
+  position: fixed;
+  z-index: var(--layer-popover);
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 3px;
+  max-width: min(440px, calc(100vw - 16px));
+  flex-wrap: wrap;
+  border-radius: 10px;
+  background: var(--annotate-surface-raised);
+  color: var(--annotate-text);
+  box-shadow: var(--annotate-shadow);
+  font-family: var(--font-interface);
+  font-size: var(--annotate-text-s);
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  transform-origin: center bottom;
+  animation: annotate-selection-in 160ms var(--annotate-ease);
+}
+@keyframes annotate-selection-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+}
+.annotate-selection-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  border-radius: 7px;
+  box-shadow: none;
+  background: transparent;
+  color: var(--annotate-text);
+  font: inherit;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  transition:
+    background-color var(--annotate-fast) var(--annotate-ease),
+    color var(--annotate-fast) var(--annotate-ease),
+    transform var(--annotate-fast) var(--annotate-ease);
+}
+.annotate-selection-tools button:hover {
+  background: var(--annotate-hover);
+}
+.annotate-selection-tools button:focus-visible {
+  background: var(--annotate-hover);
+  box-shadow: var(--annotate-focus);
+  outline: none;
+}
+.annotate-selection-tools button:active {
+  transform: scale(0.96);
+}
+.annotate-selection-icon {
+  position: relative;
+  display: inline-flex;
+  color: var(--annotate-text-2);
+  transition: color var(--annotate-fast) var(--annotate-ease);
+}
+.annotate-selection-tools button:hover .annotate-selection-icon {
+  color: var(--annotate-text);
+}
+.annotate-selection-icon svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.75;
+}
+/* Highlight and Color icons carry a hint of the last-used color. */
+.annotate-selection-tools button[style*='--annotate-swatch'] .annotate-selection-icon::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: -3px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--annotate-swatch);
+  background: rgb(from var(--annotate-swatch) r g b);
+}
+.annotate-selection-divider,
+.annotate-palette-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--annotate-hairline);
+}
+
+/* Palette */
+.annotate-selection-tools.annotate-is-palette {
+  gap: 2px;
+  padding: 4px;
+  animation: none;
+}
+.annotate-selection-tools.annotate-is-palette > * {
+  animation: annotate-fade-in var(--annotate-base) var(--annotate-ease) both;
+}
+.annotate-selection-tools .annotate-color-swatch {
+  position: relative;
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+.annotate-selection-tools .annotate-color-swatch .annotate-selection-label,
+.annotate-selection-tools .annotate-text-swatch .annotate-selection-label,
+.annotate-selection-tools .annotate-highlight-remove .annotate-selection-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.annotate-selection-tools .annotate-color-swatch::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--annotate-swatch);
+  background: rgb(from var(--annotate-swatch) r g b);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--annotate-text) 10%, transparent);
+  transition:
+    transform var(--annotate-fast) var(--annotate-spring),
+    box-shadow var(--annotate-fast) var(--annotate-ease);
+}
+.annotate-selection-tools .annotate-color-swatch:hover {
+  background: transparent;
+}
+.annotate-selection-tools .annotate-color-swatch:hover::before {
+  transform: scale(1.12);
+}
+.annotate-selection-tools .annotate-color-swatch[aria-pressed='true']::before {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--annotate-text) 10%, transparent),
+    0 0 0 2px var(--annotate-surface-raised),
+    0 0 0 3.5px color-mix(in srgb, var(--annotate-text) 32%, transparent);
+}
+.annotate-selection-tools .annotate-text-swatch {
+  position: relative;
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+.annotate-selection-tools .annotate-text-swatch::before {
+  content: 'A';
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--annotate-swatch);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--annotate-text) 12%, transparent);
+  transition: transform var(--annotate-fast) var(--annotate-spring);
+}
+.annotate-selection-tools .annotate-text-swatch:hover::before {
+  transform: scale(1.08);
+}
+.annotate-selection-tools .annotate-text-swatch[aria-pressed='true']::before {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--annotate-text) 40%, transparent);
+}
+.annotate-selection-tools .annotate-highlight-remove {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .annotate-selection-tools,
+  .annotate-selection-tools.annotate-is-palette > * {
+    animation: none;
+  }
 }

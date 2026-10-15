@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { providerSchema } from './ai';
+import { highlightSettingsSchema, defaultHighlights } from './highlight';
 import type { ChangeDesc } from '@codemirror/state';
 const anchorSchema = z
   .object({
@@ -69,6 +70,7 @@ const claudeAliases: Record<string, string> = {
 export const dataSchema = z.object({
   version: z.literal(1),
   author: z.string(),
+  highlights: highlightSettingsSchema.default(defaultHighlights),
   threads: z.array(threadSchema),
   assistant: z
     .object({
@@ -98,6 +100,7 @@ export type PluginData = z.infer<typeof dataSchema>;
 export const emptyData = (): PluginData => ({
   version: 1,
   author: 'You',
+  highlights: defaultHighlights(),
   threads: [],
   codex: { enabled: false, executable: 'codex', model: '' },
   assistant: {

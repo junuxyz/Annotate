@@ -215,6 +215,68 @@ test('ChatGPT mention picker completes with keyboard and mouse without submittin
   }
 });
 
+test('selection color palette survives delayed mouseup and selection events, then resets for new text', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const parent = document.createElement('div');
+  parent.textContent = 'first second';
+  document.body.append(parent);
+  let from = 0,
+    to = 5;
+  plugin.activeView = {
+    file: { path: 'test.md' },
+    getMode: () => 'source',
+    containerEl: parent,
+    editor: {
+      getSelection: () => parent.textContent.slice(from, to),
+      getCursor: (side) => ({ line: 0, ch: side === 'from' ? from : to }),
+      posToOffset: (pos) => pos.ch,
+      getValue: () => parent.textContent,
+    },
+  };
+  const selectText = () => {
+    const range = document.createRange();
+    range.setStart(parent.firstChild, from);
+    range.setEnd(parent.firstChild, to);
+    const selection = document.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new win.Event('selectionchange'));
+  };
+  try {
+    selectText();
+    await until(
+      () => document.querySelector('.annotate-selection-tools'),
+      'Selection menu appears',
+    );
+    const bar = document.querySelector('.annotate-selection-tools');
+    const highlight = [...bar.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Highlight',
+    );
+    highlight.dispatchEvent(new win.MouseEvent('mouseup', { bubbles: true }));
+    highlight.click();
+    document.dispatchEvent(new win.Event('selectionchange'));
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.ok(
+      bar.isConnected,
+      'The active palette must not be replaced by a delayed selection event',
+    );
+    assert.ok(bar.querySelector('[aria-label="Highlight Pink"]'));
+    from = 6;
+    to = 12;
+    selectText();
+    await until(
+      () =>
+        document.querySelector('.annotate-selection-tools')?.textContent === 'HighlightColorAnnotate',
+      'New selection restores action menu',
+    );
+  } finally {
+    plugin.onunload();
+    parent.remove();
+    await tick();
+  }
+});
+
 test('editor interaction: create, reply, resolve, reopen, edits, persistence, cleanup', async () => {
   const plugin = new Plugin();
   await plugin.onload();
@@ -241,6 +303,9 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
     );
     const command = plugin.commands.find((c) => c.id === 'add-selection-comment');
     assert.deepEqual(command.hotkeys, [{ modifiers: ['Mod', 'Shift'], key: 'm' }]);
+    assert.deepEqual(plugin.commands.find((c) => c.id === 'highlight-selection').hotkeys, [
+      { modifiers: ['Mod', 'Shift'], key: 'h' },
+    ]);
     const editor = {
       getSelection: () => view.state.sliceDoc(7, 15),
       getValue: () => view.state.doc.toString(),

@@ -4,6 +4,10 @@ export const editorInfoField = StateField.define({
   create: () => ({ file: { path: 'test.md' } }),
   update: (value) => value,
 });
+export const editorLivePreviewField = StateField.define({
+  create: () => false,
+  update: (value) => value,
+});
 export const Platform = { isDesktopApp: true };
 export class Plugin {
   extensions = [];

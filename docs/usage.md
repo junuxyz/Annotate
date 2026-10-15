@@ -24,3 +24,20 @@ LaTeX supports `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`.
 Links and embeds resolve relative to the commented note. Editing keeps the original
 Markdown source. HTML follows Obsidian's sanitization rules.
 Set your display name in the plugin settings.
+
+### Text highlights
+
+Select note text to open the compact **Highlight | Annotate** menu. Choose
+**Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
+on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
+**Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
+Reassign either shortcut in Obsidian Hotkeys.
+
+Under **Settings → Annotate → Advanced**, customize the palette with color names,
+color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may
+include opacity, such as `#ffe06680`. The default colors are yellow, pink and light blue.
+Palette and shape changes update existing Annotate highlights while the plugin is enabled.
+
+Highlights are saved as inline `<mark>` elements in the note. Their saved color and
+shape remain available in Reading mode without Annotate. Code and HTML tag fragments
+are left unchanged. Editor highlighting and recoloring can be undone normally.

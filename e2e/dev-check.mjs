@@ -207,7 +207,7 @@ const press = async (k, modifiers = 0) => {
   const p = {
     key: k,
     code: k.length === 1 ? 'Key' + k.toUpperCase() : k,
-    windowsVirtualKeyCode: { Enter: 13, Escape: 27, m: 77 }[k] ?? 0,
+    windowsVirtualKeyCode: { Enter: 13, Escape: 27, m: 77, h: 72, z: 90, y: 89 }[k] ?? 0,
     modifiers,
     ...(k === 'Enter' ? { text: '\r' } : {}),
   };
@@ -310,7 +310,7 @@ const openMode = (m) =>
 const select = (m, quote = QUOTE) =>
   ev(
     m === 'reading'
-      ? `const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}throw new Error('quote not in reading view')`
+      ? `document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl,w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){const i=n.data.indexOf(${JSON.stringify(quote)});if(i>=0){const r=document.createRange();r.setStart(n,i);r.setEnd(n,i+${quote.length});getSelection().removeAllRanges();getSelection().addRange(r);return true}}throw new Error('quote not in reading view')`
       : `const e=app.workspace.activeLeaf.view.editor,i=e.getValue().indexOf(${JSON.stringify(quote)});if(i<0)throw new Error('quote not in note');e.focus();e.setSelection(e.offsetToPos(i),e.offsetToPos(i+${quote.length}));return true`,
     'select quote',
   );
@@ -387,6 +387,407 @@ const hoverComposer = async () => {
 };
 
 // ---------- scenarios ----------
+
+if (only.includes('settings-layout'))
+  for (const theme of themes)
+    await step(`settings-layout [${theme}]: palette fits default and narrow settings`, async () => {
+      await ev(
+        `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+      );
+      try {
+        for (const width of [null, 320]) {
+          await ev(
+            `const a=document.querySelector('.annotate-settings-advanced');a.open=true;a.style.maxWidth=${JSON.stringify(width ? width + 'px' : 'none')};a.querySelector('.annotate-settings-highlight-color').scrollIntoView({block:'center'});`,
+          );
+          const layout = await ev(
+            `const a=document.querySelector('.annotate-settings-advanced');return {fits:a.scrollWidth<=a.clientWidth+1,rows:[...a.querySelectorAll('.annotate-settings-highlight-color')].map(row=>{const r=row.getBoundingClientRect();return {width:r.width,fits:[...row.querySelectorAll('input,button')].every(control=>{const c=control.getBoundingClientRect();return c.width>0&&c.left>=r.left-1&&c.right<=r.right+1})}})}`,
+          );
+          assert(
+            layout.fits && layout.rows.length === 3 && layout.rows.every((row) => row.fits),
+            JSON.stringify(layout),
+          );
+          await shot(`settings-palette-${theme}-${width ?? 'default'}`);
+        }
+      } finally {
+        await ev('app.setting.close()');
+      }
+    });
+
+if (only.includes('palette'))
+  for (const theme of themes)
+    for (const mode of modes)
+      await step(
+        `palette [${mode}/${theme}]: selection menu, colors, shortcuts, undo, reload, settings`,
+        async () => {
+          await closeModals();
+          await resetThreads();
+          const original = await ev(
+            `return await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+          );
+          const noteText = () =>
+            ev(
+              `return await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+            );
+          const toolClick = async (label) => {
+            const point = await ev(
+              `const b=[...document.querySelectorAll('.annotate-selection-tools button')].find(b=>b.textContent===${JSON.stringify(label)});if(!b)throw Error('No selection action '+${JSON.stringify(label)});const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+            );
+            await clickAt(point);
+          };
+          try {
+            await ev(
+              `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+            );
+            await createComment(mode, 'Comment remains attached through highlighting');
+            await press('Escape');
+            await until(
+              `${P}return !p.refreshPending&&!document.querySelector('.annotate-is-closing')`,
+              'composer teardown settled',
+            );
+            await openMode(mode);
+            await select(mode);
+            await until(
+              `return document.querySelector('.annotate-selection-tools')?.textContent==='HighlightColorAnnotate'`,
+              'minimal selection actions visible',
+            );
+            const aboveSelection = async () =>
+              ev(
+                `const bar=document.querySelector('.annotate-selection-tools').getBoundingClientRect(),r=getSelection().getRangeAt(0).getBoundingClientRect();return {above:bar.bottom<=r.top-4,inViewport:bar.left>=0&&bar.right<=innerWidth&&bar.top>=0,bar:{top:bar.top,bottom:bar.bottom},selectionTop:r.top}`,
+              );
+            const actionsPosition = await aboveSelection();
+            assert(
+              actionsPosition.above && actionsPosition.inViewport,
+              'actions above selection: ' + JSON.stringify(actionsPosition),
+            );
+            await shot(`palette-actions-${mode}-${theme}`);
+            await toolClick('Highlight');
+            // Wait beyond the deferred mouseup/selection callback that previously closed the colors.
+            await sleep(350);
+            assert(
+              await ev(
+                `return !!document.querySelector('.annotate-color-swatch[aria-label="Highlight Pink"]')&&!document.querySelector('.annotate-selection-divider')`,
+              ),
+              'color palette remains open after click',
+            );
+            await ev(`document.dispatchEvent(new Event('selectionchange'))`);
+            await sleep(250);
+            assert(
+              await ev(
+                `return !!document.querySelector('.annotate-color-swatch[aria-label="Highlight Pink"]')`,
+              ),
+              'same selection keeps palette open',
+            );
+            const palettePosition = await aboveSelection();
+            assert(
+              palettePosition.above && palettePosition.inViewport,
+              'colors above selection: ' + JSON.stringify(palettePosition),
+            );
+            await shot(`palette-colors-${mode}-${theme}`);
+            await toolClick('Pink');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="pink"'))`,
+              'pink saved in Markdown',
+            );
+            assert((await noteText()).includes(QUOTE), 'highlight preserves selected text');
+            // Selecting highlighted text and using the shortcut applies the same most recent color.
+            await select(mode);
+            await press('h', 8 | 2);
+            await until(`${P}return p.data.highlights.recent==='pink'`, 'shortcut uses last color');
+            const marked = await noteText();
+            assert(
+              (marked.match(/data-annotate-highlight="pink"/g) ?? []).length === 1,
+              'repeated shortcut does not nest highlights',
+            );
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'palette reopens',
+            );
+            await toolClick('Highlight');
+            await toolClick('Light blue');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
+              'recolor replaces existing mark',
+            );
+            if (mode !== 'source')
+              await until(
+                `return [...document.querySelectorAll('[data-annotate-highlight="light-blue"]')].some(m=>m.getBoundingClientRect().width>0)`,
+                'colored mark rendered',
+              );
+            assert(
+              await ev(
+                `${P}return p.data.threads.length===1&&!p.data.threads[0].anchor.orphaned&&p.data.threads[0].anchor.quote===${JSON.stringify(QUOTE)}`,
+              ),
+              'comment stays attached through recoloring: ' +
+                JSON.stringify(await ev(`${P}return p.data.threads.map(t=>t.anchor)`)),
+            );
+            if (mode !== 'reading') {
+              await press('z', 2);
+              await until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="pink"'))`,
+                'undo restores previous color',
+              );
+              await press('y', 2);
+              await until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
+                'redo restores chosen color',
+              );
+            }
+            await ev(
+              `${P}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+            );
+            assert(
+              await ev(
+                `${P}return p.data.highlights.recent==='light-blue'&&p.data.threads.length===1&&!p.data.threads[0].anchor.orphaned`,
+              ),
+              'palette and comment anchor survive reload',
+            );
+            if (mode === 'live')
+              assert(
+                await ev(
+                  `return !app.workspace.activeLeaf.view.containerEl.innerText.includes('<mark')`,
+                ),
+                'Live Preview conceals highlight tags while editing',
+              );
+            await shot(`palette-highlight-${mode}-${theme}`);
+            await select(mode);
+            await press('m', 8 | 2);
+            await until(
+              `return !!document.querySelector('.annotate-new-comment textarea')`,
+              'Ctrl Shift M opens Annotate',
+            );
+            await press('Escape');
+            await until(
+              `${P}return !p.refreshPending&&!document.querySelector('.annotate-is-closing')`,
+              'composer teardown settled',
+            );
+            // Verify the Annotate action in the same floating menu.
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'actions return after composer',
+            );
+            await toolClick('Annotate');
+            await until(
+              `return !!document.querySelector('.annotate-new-comment textarea')`,
+              'Annotate click opens composer',
+            );
+            await press('Escape');
+            await until(
+              `${P}return !p.refreshPending&&!document.querySelector('.annotate-is-closing')`,
+              'composer teardown settled',
+            );
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'actions return for removal',
+            );
+            await toolClick('Highlight');
+            await toolClick('Remove');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s===${JSON.stringify(original)})`,
+              'removal restores note exactly',
+            );
+            // Text color uses the same floating menu, keeps comments attached, and removes cleanly.
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'actions return for text color',
+            );
+            await toolClick('Color');
+            await sleep(350);
+            assert(
+              await ev(
+                `return !!document.querySelector('.annotate-text-swatch[aria-label="Text color Blue"]')`,
+              ),
+              'text color palette remains open after click',
+            );
+            await shot(`palette-text-${mode}-${theme}`);
+            await toolClick('Blue');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-color="blue"'))`,
+              'text color saved in Markdown',
+            );
+            assert((await noteText()).includes(QUOTE), 'text color preserves selected text');
+            assert(
+              await ev(
+                `${P}return p.data.highlights.textRecent==='blue'&&p.data.threads.length===1&&!p.data.threads[0].anchor.orphaned&&p.data.threads[0].anchor.quote===${JSON.stringify(QUOTE)}`,
+              ),
+              'comment stays attached through text color',
+            );
+            if (mode !== 'source')
+              await until(
+                `const e=[...document.querySelectorAll('[data-annotate-color="blue"]')].find(e=>e.getBoundingClientRect().width>0);return !!e&&getComputedStyle(e).color!==getComputedStyle(document.body).color`,
+                'colored text rendered',
+              );
+            if (mode === 'live')
+              assert(
+                await ev(
+                  `return !app.workspace.activeLeaf.view.containerEl.innerText.includes('<span')`,
+                ),
+                'Live Preview conceals text color tags while editing',
+              );
+            await shot(`palette-text-applied-${mode}-${theme}`);
+            await select(mode);
+            await until(
+              `return !!document.querySelector('.annotate-selection-tools')`,
+              'actions return for text color removal',
+            );
+            await toolClick('Color');
+            await toolClick('Remove');
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s===${JSON.stringify(original)})`,
+              'text color removal restores note exactly',
+            );
+            await select(mode);
+            await press('h', 8 | 2);
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight="light-blue"'))`,
+              'Ctrl Shift H applies most recent color without opening palette',
+            );
+            await ev(
+              `${P}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+            );
+            assert(
+              await ev(
+                `${P}return p.data.highlights.recent==='light-blue'&&!document.querySelector('.annotate-selection-tools')`,
+              ),
+              'last color persists and toolbar tears down',
+            );
+            await ev(
+              `const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
+            );
+            assert(
+              await ev(
+                `const a=document.querySelector('.annotate-settings-advanced');a.open=true;return a.textContent.includes('Highlight shape')&&a.textContent.includes('Highlight palette')&&a.querySelector('input[aria-label="Pink highlight color"]')`,
+              ),
+              'Advanced exposes color and shape customization',
+            );
+            await ev(
+              `const a=document.querySelector('.annotate-settings-advanced'),row=[...a.querySelectorAll('.setting-item')].find(r=>r.textContent.includes('Highlight shape')),s=row.querySelector('select');s.value='underline';s.dispatchEvent(new Event('change'));`,
+            );
+            assert(
+              await ev(`${P}return p.data.highlights.shape==='underline'`),
+              'shape customization applies',
+            );
+            await ev(
+              `const input=document.querySelector('input[aria-label="Pink highlight color"]');input.value='#00aabb88';input.dispatchEvent(new Event('input',{bubbles:true}))`,
+            );
+            assert(
+              await ev(
+                `${P}return p.data.highlights.colors.find(c=>c.id==='pink').value==='#00aabb88'`,
+              ),
+              'custom color applies',
+            );
+            await ev(
+              `${P}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+            );
+            assert(
+              await ev(
+                `${P}return p.data.highlights.shape==='underline'&&p.data.highlights.colors.find(c=>c.id==='pink').value==='#00aabb88'`,
+              ),
+              'custom color and shape persist',
+            );
+
+            await ev(
+              `app.setting.close();${P}p.data.highlights.shape='rounded';p.data.highlights.textRecent='red';p.data.highlights.colors.find(c=>c.id==='pink').value='#ff8fc780';p.refreshHighlightStyles();p.changed()`,
+            );
+          } catch (error) {
+            const state = await ev(
+              `${P}return {hotkeys:app.hotkeyManager.getDefaultHotkeys('editor:redo'),active:document.activeElement?.className,popup:!!p.popup,selected:getSelection().toString(),target:!!p.selectedNote(),anchor:p.data.threads.map(t=>t.anchor)}`,
+            );
+            throw new Error(error.message + ' ' + JSON.stringify(state), { cause: error });
+          } finally {
+            await closeModals();
+            await ev(
+              `${P}p.hideSelectionTools();p.closePopup();await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)});`,
+            );
+          }
+        },
+      );
+
+if (only.includes('combo'))
+  for (const theme of themes)
+    for (const mode of modes)
+      for (const order of ['color-first', 'highlight-first'])
+        await step(
+          `combo [${mode}/${theme}/${order}]: text color and highlight together`,
+          async () => {
+            await closeModals();
+            await resetThreads();
+            const original = await ev(
+              `return await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+            );
+            const click = async (label) => {
+              const point = await ev(
+                `const b=[...document.querySelectorAll('.annotate-selection-tools button')].find(b=>b.textContent===${JSON.stringify(label)});if(!b)throw Error('No selection action '+${JSON.stringify(label)});const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+              );
+              await clickAt(point);
+            };
+            const saved = (text) =>
+              until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes(${JSON.stringify(text)}))`,
+                `${text} saved`,
+              );
+            const apply = async (action, swatch, text, first) => {
+              // Edit modes keep the menu open on the same text after the first style.
+              if (first || mode === 'reading') await select(mode);
+              await until(
+                `return document.querySelector('.annotate-selection-tools')?.textContent==='HighlightColorAnnotate'`,
+                'actions',
+              );
+              await click(action);
+              await click(swatch);
+              await saved(text);
+            };
+            try {
+              await ev(
+                `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`,
+              );
+              await openMode(mode);
+              const steps = [
+                ['Color', 'Blue', 'data-annotate-color="blue"'],
+                ['Highlight', 'Pink', 'data-annotate-highlight="pink"'],
+              ];
+              if (order === 'highlight-first') steps.reverse();
+              for (const [index, [action, swatch, text]] of steps.entries())
+                await apply(action, swatch, text, index === 0);
+              const source = await ev(
+                `return await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+              );
+              assert(
+                source.includes('data-annotate-color="blue"') &&
+                  source.includes('data-annotate-highlight="pink"') &&
+                  source.replace(/<[^>]+>/g, '').includes(QUOTE),
+                'both styles saved around the same text: ' +
+                  source.split('\n').find((l) => l.includes('violet')),
+              );
+              const style = () =>
+                ev(
+                  `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')}),w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);let n;while((n=w.nextNode())){if(n.data.includes('violet')&&n.parentElement.getBoundingClientRect().width>0)break}if(!n)return null;const probe=document.createElement('span');probe.style.color='var(--color-blue, #337ea9)';document.body.append(probe);const blue=getComputedStyle(probe).color;probe.remove();let e=n.parentElement,bg=null;while(e&&e!==root){const b=getComputedStyle(e).backgroundColor;if(e.matches('[data-annotate-highlight="pink"]')&&b!=='rgba(0, 0, 0, 0)')bg=b;e=e.parentElement}return {color:getComputedStyle(n.parentElement).color,blue,bg}`,
+                );
+              await until(`${P}return !p.refreshPending`, 'render settled');
+              let rendered;
+              const end = Date.now() + 3000;
+              do {
+                rendered = await style();
+                if (rendered?.bg && rendered.color === rendered.blue) break;
+                await sleep(100);
+              } while (Date.now() < end);
+              await shot(`combo-${mode}-${theme}-${order}`);
+              assert(
+                rendered?.bg && rendered.color === rendered.blue,
+                'text shows blue color on pink highlight: ' + JSON.stringify(rendered),
+              );
+            } finally {
+              await closeModals();
+              await ev(
+                `${P}p.hideSelectionTools();p.closePopup();await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)});`,
+              );
+            }
+          },
+        );
+
 if (only.includes('ui'))
   for (const theme of themes) {
     await step(`branding [${theme}]: native SVG ribbon icon and settings logo`, async () => {
@@ -455,7 +856,7 @@ if (only.includes('smoke')) {
     );
     assert(
       await ev(
-        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')).length===2`,
+        `return Object.keys(app.commands.commands).filter(id=>id.startsWith('annotate:')).length===4`,
       ),
       'commands must not duplicate on reload',
     );

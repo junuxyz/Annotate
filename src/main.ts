@@ -1,3 +1,15 @@
+import {
+  highlightEdit,
+  highlightChanges,
+  noteHighlights,
+  highlightStyle,
+  highlightShapes,
+  textColorEdit,
+  textColors,
+  type HighlightColor,
+  type TextColor,
+  type WrapTag,
+} from './highlight';
 import { assistantIcon } from './logos';
 import {
   createAssistant,
@@ -19,6 +31,7 @@ import {
 } from './codex';
 import {
   MarkdownView,
+  Platform,
   MarkdownRenderChild,
   Modal,
   Notice,
@@ -28,6 +41,7 @@ import {
   TFile,
   setIcon,
   editorInfoField,
+  editorLivePreviewField,
   type MarkdownPostProcessorContext,
 } from 'obsidian';
 import { StateEffect } from '@codemirror/state';
@@ -876,12 +890,15 @@ export default class Annotate extends Plugin {
       ViewPlugin.fromClass(
         class {
           decorations: DecorationSet;
+          hiddenTags: DecorationSet;
           path: string | null;
           constructor(readonly view: EditorView) {
             plugin.views.add(view);
+            plugin.watchSelections(view.dom.ownerDocument);
             this.path = view.state.field(editorInfoField, false)?.file?.path ?? null;
             if (this.path) plugin.reconcile(this.path, view.state.doc.toString());
             this.decorations = plugin.decorations(view, this.path);
+            this.hiddenTags = plugin.highlightTagDecorations(view);
           }
           update(update: ViewUpdate): void {
             const path = update.state.field(editorInfoField, false)?.file?.path ?? null;
@@ -908,6 +925,7 @@ export default class Annotate extends Plugin {
               update.transactions.some((t) => t.effects.some((e) => e.is(refresh)))
             ) {
               this.decorations = plugin.decorations(update.view, path);
+              this.hiddenTags = plugin.highlightTagDecorations(update.view);
             }
           }
           destroy(): void {
@@ -917,6 +935,10 @@ export default class Annotate extends Plugin {
         },
         {
           decorations: (value) => value.decorations,
+          provide: (extension) =>
+            EditorView.atomicRanges.of(
+              (view) => view.plugin(extension)?.hiddenTags ?? Decoration.none,
+            ),
           eventHandlers: {
             click: (event, view) => {
               const element = event.target;
@@ -935,6 +957,7 @@ export default class Annotate extends Plugin {
       ),
     );
     this.registerMarkdownPostProcessor(async (root, context) => {
+      this.watchSelections(root.ownerDocument);
       const source = await this.noteText(context.sourcePath);
       if (this.disposed || source === null || !context.getSectionInfo(root)) return;
       if (this.documents.get(context.sourcePath) !== source)
@@ -961,6 +984,29 @@ export default class Annotate extends Plugin {
         if (leaf.view instanceof MarkdownView && leaf.view.getMode() === 'preview')
           leaf.view.previewMode.rerender(true);
       }
+    });
+    this.watchSelections(document);
+    this.refreshHighlightStyles();
+    this.addCommand({
+      id: 'highlight-selection',
+      name: 'Highlight selection with last color',
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'h' }],
+      checkCallback: (checking) => {
+        const selected = this.selectedNote();
+        if (!selected) return false;
+        if (!checking) void this.applyHighlight(selected.target, this.recentHighlight());
+        return true;
+      },
+    });
+    this.addCommand({
+      id: 'color-selection-text',
+      name: 'Color selected text with last color',
+      checkCallback: (checking) => {
+        const selected = this.selectedNote();
+        if (!selected) return false;
+        if (!checking) void this.applyTextColor(selected.target, this.recentTextColor());
+        return true;
+      },
     });
     this.addCommand({
       id: 'add-selection-comment',
@@ -1047,6 +1093,7 @@ export default class Annotate extends Plugin {
     this.registerEvent(
       this.app.workspace.on('active-leaf-change', () => {
         this.closePopup();
+        this.hideSelectionTools();
         refreshReading();
       }),
     );
@@ -1055,6 +1102,11 @@ export default class Annotate extends Plugin {
 
   onunload(): void {
     this.disposed = true;
+    this.hideSelectionTools();
+    for (const dispose of this.selectionDocuments.values()) dispose();
+    this.selectionDocuments.clear();
+    for (const style of this.highlightStyles.values()) style.remove();
+    this.highlightStyles.clear();
     for (const probe of this.connectionProbes.values()) probe.disable();
     this.connectionProbes.clear();
     this.connectionLabels.clear();
@@ -1071,6 +1123,406 @@ export default class Annotate extends Plugin {
     this.readingSections.clear();
     this.documents.clear();
     this.drafts.clear();
+  }
+
+  private selectionTools: { element: HTMLElement; target: Target } | null = null;
+  private selectionDocuments = new Map<Document, () => void>();
+  private highlightStyles = new Map<Document, HTMLStyleElement>();
+  private noteHighlightCache = new WeakMap<
+    EditorView['state']['doc'],
+    { highlights: ReturnType<typeof noteHighlights>; colors: ReturnType<typeof noteHighlights> }
+  >();
+  private noteTags(view: EditorView) {
+    let tags = this.noteHighlightCache.get(view.state.doc);
+    if (!tags) {
+      const source = view.state.doc.toString();
+      tags = { highlights: noteHighlights(source), colors: noteHighlights(source, 'span') };
+      this.noteHighlightCache.set(view.state.doc, tags);
+    }
+    return tags;
+  }
+
+  recentTextColor(): TextColor {
+    return (
+      textColors.find((color) => color.id === this.data.highlights.textRecent) ?? textColors[1]
+    );
+  }
+
+  recentHighlight(): HighlightColor {
+    return (
+      this.data.highlights.colors.find((color) => color.id === this.data.highlights.recent) ??
+      this.data.highlights.colors[0] ?? { id: 'yellow', name: 'Yellow', value: '#ffe06680' }
+    );
+  }
+
+  refreshHighlightStyles(): void {
+    for (const doc of this.selectionDocuments.keys()) {
+      let style = this.highlightStyles.get(doc);
+      if (!style) {
+        style = doc.createElement('style');
+        doc.head.append(style);
+        this.highlightStyles.set(doc, style);
+      }
+      style.textContent = this.data.highlights.colors
+        .map(
+          (color) =>
+            `[data-annotate-highlight="${color.id}"] { ${highlightStyle(color.value, this.data.highlights.shape).replaceAll(';', ' !important;')} }`,
+        )
+        .concat(
+          textColors.map(
+            (color) => `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
+          ),
+        )
+        .join('\n');
+    }
+  }
+
+  private hideSelectionTools(): void {
+    this.selectionTools?.element.remove();
+    this.selectionTools = null;
+  }
+
+  private selectedNote() {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file) return null;
+    if (view.getMode() === 'preview') return this.readingSelection(view);
+    const editor = view.editor;
+    if (!editor?.getSelection().trim()) return null;
+    const from = editor.posToOffset(editor.getCursor('from'));
+    const to = editor.posToOffset(editor.getCursor('to'));
+    const cm = [...this.views].find((cm) => view.containerEl?.contains(cm.dom));
+    const a = cm?.coordsAtPos(from, 1),
+      b = cm?.coordsAtPos(to, -1);
+    const doc = view.containerEl?.ownerDocument ?? document;
+    const range = doc.getSelection()?.rangeCount ? doc.getSelection()?.getRangeAt(0) : null;
+    const rect =
+      a && b
+        ? {
+            left: Math.min(a.left, b.left),
+            right: Math.max(a.right, b.right),
+            top: Math.min(a.top, b.top),
+            bottom: Math.max(a.bottom, b.bottom),
+          }
+        : range?.getBoundingClientRect();
+    const target: Target = {
+      kind: 'editor',
+      path: view.file.path,
+      anchor: makeAnchor(editor.getValue(), from, to),
+      text: () => editor.getValue(),
+    };
+    return { target, rect, doc };
+  }
+
+  private watchSelections(doc: Document): void {
+    if (this.selectionDocuments.has(doc)) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let dragging = false;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (
+          dragging ||
+          this.disposed ||
+          this.popup ||
+          this.selectionTools?.element.contains(doc.activeElement)
+        )
+          return;
+        const selected = this.selectedNote();
+        const selection = doc.getSelection();
+        const node = selection?.anchorNode;
+        const element = node?.nodeType === 1 ? node : node?.parentElement;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (
+          doc.activeElement?.closest('input, textarea, .modal-container, .prompt') ||
+          !selected ||
+          selected.doc !== doc ||
+          !element ||
+          !view?.containerEl?.contains(element) ||
+          (element instanceof doc.defaultView!.Element &&
+            element.closest('.annotate-panel, input, textarea, .metadata-container'))
+        ) {
+          this.hideSelectionTools();
+          return;
+        }
+        this.showSelectionTools(selected);
+      }, 100);
+    };
+    const down = (event: MouseEvent) => {
+      if (
+        event.target instanceof doc.defaultView!.Node &&
+        this.selectionTools?.element.contains(event.target)
+      )
+        return;
+      dragging = true;
+      this.hideSelectionTools();
+    };
+    const up = () => {
+      dragging = false;
+      schedule();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        clearTimeout(timer);
+        this.hideSelectionTools();
+      } else schedule();
+    };
+    const scroll = () => {
+      clearTimeout(timer);
+      this.hideSelectionTools();
+    };
+    doc.addEventListener('mousedown', down);
+    doc.addEventListener('mouseup', up);
+    doc.addEventListener('keyup', key);
+    doc.addEventListener('selectionchange', schedule);
+    doc.addEventListener('scroll', scroll, true);
+    this.selectionDocuments.set(doc, () => {
+      clearTimeout(timer);
+      doc.removeEventListener('mousedown', down);
+      doc.removeEventListener('mouseup', up);
+      doc.removeEventListener('keyup', key);
+      doc.removeEventListener('selectionchange', schedule);
+      doc.removeEventListener('scroll', scroll, true);
+    });
+    this.refreshHighlightStyles();
+  }
+
+  private showSelectionTools(selected: NonNullable<ReturnType<Annotate['selectedNote']>>): void {
+    const { target, rect, doc } = selected;
+    const current = this.selectionTools;
+    if (
+      current?.element.ownerDocument === doc &&
+      current.target.path === target.path &&
+      current.target.anchor.from === target.anchor.from &&
+      current.target.anchor.to === target.anchor.to &&
+      current.target.anchor.quote === target.anchor.quote &&
+      current.target.anchor.prefix === target.anchor.prefix &&
+      current.target.anchor.suffix === target.anchor.suffix
+    )
+      return;
+    this.hideSelectionTools();
+    if (!rect) return;
+    const bar = doc.createElement('div');
+    bar.className = 'annotate-selection-tools';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selection actions');
+    bar.addEventListener('mousedown', (event) => event.preventDefault());
+    const button = (text: string, action: () => void, glyph?: string) => {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      if (glyph) {
+        const icon = doc.createElement('span');
+        icon.className = 'annotate-selection-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        setIcon(icon, glyph);
+        button.append(icon);
+      }
+      const label = doc.createElement('span');
+      label.className = 'annotate-selection-label';
+      label.textContent = text;
+      button.append(label);
+      button.addEventListener('click', action);
+      bar.append(button);
+      return button;
+    };
+    const highlight = button(
+      'Highlight',
+      () => {
+        bar.replaceChildren();
+        bar.classList.add('annotate-is-palette');
+        for (const color of this.data.highlights.colors) {
+          const swatch = button(color.name, () => void this.applyHighlight(target, color, true));
+          swatch.className = 'annotate-color-swatch';
+          swatch.title = color.name;
+          swatch.style.setProperty('--annotate-swatch', color.value);
+          swatch.setAttribute('aria-label', `Highlight ${color.name}`);
+          swatch.setAttribute('aria-pressed', String(color.id === this.recentHighlight().id));
+        }
+        const separator = doc.createElement('span');
+        separator.className = 'annotate-palette-divider';
+        separator.setAttribute('aria-hidden', 'true');
+        bar.append(separator);
+        const remove = button('Remove', () => void this.applyHighlight(target, null, true), 'eraser');
+        remove.className = 'annotate-highlight-remove';
+        remove.title = 'Remove highlight';
+        remove.setAttribute('aria-label', 'Remove highlight');
+        place();
+      },
+      'highlighter',
+    );
+    highlight.style.setProperty('--annotate-swatch', this.recentHighlight().value);
+    highlight.title = `Choose highlight color · ${Platform.isMacOS ? '⌘⇧H' : 'Ctrl+Shift+H'} uses last color`;
+    const textColor = button(
+      'Color',
+      () => {
+        bar.replaceChildren();
+        bar.classList.add('annotate-is-palette');
+        for (const color of textColors) {
+          const swatch = button(color.name, () => void this.applyTextColor(target, color, true));
+          swatch.className = 'annotate-text-swatch';
+          swatch.title = color.name;
+          swatch.style.setProperty('--annotate-swatch', color.value);
+          swatch.setAttribute('aria-label', `Text color ${color.name}`);
+          swatch.setAttribute('aria-pressed', String(color.id === this.recentTextColor().id));
+        }
+        const separator = doc.createElement('span');
+        separator.className = 'annotate-palette-divider';
+        separator.setAttribute('aria-hidden', 'true');
+        bar.append(separator);
+        const remove = button('Remove', () => void this.applyTextColor(target, null, true), 'eraser');
+        remove.className = 'annotate-highlight-remove';
+        remove.title = 'Default color';
+        remove.setAttribute('aria-label', 'Remove text color');
+        place();
+      },
+      'type',
+    );
+    textColor.style.setProperty('--annotate-swatch', this.recentTextColor().value);
+    textColor.title = 'Choose text color';
+    const divider = doc.createElement('span');
+    divider.className = 'annotate-selection-divider';
+    divider.setAttribute('aria-hidden', 'true');
+    bar.append(divider);
+    button(
+      'Annotate',
+      () => {
+        this.hideSelectionTools();
+        this.compose(target, rect, doc);
+      },
+      'message-square-plus',
+    ).title = Platform.isMacOS ? '⌘⇧M' : 'Ctrl+Shift+M';
+    bar.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        this.hideSelectionTools();
+      }
+      if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+        event.preventDefault();
+        const buttons = [...bar.querySelectorAll('button')];
+        const index = buttons.findIndex((button) => button === doc.activeElement);
+        buttons[
+          (index + (event.key === 'ArrowRight' ? 1 : buttons.length - 1)) % buttons.length
+        ]?.focus();
+      }
+    });
+    doc.body.append(bar);
+    this.selectionTools = { element: bar, target };
+    const place = () => {
+      const win = doc.defaultView;
+      if (!win) return;
+      const bounds = bar.getBoundingClientRect();
+      bar.style.left = `${Math.max(8, Math.min((rect.left + rect.right - bounds.width) / 2, win.innerWidth - bounds.width - 8))}px`;
+      const above = rect.top - bounds.height - 6;
+      const top = above >= 8 ? above : rect.bottom + 6;
+      bar.style.top = `${Math.max(8, Math.min(top, win.innerHeight - bounds.height - 8))}px`;
+    };
+    place();
+  }
+
+  private applyHighlight(
+    target: Target,
+    color: HighlightColor | null,
+    reopen = false,
+  ): Promise<void> {
+    return this.applyWrap(
+      target,
+      'mark',
+      reopen,
+      (source, from, to) => highlightEdit(source, from, to, color, this.data.highlights.shape),
+      () => {
+        if (color) this.data.highlights.recent = color.id;
+      },
+    );
+  }
+
+  private applyTextColor(
+    target: Target,
+    color: TextColor | null,
+    reopen = false,
+  ): Promise<void> {
+    return this.applyWrap(
+      target,
+      'span',
+      reopen,
+      (source, from, to) => textColorEdit(source, from, to, color),
+      () => {
+        if (color) this.data.highlights.textRecent = color.id;
+      },
+    );
+  }
+
+  private async applyWrap(
+    target: Target,
+    tag: WrapTag,
+    reopen: boolean,
+    wrap: (source: string, from: number, to: number) => ReturnType<typeof highlightEdit>,
+    remember: () => void,
+  ): Promise<void> {
+    const action = tag === 'mark' ? 'highlight' : 'color';
+    this.hideSelectionTools();
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file || view.file.path !== target.path) return;
+    const transform = (source: string) => {
+      const anchor = locateAnchor(target.anchor, source);
+      return anchor.orphaned
+        ? null
+        : wrap(source, anchor.from, anchor.to);
+    };
+    try {
+      if (target.kind === 'editor' && view.getMode() !== 'preview') {
+        const editor = view.editor;
+        const edit = transform(editor.getValue());
+        if (!edit) {
+          new Notice(`Select note text outside code and HTML tags to ${action}.`);
+          return;
+        }
+        const changes = highlightChanges(editor.getValue(), edit, tag);
+        const edits: {
+          from: ReturnType<typeof editor.offsetToPos>;
+          to: ReturnType<typeof editor.offsetToPos>;
+          text: string;
+        }[] = [];
+        changes.iterChanges((from, to, _fromB, _toB, inserted) => {
+          edits.push({
+            from: editor.offsetToPos(from),
+            to: editor.offsetToPos(to),
+            text: inserted.toString(),
+          });
+        });
+        editor.transaction({ changes: edits });
+        editor.setSelection(
+          editor.offsetToPos(edit.selectionFrom),
+          editor.offsetToPos(edit.selectionTo),
+        );
+        editor.focus();
+        // Keep the menu on the same text so color and highlight can be combined.
+        if (reopen)
+          view.containerEl.ownerDocument.defaultView?.requestAnimationFrame(() => {
+            const selected = this.disposed ? null : this.selectedNote();
+            if (selected) this.showSelectionTools(selected);
+          });
+      } else {
+        let applied = false;
+        await this.app.vault.process(view.file, (source) => {
+          const edit = transform(source);
+          if (!edit) return source;
+          applied = true;
+          const changes = highlightChanges(source, edit, tag);
+          const updated = source.slice(0, edit.from) + edit.insert + source.slice(edit.to);
+          for (const thread of this.data.threads.filter((thread) => thread.path === target.path))
+            thread.anchor = mapAnchor(thread.anchor, changes, updated);
+          return source.slice(0, edit.from) + edit.insert + source.slice(edit.to);
+        });
+        if (!applied) {
+          new Notice('The selection changed or includes code. Select note text again.');
+          return;
+        }
+        view.containerEl.ownerDocument.getSelection()?.removeAllRanges();
+      }
+      remember();
+      this.scheduleSave();
+    } catch (error) {
+      new Notice(`Could not ${action}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private releaseDocument(path: string | null): void {
@@ -1187,9 +1639,53 @@ export default class Annotate extends Plugin {
     this.documents.set(path, text);
     this.scheduleSave();
   }
+  private highlightTagDecorations(view: EditorView): DecorationSet {
+    if (!view.state.field(editorLivePreviewField, false)) return Decoration.none;
+    const { highlights, colors } = this.noteHighlightCache.get(view.state.doc) ?? {
+      highlights: [],
+      colors: [],
+    };
+    return Decoration.set(
+      [...highlights, ...colors].flatMap((highlight) => [
+        Decoration.replace({}).range(highlight.tagFrom, highlight.from),
+        Decoration.replace({}).range(highlight.to, highlight.tagTo),
+      ]),
+      true,
+    );
+  }
   decorations(view: EditorView, path: string | null): DecorationSet {
     if (!path) return Decoration.none;
     const ranges = [];
+    const { highlights, colors } = this.noteTags(view);
+    for (const span of colors) {
+      const color = textColors.find((color) => color.id === span.id);
+      if (
+        !color ||
+        !view.visibleRanges.some((range) => span.from < range.to && span.to > range.from)
+      )
+        continue;
+      ranges.push(
+        Decoration.mark({
+          attributes: { 'data-annotate-color': color.id, style: `color: ${color.value};` },
+        }).range(span.from, span.to),
+      );
+    }
+    for (const highlight of highlights) {
+      const color = this.data.highlights.colors.find((color) => color.id === highlight.id);
+      if (
+        !color ||
+        !view.visibleRanges.some((range) => highlight.from < range.to && highlight.to > range.from)
+      )
+        continue;
+      ranges.push(
+        Decoration.mark({
+          attributes: {
+            'data-annotate-highlight': color.id,
+            style: highlightStyle(color.value, this.data.highlights.shape),
+          },
+        }).range(highlight.from, highlight.to),
+      );
+    }
     for (const thread of this.data.threads) {
       const a = thread.anchor;
       if (thread.path !== path || thread.resolved || a.orphaned || a.to > view.state.doc.length)
@@ -1211,6 +1707,9 @@ export default class Annotate extends Plugin {
       if (from < to && to <= view.state.doc.length)
         ranges.push(Decoration.mark({ class: 'annotate-draft-selection' }).range(from, to));
     }
+    this.highlightTagDecorations(view).between(0, view.state.doc.length, (from, to, value) => {
+      ranges.push(value.range(from, to));
+    });
     return Decoration.set(ranges, true);
   }
   refreshViews(exclude?: EditorView): void {
@@ -1352,6 +1851,7 @@ export default class Annotate extends Plugin {
     }, 90);
   }
   private panel(rect?: Pick<DOMRect, 'left' | 'bottom'>, doc: Document = document): HTMLElement {
+    this.hideSelectionTools();
     this.closePopup();
     for (const old of [...this.retiring]) this.retire(old);
     const panel = doc.createElement('section');
@@ -2010,6 +2510,90 @@ class CommentsSettings extends PluginSettingTab {
 
     const advanced = containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
     advanced.createEl('summary', { text: 'Advanced' });
+    new Setting(advanced).setName('Highlight shape').addDropdown((dropdown) =>
+      dropdown
+        .addOptions(highlightShapes)
+        .setValue(this.plugin.data.highlights.shape)
+        .onChange((value) => {
+          if (value !== 'rounded' && value !== 'flat' && value !== 'underline') return;
+          this.plugin.data.highlights.shape = value;
+          this.plugin.refreshHighlightStyles();
+          this.plugin.changed();
+        }),
+    );
+    for (const color of this.plugin.data.highlights.colors) {
+      let hexInput: HTMLInputElement | undefined;
+      new Setting(advanced)
+        .setName('Highlight color')
+        .setClass('annotate-settings-highlight-color')
+        .addText((text) =>
+          text
+            .setPlaceholder('Color name')
+            .setValue(color.name)
+            .onChange((value) => {
+              if (!value.trim()) return;
+              color.name = value.trim();
+              this.plugin.changed();
+            }),
+        )
+        .addColorPicker((picker) => {
+          picker.setValue(color.value.slice(0, 7)).onChange((value) => {
+            color.value = value + color.value.slice(7);
+            if (hexInput) hexInput.value = color.value;
+            this.plugin.refreshHighlightStyles();
+            this.plugin.changed();
+          });
+        })
+        .addText((text) => {
+          hexInput = text.inputEl;
+          text
+            .setPlaceholder('#RRGGBB or #RRGGBBAA')
+            .setValue(color.value)
+            .onChange((value) => {
+              const valid = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value.trim());
+              text.inputEl.setAttribute('aria-invalid', String(!valid));
+              if (!valid) return;
+              color.value = value.trim();
+              this.plugin.refreshHighlightStyles();
+              this.plugin.changed();
+            });
+          text.inputEl.setAttribute('aria-label', `${color.name} highlight color`);
+        })
+        .addButton((button) =>
+          button
+            .setButtonText('Remove')
+            .setDisabled(this.plugin.data.highlights.colors.length === 1)
+            .onClick(() => {
+              this.plugin.data.highlights.colors = this.plugin.data.highlights.colors.filter(
+                (item) => item.id !== color.id,
+              );
+              this.plugin.data.highlights.recent = this.plugin.recentHighlight().id;
+              this.plugin.refreshHighlightStyles();
+              this.plugin.changed();
+              this.display();
+            }),
+        );
+    }
+    new Setting(advanced)
+      .setName('Highlight palette')
+      .setDesc(
+        'Hex colors accept optional opacity, e.g. #ffe06680. Changes apply to existing Annotate highlights while enabled.',
+      )
+      .addButton((button) =>
+        button
+          .setButtonText('Add color')
+          .setDisabled(this.plugin.data.highlights.colors.length >= 20)
+          .onClick(() => {
+            this.plugin.data.highlights.colors.push({
+              id: `color-${crypto.randomUUID()}`,
+              name: 'New color',
+              value: '#b8a3ff80',
+            });
+            this.plugin.refreshHighlightStyles();
+            this.plugin.changed();
+            this.display();
+          }),
+      );
     for (const id of providerSchema.options) {
       const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
       const command = providers[id].executable;
