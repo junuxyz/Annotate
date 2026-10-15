@@ -1610,7 +1610,11 @@ export default class Annotate extends Plugin {
               selection.to === target.anchor.to
             );
           }) ?? null);
-    rect ??= view?.coordsAtPos(target.anchor.to) ?? undefined;
+    if (!rect && view) {
+      const start = view.coordsAtPos(target.anchor.from, 1);
+      const end = view.coordsAtPos(target.anchor.to, -1);
+      if (start && end) rect = { left: start.left, bottom: end.bottom };
+    }
     doc ??= view?.dom.ownerDocument;
     const panel = this.panel(rect, doc);
     panel.classList.add('annotate-new-comment');

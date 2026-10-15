@@ -253,6 +253,10 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
       editor,
       containerEl: parent,
     };
+    view.coordsAtPos = (pos) =>
+      pos === 7
+        ? { left: 80, right: 80, top: 60, bottom: 80 }
+        : { left: 350, right: 350, top: 100, bottom: 120 };
     assert.equal(command.checkCallback(false), true);
     await tick();
     assert.ok(document.querySelector('.annotate-new-comment'), 'shortcut opens compact composer');
@@ -261,6 +265,11 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
       'selection stays highlighted while typing',
     );
     same(document.activeElement, document.querySelector('.annotate-composer textarea'));
+    assert.equal(
+      document.querySelector('.annotate-popover').style.left,
+      '80px',
+      'composer aligns with the selection start even when its end is farther right',
+    );
     assert.equal(
       document.querySelector('.annotate-popover').style.top,
       '130px',
