@@ -15,7 +15,7 @@ jobs:
         with:
           node-version: 22
       - name: Build and validate in real Obsidian on Xvfb
-        run: node e2e/run-linux.mjs --only smoke,ui,list,highlight,quote,copy --modes live,source,reading --shots --record
+        run: node e2e/run-linux.mjs --only smoke,ui,list,highlight,quote,copy,access,resources,storage,providers,markdown --modes live,source,reading --shots --record
       - name: Save validation evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

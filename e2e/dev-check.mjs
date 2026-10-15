@@ -106,6 +106,7 @@ const data = {
   version: 1,
   author: 'You',
   threads: [],
+  agent: { folders: [], webSearch: false, services: [], consentVersion: 1 },
   codex: { enabled: false, executable: 'codex' },
   assistant: {
     provider: 'chatgpt',
@@ -363,10 +364,20 @@ const createComment = async (m, text, quote = QUOTE) => {
     'send button active',
   );
   await press('Enter');
-  await until(
-    `return document.querySelectorAll('.annotate-messages .annotate-message').length===1`,
-    'thread view shows comment',
-  );
+  try {
+    await until(
+      `return document.querySelectorAll('.annotate-messages .annotate-message').length===1`,
+      'thread view shows comment',
+    );
+  } catch (error) {
+    console.error(
+      'Comment creation diagnostic',
+      await ev(
+        `${P}return {threads:p.data.threads.length,conflict:p.conflictBackup,notices:[...document.querySelectorAll('.notice')].map(n=>n.textContent),composer:document.querySelector('.annotate-composer textarea')?.value}`,
+      ),
+    );
+    throw error;
+  }
 };
 
 const hoverComposer = async () => {
@@ -1337,7 +1348,6 @@ if (only.includes('markdown'))
           'hr',
           '.footnotes',
           'mjx-container',
-          '.internal-embed',
         ];
         await until(
           `const b=document.querySelector('.annotate-message-body');return b&&${JSON.stringify(selectors)}.every(s=>b.querySelector(s))&&b.querySelectorAll('mjx-container').length===3`,
@@ -1790,6 +1800,16 @@ if (only.includes('memory')) {
       }
     },
   );
+}
+
+if (only.includes('resources')) {
+  const { checkResources } = await import('./resource-checks.mjs');
+  await checkResources({ ev, step, until, assert, createComment, modes, themes });
+}
+
+if (only.includes('access')) {
+  const { checkAccess } = await import('./access-checks.mjs');
+  await checkAccess({ ev, step, until, assert, shot, press, themes });
 }
 
 if (only.includes('providers') || only.includes('claude-live')) {

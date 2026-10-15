@@ -1,5 +1,13 @@
 // Real Obsidian checks use synthetic notes and never contact a provider or MCP endpoint.
-export async function checkAccess({ ev, step, until, assert, shot, themes = ['light', 'dark'] }) {
+export async function checkAccess({
+  ev,
+  step,
+  until,
+  assert,
+  shot,
+  press,
+  themes = ['light', 'dark'],
+}) {
   const P = `const p=app.plugins.plugins.annotate,s=window.__annotateAccessCheck;`;
   const folder = `Agent access fixtures ${Date.now()}`;
   const sibling = `${folder} sibling`;
@@ -9,7 +17,7 @@ export async function checkAccess({ ev, step, until, assert, shot, themes = ['li
   const edited = 'Synthetic access boundary edited.';
   const button = async (selector, label) => {
     await ev(
-      `const b=[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(b=>b.textContent===${JSON.stringify(label)});if(!b)throw Error('Missing '+${JSON.stringify(label)});b.click()`,
+      `const b=[...document.querySelectorAll(${JSON.stringify(selector + ' button')})].find(b=>!b.disabled&&b.textContent===${JSON.stringify(label)});if(!b)throw Error('Missing '+${JSON.stringify(label)});b.click()`,
     );
   };
   const call = (name, args, turn = 'group') =>
@@ -25,10 +33,12 @@ export async function checkAccess({ ev, step, until, assert, shot, themes = ['li
       'folder approval opens',
     );
   };
-  const closeHistory = () =>
-    ev(`document.querySelector('.annotate-operation-history .modal-close-button')?.click()`);
+  const closeHistory = async () => {
+    await press('Escape');
+    await until(`return !document.querySelector('.annotate-operation-history')`, 'history closed');
+  };
   await ev(
-    `${P}if(s)throw Error('Access check already running');window.__annotateAccessCheck={folder:${JSON.stringify(folder)},sibling:${JSON.stringify(sibling)},previousAgent:structuredClone(p.data.agent)};const x=window.__annotateAccessCheck;p.data.codex.enabled=false;p.configureCodex();p.agentAccess.cancelApprovals();const notes=await p.agentAccess.notes();x.previousHistory=notes.history;x.notes=notes;p.data.agent={folders:[],webSearch:false,services:[],consentVersion:1};await p.persistOrThrow();await app.vault.createFolder(x.folder);await app.vault.createFolder(x.sibling);await app.vault.create(${JSON.stringify(path)},${JSON.stringify(original)});await app.vault.create(x.sibling+'/Other.md','Synthetic sibling secret');x.mount=document.body.createDiv({cls:'annotate-access-check-settings'});p.agentAccess.renderSettings(x.mount)`,
+    `${P}if(s)throw Error('Access check already running');window.__annotateAccessCheck={folder:${JSON.stringify(folder)},sibling:${JSON.stringify(sibling)},previousAgent:structuredClone(p.data.agent)};const x=window.__annotateAccessCheck;p.data.codex.enabled=false;p.configureCodex();p.agentAccess.cancelApprovals();x.previousController=p.accessController;x.historyDirectory=p.manifest.dir+'/access-check-'+Date.now();await app.vault.adapter.mkdir(x.historyDirectory);p.accessController=new x.previousController.constructor({app,directory:()=>x.historyDirectory,settings:()=>p.data.agent,save:()=>p.persistOrThrow(),reconfigure:()=>p.configureCodex()});const notes=await p.agentAccess.notes();x.notes=notes;p.data.agent={folders:[],webSearch:false,services:[],consentVersion:1};await p.persistOrThrow();await app.vault.createFolder(x.folder);await app.vault.createFolder(x.sibling);await app.vault.create(${JSON.stringify(path)},${JSON.stringify(original)});await app.vault.create(x.sibling+'/Other.md','Synthetic sibling secret');x.mount=document.body.createDiv({cls:'annotate-access-check-settings'});p.agentAccess.renderSettings(x.mount)`,
   );
   try {
     await step('access: defaults deny notes, web, and services', async () => {
@@ -201,8 +211,10 @@ export async function checkAccess({ ev, step, until, assert, shot, themes = ['li
         ),
         'history exposes before and after snapshots',
       );
-      await ev(
-        `document.querySelector('.modal-container:last-of-type .modal-close-button')?.click()`,
+      await press('Escape');
+      await until(
+        `return !document.querySelector('.annotate-operation-snapshot')`,
+        'snapshots closed',
       );
       await shot('access-history');
       await button('.annotate-operation-history', 'Undo operation');
@@ -267,9 +279,40 @@ export async function checkAccess({ ev, step, until, assert, shot, themes = ['li
         'abort denies and closes external prompt',
       );
     });
+    await step('access: agent edits and undo preserve current editor text', async () => {
+      await ev(
+        `${P}p.closePopup();const leaf=app.workspace.getLeaf('tab');await leaf.openFile(app.vault.getAbstractFileByPath(${JSON.stringify(path)}));app.workspace.setActiveLeaf(leaf,{focus:true});await leaf.setViewState({type:'markdown',state:{file:${JSON.stringify(path)},mode:'source',source:true}});leaf.view.editor.setValue('Synthetic unflushed editor text');`,
+      );
+      const read = await call('read_note', { path }, 'editor');
+      assert(
+        read.content === 'Synthetic unflushed editor text',
+        'agent reads the open editor instead of older disk state',
+      );
+      await call(
+        'edit_note',
+        { path, expectedContent: read.content, content: 'Synthetic agent editor change' },
+        'editor',
+      );
+      assert(
+        await ev(
+          `return app.workspace.activeLeaf.view.editor.getValue()==='Synthetic agent editor change'`,
+        ),
+        'agent writes through the actual editor',
+      );
+      await ev(`${P}await s.notes.undo(s.folder+':editor')`);
+      assert(
+        await ev(
+          `return app.workspace.activeLeaf.view.editor.getValue()==='Synthetic unflushed editor text'`,
+        ),
+        'operation undo restores the captured editor state',
+      );
+      await ev(
+        `await app.workspace.activeLeaf.openFile(app.vault.getAbstractFileByPath('Fixtures/Annotations.md'))`,
+      );
+    });
   } finally {
     await ev(
-      `${P}if(s){p.agentAccess.cancelApprovals();for(const close of document.querySelectorAll('.annotate-operation-history .modal-close-button'))close.click();if(s.trashOriginal)app.fileManager.trashFile=s.trashOriginal;for(const path of s.links??[])if(require('node:fs').existsSync(path))require('node:fs').unlinkSync(path);s.mount?.remove();await s.notes.options.saveHistory(s.previousHistory);s.notes.records=structuredClone(s.previousHistory);for(const folder of [s.folder,s.sibling]){const file=app.vault.getAbstractFileByPath(folder);if(file)await app.vault.delete(file,true)}p.data.agent=s.previousAgent;p.data.codex.enabled=false;p.configureCodex();await p.persistOrThrow();delete window.__annotateAccessCheck}`,
+      `${P}if(s){p.agentAccess.cancelApprovals();for(const close of document.querySelectorAll('.annotate-operation-history .modal-close-button'))close.click();if(s.trashOriginal)app.fileManager.trashFile=s.trashOriginal;for(const path of s.links??[])if(require('node:fs').existsSync(path))require('node:fs').unlinkSync(path);s.mount?.remove();p.accessController=s.previousController;await app.vault.adapter.rmdir(s.historyDirectory,true);for(const folder of [s.folder,s.sibling]){const file=app.vault.getAbstractFileByPath(folder);if(file)await app.vault.delete(file,true)}p.data.agent=s.previousAgent;p.data.codex.enabled=false;p.configureCodex();await p.persistOrThrow();delete window.__annotateAccessCheck}`,
     );
   }
 }
