@@ -40,3 +40,11 @@ focused passes and older reports do not replace validation of the final build.
 ## Before committing
 
 Run `npm run lint:fix` and review its changes.
+
+## Dependency maintenance
+
+Keep routine npm and GitHub Actions updates in one weekly Dependabot PR across
+both ecosystems. Review major upgrades manually and batch compatible changes;
+do not create one PR per package unless a compatibility problem requires it.
+Keep security updates prompt and grouped within each ecosystem. Validate grouped
+updates with `check:fast`; reserve native E2E for the existing pre-tag gate.
