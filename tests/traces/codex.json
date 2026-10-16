@@ -1,0 +1,42 @@
+{
+  "source": "live-synthetic",
+  "provider": "codex",
+  "cliVersion": "codex-cli 0.162.0-alpha.17.2",
+  "capturedAt": "2026-10-16T10:23:18.037Z",
+  "request": {
+    "noteText": "# Synthetic trace note\n\nThe test word is orchid.\n",
+    "selectedPassage": "The test word is orchid.",
+    "conversationHistory": [],
+    "question": "Reply with only the test word from the supplied note. Do not use tools."
+  },
+  "events": [
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "trace-thread",
+        "turnId": "trace-turn",
+        "itemId": "trace-answer",
+        "delta": "orch"
+      }
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "trace-thread",
+        "turnId": "trace-turn",
+        "itemId": "trace-answer",
+        "delta": "id"
+      }
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "trace-thread",
+        "turn": {
+          "id": "trace-turn",
+          "status": "completed"
+        }
+      }
+    }
+  ]
+}

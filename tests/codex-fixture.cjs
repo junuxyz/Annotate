@@ -2,6 +2,7 @@
 const readline = require('node:readline');
 const fs = require('node:fs');
 const path = require('node:path');
+const assert = require('node:assert/strict');
 const modelConfigPath = path.join(process.env.CODEX_HOME, 'fixture-models.json');
 const modelConfig = fs.existsSync(modelConfigPath)
   ? JSON.parse(fs.readFileSync(modelConfigPath, 'utf8'))
@@ -157,6 +158,18 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       method: 'turn/started',
       params: { threadId: id, turn: { id: turnId, status: 'inProgress' } },
     });
+    if (modelConfig.trace) {
+      const trace = JSON.parse(fs.readFileSync(modelConfig.trace, 'utf8'));
+      assert.equal(trace.source, 'live-synthetic');
+      assert.deepEqual(JSON.parse(m.params.input[0].text), trace.request);
+      for (const event of trace.events) {
+        const params = { ...event.params, threadId: id };
+        if (event.method === 'turn/completed') params.turn = { ...params.turn, id: turnId };
+        else params.turnId = turnId;
+        send({ method: event.method, params });
+      }
+      return;
+    }
     const skill = m.params.input.find((input) => input.type === 'skill');
     if (skill) {
       const valid =

@@ -1,5 +1,9 @@
 # E2E checklist
 
+This checklist is the final gate immediately before creating a version tag.
+Ordinary development and PRs use `npm run check:fast`, without Obsidian or real
+model requests. Run E2E against the exact release commit and distribution files.
+
 Run these checks against the current build in this vault in the real Obsidian app. Record pass, fail, pending, or not applicable with a reason for each check in [[Validation results]]. Checkboxes alone are not release evidence.
 
 ## Loading and annotation workflow
@@ -32,7 +36,14 @@ Run these checks against the current build in this vault in the real Obsidian ap
 
 ## Assistant integration
 
-Use only `Fixtures/Codex context.md` and synthetic notes in explicitly permitted folders. Enable the selected assistant explicitly for these checks and disable it afterward. Record unavailable prerequisites as pending.
+Use fixture CLIs and recorded synthetic model streams for the standard offline
+release suite. A real account is not required for these replay checks. Live model
+calls are separate opt-ins when refreshing a provider protocol trace or explicitly
+validating account integration; do not repeat them for every commit or release.
+For an authorized live check, use only `Fixtures/Codex context.md` and synthetic
+notes in explicitly permitted folders. Enable the selected assistant explicitly
+and disable it afterward. Identify fixture, replay and live evidence separately;
+do not report a replay as successful real authentication.
 
 - [ ] Submit `@chatgpt What is the test word?` on the selected sentence. Confirm an answer using the full note, streamed into the existing popup.
 - [ ] Ask a follow-up in the same annotation and a question in a separate annotation. Confirm conversation separation and retained same-thread context.

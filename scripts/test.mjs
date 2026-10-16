@@ -3,7 +3,20 @@ import { readdir } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
 const command = promisify(execFile);
-const files = (await readdir('tests')).filter((file) => /\.test\.(mjs|ts)$/.test(file)).sort();
+let files = (await readdir('tests')).filter((file) => /\.test\.(mjs|ts)$/.test(file)).sort();
+const args = process.argv.slice(2);
+const selection = args.indexOf('--files');
+if (selection !== -1) {
+  const requested = args[selection + 1]?.split(',');
+  if (
+    args.lastIndexOf('--files') !== selection ||
+    !requested?.length ||
+    requested.some((file) => !files.includes(file))
+  )
+    throw new Error('--files requires a comma-separated list of existing test filenames.');
+  files = files.filter((file) => requested.includes(file));
+  args.splice(selection, 2);
+}
 const heapMiB = 256;
 function limit(name, maximum) {
   const value = Number(process.env[name] ?? maximum);
@@ -30,7 +43,7 @@ async function run(file) {
       '--import',
       'tsx',
       '--test',
-      ...process.argv.slice(2),
+      ...args,
       '--test-concurrency=1',
       `--max-old-space-size=${heapMiB}`,
       `tests/${file}`,

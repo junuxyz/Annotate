@@ -5,9 +5,7 @@ Run commands from the plugin repository root. Use Node.js 22.13 or newer in the
 
 ```sh
 npm ci
-npm run build
-npm test
-npm run format:check
+npm run check:fast
 ```
 
 `npm run lint:fix` runs ESLint with automatic fixes. Prettier handles formatting
@@ -47,11 +45,25 @@ npm run check -- --dev-build --only smoke,sync,auto-update --record
 
 ## Releases
 
+Ordinary commits and PRs use `npm run check:fast`, without model calls or Obsidian
+E2E. Immediately before creating a version tag, run the full native offscreen
+suite on the exact release commit/build:
+
+```sh
+npm run check:release
+```
+
+Alternatively, dispatch **Pre-tag E2E** in GitHub Actions with the exact commit SHA.
+Wait for success and use the uploaded validated commit and distribution hashes.
+Authenticated model checks are separate opt-ins; captured protocol traces and
+fixture CLIs cover assistant behavior without paid requests in either default suite.
+
 Update the version without creating a tag:
 
 ```sh
 npm version patch --no-git-tag-version
-npm run build
+npm run check:fast
+npm run check:release
 npm run release:verify
 ```
 
