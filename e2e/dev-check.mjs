@@ -1700,6 +1700,10 @@ if (only.includes('preview')) {
   await step('preview: hidden Reading tab catches up when activated', async () => {
     await resetThreads();
     await createComment('reading', 'Background tab refresh');
+    await until(
+      `return app.workspace.activeLeaf.view.previewMode.containerEl.querySelector('.annotate-reading-count')?.textContent==='1'`,
+      'Reading tab shows its initial comment count',
+    );
     await ev(
       `${P}p.closePopup();window.annotatePreviewLeaf=app.workspace.activeLeaf;const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
     );
@@ -1708,16 +1712,17 @@ if (only.includes('preview')) {
         `${P}const root=window.annotatePreviewLeaf.view.previewMode.containerEl;return {shown:root.isShown(),sections:[...p.readingSections.values()].filter(s=>root.contains(s.root)&&s.root.isConnected).length}`,
       );
       assert(!visibility.shown, `Reading tab must be hidden: ${JSON.stringify(visibility)}`);
-      const hiddenMarkup = await ev(
-        `return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`,
+      await ev(
+        `${P}const root=window.annotatePreviewLeaf.view.previewMode.containerEl;const sections=[...p.readingSections.values()].filter(s=>root.contains(s.root)&&s.root.isConnected);window.annotatePreviewProbe={render:p.renderReadingSection,calls:0,roots:sections.map(s=>({root:s.root,html:s.root.innerHTML}))};p.renderReadingSection=function(section){if(section.path===${JSON.stringify(NOTE)}&&!section.root.isShown())window.annotatePreviewProbe.calls++;return window.annotatePreviewProbe.render.call(this,section)}`,
       );
       await ev(
         `${P}p.data.threads[0].comments.push({id:'hidden-tab-reply',author:'Synthetic',body:'A background reply',createdAt:1});p.changed();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
       );
       assert(
-        (await ev(`return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`)) ===
-          hiddenMarkup,
-        'hidden tab does not rebuild its markup for a comment update',
+        await ev(
+          `return window.annotatePreviewProbe.calls===0&&window.annotatePreviewProbe.roots.every(({root,html})=>!root.isConnected||root.innerHTML===html)`,
+        ),
+        'hidden tab does not render or rebuild its annotation sections for a comment update',
       );
       await ev(`app.workspace.setActiveLeaf(window.annotatePreviewLeaf,{focus:true})`);
       await until(
@@ -1725,7 +1730,9 @@ if (only.includes('preview')) {
         'activated Reading tab shows the pending reply count',
       );
     } finally {
-      await ev(`delete window.annotatePreviewLeaf`);
+      await ev(
+        `${P}if(window.annotatePreviewProbe){p.renderReadingSection=window.annotatePreviewProbe.render;delete window.annotatePreviewProbe}delete window.annotatePreviewLeaf`,
+      );
     }
   });
   await step(
@@ -1974,7 +1981,7 @@ if (only.includes('auto-update')) {
           `${P}p.closePopup();document.activeElement?.blur();const s=app.setting,previous=s.shouldUsePopout;try{s.shouldUsePopout=()=>false;s.open();s.openTabById('annotate')}finally{s.shouldUsePopout=previous}`,
         );
         await until(
-          `${P}return p!==window.annotateBeforeAuto&&!window.annotateBeforeAuto.syncing&&!!p.stopDevelopmentUpdates`,
+          `${P}return !!p&&p!==window.annotateBeforeAuto&&!window.annotateBeforeAuto.syncing&&!!p.stopDevelopmentUpdates`,
           'new development build loads automatically',
           7000,
         );
@@ -2009,7 +2016,7 @@ if (only.includes('auto-update')) {
           await ev(`${P}window.annotateBeforeRestore=p`);
           publishDevelopmentBuild(directory, originals);
           await until(
-            `${P}return p!==window.annotateBeforeRestore`,
+            `${P}return !!p&&p!==window.annotateBeforeRestore&&!window.annotateBeforeRestore.syncing&&!!p.stopDevelopmentUpdates`,
             'original development artifact restored',
             7000,
           );

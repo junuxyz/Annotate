@@ -65,10 +65,13 @@ const type = async (t) => {
   await sleep(120);
 };
 const click = async (sel) => {
-  const pt = await ev(
-    `const e=document.querySelector(${JSON.stringify(sel)});if(!e)throw new Error('missing '+${JSON.stringify(sel)});e.scrollIntoView({block:'nearest'});const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
+  let pt = await ev(
+    `const e=document.querySelector(${JSON.stringify(sel)});if(!e)throw new Error('missing '+${JSON.stringify(sel)});e.scrollIntoView({block:'nearest',behavior:'instant'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const r=e.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]`,
   );
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt[0], y: pt[1] });
+  pt = await ev(
+    `await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const e=document.querySelector(${JSON.stringify(sel)}),r=e.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;if(!e.contains(document.elementFromPoint(x,y)))throw Error('Click target is covered: '+${JSON.stringify(sel)});return [x,y]`,
+  );
   for (const t of ['mousePressed', 'mouseReleased'])
     await send('Input.dispatchMouseEvent', {
       type: t,
