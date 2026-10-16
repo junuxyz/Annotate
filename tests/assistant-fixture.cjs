@@ -21,6 +21,16 @@ if (args[0] === 'auth') {
   process.stdin.on('data', (chunk) => (text += chunk));
   process.stdin.on('end', () => {
     const payload = JSON.parse(text.slice(text.indexOf('{')));
+    if (process.env.ANNOTATE_MODEL_TRACE) {
+      const trace = JSON.parse(
+        require('node:fs').readFileSync(process.env.ANNOTATE_MODEL_TRACE, 'utf8'),
+      );
+      assert.equal(trace.source, 'live-synthetic');
+      assert.deepEqual(payload, trace.request);
+      for (const [index, event] of trace.events.entries())
+        emit(event, index < trace.events.length - 1);
+      return;
+    }
     const answer = JSON.stringify(payload);
     const delta = (text) =>
       emit({

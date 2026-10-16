@@ -1,0 +1,29 @@
+{
+  "source": "live-synthetic",
+  "provider": "claude",
+  "cliVersion": "2.1.289 (Claude Code)",
+  "capturedAt": "2026-10-16T10:23:18.067Z",
+  "request": {
+    "noteText": "# Synthetic trace note\n\nThe test word is orchid.\n",
+    "selectedPassage": "The test word is orchid.",
+    "conversationHistory": [],
+    "question": "Reply with only the test word from the supplied note. Do not use tools."
+  },
+  "events": [
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "orchid"
+        }
+      }
+    },
+    {
+      "type": "result",
+      "is_error": false,
+      "result": "orchid"
+    }
+  ]
+}

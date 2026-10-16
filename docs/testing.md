@@ -5,8 +5,7 @@ Run commands from the repository root. Use synthetic notes in `test-vault`.
 ## Development checks
 
 ```sh
-npm test
-npm run check -- --record
+npm run check:fast
 ```
 
 `npm test` runs each test file separately with time and resource limits. To run
@@ -21,26 +20,36 @@ Node test options such as `--test-name-pattern` can further narrow a selected su
 
 ## Order checks by cost
 
-During implementation, run static checks and related unit tests first. Then run
-the smallest real-app scope or scenario that reproduces the failure, with only
-the affected modes and themes. For example:
+During implementation, run related unit tests first, then `npm run check:fast`.
+The fast suite runs lint, formatting, build, and every offline unit/integration
+suite. It uses synthetic notes, fixture CLIs and recorded streams. It requires
+neither Obsidian nor a provider account and makes no real model calls.
+
+The offline suites cover context serialization, streaming, cancellation, recovery,
+tool permissions, persistence, sync conflicts, comment interactions and rendering.
+They do not prove real Obsidian layout or actual provider login availability.
+
+Use native real-app checks only immediately before a version tag, or when explicitly
+diagnosing a failure that offline tests cannot reproduce. Start with the smallest
+failing scope or scenario, and only the affected modes and themes. For example:
 
 ```sh
 npm run check -- --unit-tests offscreen-guards.test.mjs --only smoke --modes live --themes light --record
 npm run check -- --unit-tests interaction.test.mjs --only smoke --scenario editing-checks.mjs --modes live --themes light --record
 ```
 
-After the focused check passes, expand to the affected modes, themes and adjacent
-scopes. The scoped runner still lints and builds the current source before launch.
+When diagnosing an actual UI failure, expand to affected modes, themes and adjacent
+scopes after the focused check passes. The scoped runner still lints and builds the current source before launch.
 Without `--unit-tests`, it runs all unit tests. Full validation always runs all
 unit tests and rejects `--unit-tests`.
 
-Run the full suite after changes have settled, at the final integration or release
-gate. Do not use full runs to debug individual failures or rerun them after each
-small patch. After a failure, rerun only the affected scope until it is fixed.
+Run the full suite once immediately before creating a version tag, on the exact
+commit and distribution build to release. Do not use full runs for ordinary PRs,
+to debug individual failures, or after each small patch. After a pre-tag failure,
+rerun only the affected scope until it is fixed.
 Repeat broader passing checks only when subsequent changes could affect them.
 
-`npm run check` lints, builds, runs unit tests, and tests real Obsidian in a
+The opt-in `npm run check` lints, builds, runs unit tests, and tests real Obsidian in a
 private offscreen instance. Default scopes are `smoke,ui,list,polish`, Live
 Preview, and both themes. Each run creates its own synthetic vault and profile.
 It never drives the user's Obsidian window or sends host keyboard and mouse input.
@@ -71,10 +80,10 @@ Provider scenarios use fixture CLIs without accounts. Test hosts in `tests/host.
 substitute Obsidian APIs for unit tests; the real-app runner uses actual Obsidian.
 Documentation-only changes require source and link review.
 
-## Full offline validation
+## Pre-tag E2E validation
 
 ```sh
-npm run check:full -- --shots
+npm run check:release
 ```
 
 The full run covers all tagged scopes and the core, anchor, editing, math and
@@ -85,7 +94,7 @@ run last, followed by restoration of the distribution build.
 The runner stops at the first failed suite, prints its scoped rerun command, and
 records all remaining suites as `pending` in `summary.json`. Failed-suite reports
 are recorded before stopping. Run the printed command while debugging, then run
-full validation on the final build when the integration or release gate requires it.
+full validation on the final build before creating the version tag.
 Earlier passing reports do not turn unrun scopes into passes.
 
 Use `npm run check:full -- --keep-going` only when explicitly collecting all
@@ -113,11 +122,43 @@ an independent visibility observer before the app. Any visible or active test
 window fails the run. See [runtime details](../e2e/macos/README.md) for debugging
 and the compatibility review procedure.
 
-GitHub Actions runs the same suite on a disposable macOS VM with pinned public
-application files. Checks run on pull requests, pushes to `main`, and manual
-dispatch. Feature-branch pushes do not start a second copy alongside the PR run.
-A newer push cancels an older run of the same workflow for that PR or branch.
+GitHub Actions runs `check:fast` on Ubuntu for pull requests, pushes to `main`, and manual
+dispatch. Only the `check` job is a required PR status check. Feature-branch pushes
+do not start a second copy alongside the PR run. A newer push cancels the older
+fast run for that PR or branch.
+
+Pre-tag E2E is manual. Dispatch `.github/workflows/e2e.yml` with `ref` set to the
+exact commit SHA you intend to tag. It provisions pinned Obsidian in a disposable
+macOS VM, runs `check:release`, and uploads evidence plus the validated commit and
+distribution hashes. Wait for success before creating the version tag. Do not
+tag a different commit or rebuild the validated distribution before publishing.
 Caches and raw evidence stay out of Git.
+
+## Recorded model traces
+
+`tests/traces/codex.json` and `tests/traces/claude.json` contain one successful
+synthetic model turn per provider. Their CLI versions and capture dates identify
+the observed protocol. The fixture CLIs replay those streaming events through
+the production backend adapters in `model-trace.test.mjs`. Existing synthetic
+failure cases cover cancellation, crashes, recovery, stale tools and permissions.
+
+Refresh a trace only when the provider protocol changes or the capture is explicitly
+requested. Each command makes one short real model request and performs no retry:
+
+```sh
+ANNOTATE_CAPTURE_MODEL_TRACE=1 npm run trace:capture -- codex
+ANNOTATE_CAPTURE_MODEL_TRACE=1 npm run trace:capture -- claude
+npm test -- --files model-trace.test.mjs,codex.test.mjs,assistant.test.mjs
+```
+
+Use an authorized existing CLI login and only the built-in synthetic note. The
+Codex capture uses a temporary isolated home with a symlink to the selected login,
+never a credential copy. Set `ANNOTATE_CODEX_AUTH_FILE`, `ANNOTATE_CODEX_EXECUTABLE`,
+`ANNOTATE_CODEX_MODEL`, `ANNOTATE_CLAUDE_EXECUTABLE` or `ANNOTATE_CLAUDE_MODEL` when
+needed. Review captures before committing. Only consumed streaming fields are
+retained; account records, local paths, provider metadata and runtime IDs are
+omitted. Raw temporary wire logs are removed after capture. Trace replay proves
+adapter behavior, not current provider availability or real application layout.
 
 ## Authenticated integration and releases
 
