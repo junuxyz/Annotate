@@ -1344,6 +1344,83 @@ test('copy message and entire thread preserve Markdown and read the latest conve
   }
 });
 
+for (const provider of ['chatgpt', 'claude'])
+  test(`${provider}: a local comment makes no model request and the next plain reply retains its context`, async () => {
+    const plugin = new Plugin();
+    await plugin.onload();
+    const asked = [];
+    plugin.createBackend = () => ({
+      state: 'disabled',
+      detail: '',
+      model: 'synthetic-model',
+      retainsHistory: false,
+      async enable() {
+        this.state = 'ready';
+      },
+      async connect() {
+        this.state = 'ready';
+      },
+      async session() {
+        return crypto.randomUUID();
+      },
+      async ask(id, text, delta, finish) {
+        asked.push(JSON.parse(text));
+        delta(`${provider} answer`);
+        finish('completed');
+      },
+      async interrupt() {},
+      disable() {
+        this.state = 'disabled';
+      },
+    });
+    try {
+      plugin.data.assistant.provider = provider;
+      plugin.data.codex.enabled = true;
+      plugin.data.agent.folders = ['.'];
+      plugin.configureCodex();
+      plugin.compose({
+        kind: 'editor',
+        path: 'test.md',
+        anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+        text: () => 'passage',
+      });
+      await send('explain this passage');
+      const thread = plugin.data.threads[0];
+      const threadId = thread.id;
+      assert.equal(asked.length, 1);
+      assert.equal(thread.comments.at(-1).provider, provider);
+      await send('@co');
+      assert.equal(document.querySelector('.annotate-composer textarea').value, '@comment ');
+      assert.equal(asked.length, 1, 'mention completion does not submit');
+      await send('@comment literal @claude @chatgpt');
+      assert.equal(asked.length, 1, 'local comments do not call either provider');
+      assert.equal(
+        plugin.data.assistant.provider,
+        provider,
+        'literal mentions do not switch provider',
+      );
+      const local = plugin.saved.threads[0].comments.at(-1);
+      assert.equal(local.body, 'literal @claude @chatgpt');
+      assert.equal(local.role, 'user');
+      assert.equal(local.provider, undefined);
+      await send('follow up');
+      assert.equal(asked.length, 2);
+      assert.equal(asked[1].question, 'follow up');
+      assert.equal(asked[1].conversationHistory.at(-1).content, local.body);
+      const current = plugin.data.threads[0];
+      assert.equal(current.id, threadId);
+      assert.equal(current.codex.status, 'completed');
+      assert.equal(current.comments.at(-1).provider, provider);
+      assert.equal(current.comments.at(-1).body, `${provider} answer`);
+      assert.match(
+        document.querySelector('.annotate-message-ai .annotate-message-body').textContent,
+        new RegExp(`${provider} answer`),
+      );
+    } finally {
+      plugin.onunload();
+    }
+  });
+
 test('Claude mentions route without changing settings first and connection probes preserve the live backend', async () => {
   const plugin = new Plugin();
   await plugin.onload();

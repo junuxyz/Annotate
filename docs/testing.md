@@ -56,19 +56,19 @@ It never drives the user's Obsidian window or sends host keyboard and mouse inpu
 
 Choose scopes for the change:
 
-| Change                                  | Scope                                                 |
-| --------------------------------------- | ----------------------------------------------------- |
-| Composer, menus, layout                 | Default scopes, `--modes live,source,reading --shots` |
-| Shortcuts                               | `shortcuts`, across all modes                         |
-| Highlight and text color                | `highlight,palette,formatting,combo`                  |
-| Markdown and math                       | `markdown,math`, across all modes                     |
-| Copy and quoted replies                 | `copy,quote`                                          |
-| Resource loading                        | `resources`                                           |
-| Consent, tools, approvals, undo         | `access`                                              |
-| Provider switching, streaming, recovery | `providers`                                           |
-| External data changes and conflicts     | `storage`                                             |
-| Distribution settings                   | `distribution`                                        |
-| Development updates and rollback        | `--dev-build --only smoke,sync,auto-update`           |
+| Change                                | Scope                                                 |
+| ------------------------------------- | ----------------------------------------------------- |
+| Composer, menus, layout               | Default scopes, `--modes live,source,reading --shots` |
+| Shortcuts                             | `shortcuts`, across all modes                         |
+| Highlight and text color              | `highlight,palette,formatting,combo`                  |
+| Markdown and math                     | `markdown,math`, across all modes                     |
+| Copy and quoted replies               | `copy,quote`                                          |
+| Resource loading                      | `resources`                                           |
+| Consent, tools, approvals, undo       | `access`                                              |
+| Assistant question and rendered reply | `providers`                                           |
+| External data changes and conflicts   | `storage`                                             |
+| Distribution settings                 | `distribution`                                        |
+| Development updates and rollback      | `--dev-build --only smoke,sync,auto-update`           |
 
 For example:
 
@@ -79,6 +79,15 @@ npm run check -- --only access,providers,storage --modes live,source,reading --r
 Provider scenarios use fixture CLIs without accounts. Test hosts in `tests/host.mjs`
 substitute Obsidian APIs for unit tests; the real-app runner uses actual Obsidian.
 Documentation-only changes require source and link review.
+
+The `providers` E2E scope sends one question in a fresh thread per provider, mode
+and theme, then checks that the answer is rendered. It verifies input focus and
+readiness before typing and records composer/backend/thread state on failure.
+It does not chain local comments, follow-ups, provider switches or recovery in
+the UI. Those behaviors belong to the offline interaction and backend suites,
+including both providers' `@comment` completion, no-call behavior and subsequent
+plain replies with saved local context. E2E smoke passes do not prove those
+individual behaviors by themselves.
 
 ## Pre-tag E2E validation
 
