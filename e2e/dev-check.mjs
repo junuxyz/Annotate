@@ -1058,7 +1058,13 @@ if (only.includes('logos'))
       );
     }
 
-if (only.includes('highlight'))
+if (only.includes('highlight')) {
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 1024,
+    height: 680,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   for (const theme of themes) {
     await step(`highlight [${theme}]: one wrapped highlight across inline formatting`, async () => {
       await ev(`app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')})`);
@@ -1088,11 +1094,17 @@ if (only.includes('highlight'))
             marks=[...root.querySelectorAll('.annotate-highlight')],
             plain=marks.find(n=>n.textContent.startsWith('This paragraph')),
             style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain),
-            rects=[...plain.getClientRects()], cr=mark.getBoundingClientRect();
+            rects=[...plain.getClientRects()], cr=mark.getClientRects()[0];
+          const textHeight=node=>{
+            const text=document.createTreeWalker(node,NodeFilter.SHOW_TEXT).nextNode(), range=document.createRange();
+            range.setStart(text,0);range.setEnd(text,1);
+            return range.getBoundingClientRect().height;
+          };
           return {font:cs.fontSize,plainFont:ps.fontSize,background:cs.backgroundColor,plainBackground:ps.backgroundColor,
             padding:style.padding,margin:style.margin,codeBackground:style.backgroundColor,
             codeFont:cs.fontFamily,plainFamily:ps.fontFamily,
             height:cr.height,plainHeight:rects[0].height,
+            decorationHeight:cr.height-textHeight(mark),plainDecorationHeight:rects[0].height-textHeight(plain),
             ids:[...new Set(marks.map(n=>n.dataset.annotateThread))],
             badges:root.querySelectorAll('.annotate-count').length,
             wrapped:new Set(marks.flatMap(n=>[...n.getClientRects()].map(r=>Math.round(r.top)))).size>1};
@@ -1111,8 +1123,8 @@ if (only.includes('highlight'))
         );
         assert(geometry.codeBackground === 'rgba(0, 0, 0, 0)', `${mode}: separate code background`);
         assert(
-          Math.abs(geometry.height - geometry.plainHeight) < 1,
-          `${mode}: mismatched highlight heights`,
+          Math.abs(geometry.decorationHeight - geometry.plainDecorationHeight) < 1,
+          `${mode}: mismatched highlight decoration heights ${JSON.stringify(geometry)}`,
         );
         assert(geometry.codeFont !== geometry.plainFamily, `${mode}: preserve the code typeface`);
         assert(
@@ -1126,6 +1138,8 @@ if (only.includes('highlight'))
       }
     });
   }
+  await send('Emulation.clearDeviceMetricsOverride');
+}
 if (only.includes('list'))
   await step('list: thread list modal shows threads', async () => {
     await resetThreads();
@@ -1827,7 +1841,7 @@ if (only.includes('access')) {
   await checkAccess({ ev, step, until, assert, shot, press, themes });
 }
 
-if (only.includes('providers') || only.includes('claude-live')) {
+if (only.includes('providers') || only.includes('claude-live') || only.includes('codex-live')) {
   const { checkProviders } = await import('./provider-checks.mjs');
   await checkProviders({
     only,

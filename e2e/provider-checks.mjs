@@ -492,19 +492,48 @@ export async function checkProviders({
       await ev(`${P}p.data.codex.enabled=false;p.configureCodex();await p.persist()`);
     });
   }
-  if (only.includes('claude-live')) {
-    const executable = execFileSync('which', ['claude']).toString().trim();
-    await step('claude-live: official CLI subscription login', async () => {
+  for (const provider of ['chatgpt', 'claude']) {
+    const scope = provider === 'chatgpt' ? 'codex-live' : 'claude-live';
+    if (!only.includes(scope)) continue;
+    if (process.env.ANNOTATE_LIVE_ACCOUNT !== '1')
+      throw Error('Authenticated checks require explicit ANNOTATE_LIVE_ACCOUNT=1 authorization.');
+    if (modes.length !== 1 || modes[0] !== 'live' || themes.length !== 1)
+      throw Error('Authenticated checks require --modes live and one explicit --themes value.');
+    const executable =
+      process.env[
+        provider === 'chatgpt' ? 'ANNOTATE_CODEX_EXECUTABLE' : 'ANNOTATE_CLAUDE_EXECUTABLE'
+      ] ||
+      execFileSync('which', [provider === 'chatgpt' ? 'codex' : 'claude'])
+        .toString()
+        .trim();
+    if (provider === 'chatgpt' && !process.env.ANNOTATE_CODEX_AUTH_FILE)
+      throw Error('codex-live requires an explicitly authorized ANNOTATE_CODEX_AUTH_FILE path.');
+    await step(`${scope}: existing authorized CLI login`, async () => {
       await ev(
-        `${P}p.data.assistant.provider='claude';p.data.assistant.claude.executable=${JSON.stringify(executable)};p.data.codex.enabled=true;p.configureCodex()`,
+        `app.changeTheme(${JSON.stringify(themes[0] === 'light' ? 'moonstone' : 'obsidian')})`,
       );
-      await until(`${P}return p.backend.state==='ready'`, 'subscription ready', 10_000);
+      await ev(`${P}
+        p.data.codex.enabled=false;p.configureCodex();
+        p.data.agent.folders=['Fixtures'];p.data.agent.consentVersion=1;
+        p.data.assistant.provider=${JSON.stringify(provider)};
+        if(p.data.assistant.provider==='chatgpt') {
+          p.data.codex.executable=${JSON.stringify(executable)};
+          const original=p.createBackend.bind(p);
+          p.createBackend=function(id=this.data.assistant.provider) {
+            const backend=original(id);
+            if(id==='chatgpt') backend.runtime={authSource:${JSON.stringify(process.env.ANNOTATE_CODEX_AUTH_FILE)}};
+            return backend;
+          };
+        } else p.data.assistant.claude.executable=${JSON.stringify(executable)};
+        p.data.codex.enabled=true;p.configureCodex();
+      `);
+      await until(`${P}return p.backend.state==='ready'`, 'authenticated CLI ready', 30_000);
     });
-    await step('claude-live: synthetic note answer in real Obsidian', async () => {
+    await step(`${scope}: synthetic note answer in real Obsidian`, async () => {
       await resetThreads();
       await openComposer('live');
       await sendQuestion(
-        'claude',
+        provider,
         'Reply with exactly the two words naming the flower in the selected passage.',
       );
       await until(
@@ -519,10 +548,54 @@ export async function checkProviders({
         result.status === 'completed' && /violet flower/i.test(result.body),
         JSON.stringify(result),
       );
+      await shot(`${scope}-answer`);
+    });
+    await step(`${scope}: stop a real streamed response`, async () => {
+      await sendQuestion(
+        provider,
+        'Write 100 numbered paragraphs about a synthetic violet flower.',
+      );
+      await until(
+        `${P}const t=p.data.threads.at(-1);return t?.codex?.status==='streaming'&&!!t.comments.at(-1).body`,
+        'live streamed text before cancellation',
+        60_000,
+      );
+      await ev(`document.querySelector('.annotate-codex-cancel').click()`);
+      await until(
+        `${P}return p.data.threads.at(-1)?.codex?.status==='cancelled'`,
+        'live cancelled',
+      );
+      await ev(`${P}await p.persist()`);
+    });
+    await step(`${scope}: reload retains cancellation and permits explicit recovery`, async () => {
+      const count = await ev(`${P}return p.data.threads.at(-1).comments.length`);
+      await ev(
+        `await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+      );
+      assert(
+        await ev(
+          `${P}const t=p.data.threads.at(-1);return t.codex.status==='cancelled'&&t.comments.length===${count}`,
+        ),
+        'cancelled response retained without automatic resend',
+      );
+      await until(`${P}return p.backend.state==='ready'`, 'reconnected CLI', 30_000);
+      await ev(`${P}p.openThread(p.data.threads.at(-1))`);
+      await sendQuestion(provider, 'Stop the earlier task. Reply with exactly RECOVERED.');
+      await until(
+        `${P}return ['completed','failed','unknown'].includes(p.data.threads.at(-1)?.codex?.status)`,
+        'explicit recovery answer',
+        60_000,
+      );
+      assert(
+        await ev(
+          `${P}const t=p.data.threads.at(-1);return t.codex.status==='completed'&&t.comments.at(-1).body.includes('RECOVERED')`,
+        ),
+        'explicit request succeeds after cancellation and reload',
+      );
     });
     await ev(`${P}p.data.codex.enabled=false;p.configureCodex();await p.persist()`);
   }
-  if (only.includes('providers') || only.includes('claude-live'))
+  if (only.some((scope) => ['providers', 'claude-live', 'codex-live'].includes(scope)))
     await ev(
       `${P}p.data.codex.enabled=false;p.data.assistant.provider='chatgpt';p.configureCodex();await p.persist()`,
     );

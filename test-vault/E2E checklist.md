@@ -10,7 +10,7 @@ Run these checks against the current build in this vault in the real Obsidian ap
 - [ ] Submit a comment with Enter and with the send button. Confirm Shift+Enter inserts a newline and Korean IME confirmation does not submit.
 - [ ] Click the highlight and count badge, reply, and confirm the count and thread contents.
 - [ ] Resolve a thread, reopen it from the current-note comment list, and confirm its highlight returns.
-- [ ] Delete a thread and confirm deletion requires the second confirmation click.
+- [ ] Delete a thread with one click. Confirm the Undo notification restores the thread and highlight.
 - [ ] Check plain-text rendering with HTML-like text, multiline text, Korean text, inline formatting, and repeated passages. Confirm each comment stays on the correct selection.
 
 ## Assistant and local-comment dropdown
@@ -56,7 +56,7 @@ Add checks for any changed behavior that this list does not cover. Restore fixtu
 - [ ] In Reading, Live Preview and Source modes, confirm edit/remove icons are hidden until their own comment is hovered or keyboard focused. Confirm other comments' icons stay hidden and the header's thread-delete icon appears only when the header is hovered or focused.
 - [ ] Edit a comment in place. Confirm raw LaTeX is editable, Enter saves, Shift+Enter inserts a newline, IME Enter does not save, Escape and Cancel discard changes without closing the thread, and empty text cannot be saved.
 - [ ] Confirm editing or removing a message preserves an unsent reply. Confirm sending a reply or streaming a response preserves an open edit draft, disables its Save until completion/cancellation, and prevents editing/removing messages while that response is active.
-- [ ] Confirm the first remove click only arms removal, the second removes only that message, counts update, reopening preserves the result, and removing the last comment removes the thread and highlight.
+- [ ] Confirm one remove click removes only that message, offers Undo, updates counts, and persists after reopening. Confirm Undo restores the message, and removing the last comment removes the thread and highlight.
 - [ ] Edit completed assistant text and verify LaTeX re-renders. Confirm the next Codex turn uses edited history in a new session, and removing a message also clears the prior session.
 - [ ] Reload Obsidian and confirm edited bodies and removals persist. Check the compact controls and editor in both light and dark themes.
 

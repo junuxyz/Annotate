@@ -89,6 +89,28 @@ an authenticated Claude test environment. Native permission grants, login and
 OS shortcut registration success need separate validation because the offscreen
 runner denies those operations.
 
+Authenticated real-app checks are explicit opt-ins:
+
+```sh
+ANNOTATE_LIVE_ACCOUNT=1 \
+ANNOTATE_CODEX_EXECUTABLE=/path/to/codex \
+ANNOTATE_CODEX_AUTH_FILE=/path/to/test-account/auth.json \
+ANNOTATE_CLAUDE_EXECUTABLE=/path/to/authenticated-claude \
+npm run check -- --only codex-live,claude-live --modes live --themes light --record --shots
+```
+
+Use an explicitly authorized test account. A personal account requires a specific
+exception from the user. The Codex check links the selected login file without
+copying it and keeps the app's home and CLI configuration isolated. The Claude
+executable must select its authorized authentication environment explicitly;
+the runner's private home contains no provider login. Preserve that CLI's original
+`HOME`, `USER`, and `CLAUDE_CONFIG_DIR` selection rather than assigning a different
+configuration directory, which can select a different Keychain credential.
+Both checks use synthetic
+notes, keep web search and MCP disabled, and verify answers, streamed-response
+cancellation, reload persistence, and recovery on an explicit new request.
+They do not exercise new login or OS permission grants.
+
 Before release, complete the [E2E checklist](../test-vault/E2E%20checklist.md)
 and [release procedure](development.md#releases) against the exact distribution
 files. Full offline validation does not certify authenticated integrations.
