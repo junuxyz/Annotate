@@ -9,9 +9,22 @@ checkCompatibility(inspectInstallation().actual);
 const args = process.argv.slice(2);
 const full = args.includes('--full');
 const dev = args.includes('--dev-build');
-const forwarded = args.filter((a) => !['--full', '--dev-build'].includes(a));
+const keepGoing = args.includes('--keep-going');
+const selection = args.indexOf('--unit-tests');
+let unitTests;
+if (selection !== -1) {
+  unitTests = args[selection + 1];
+  if (!unitTests || unitTests.startsWith('--') || args.lastIndexOf('--unit-tests') !== selection)
+    throw Error('--unit-tests requires a comma-separated list of test filenames.');
+  args.splice(selection, 2);
+}
+if (keepGoing && !full) throw Error('--keep-going is only available with --full.');
+if (full && unitTests) throw Error('--full always runs all unit tests.');
+const forwarded = args.filter((a) => !['--full', '--dev-build', '--keep-going'].includes(a));
 if (full && (dev || forwarded.some((a) => !['--shots', '--record'].includes(a))))
-  throw Error('--full accepts only --shots and --record; it selects all offline scopes.');
+  throw Error(
+    '--full accepts only --shots, --record and --keep-going; it selects all offline scopes.',
+  );
 const output = join(root, 'e2e/evidence', new Date().toISOString().replaceAll(':', '-'));
 mkdirSync(output, { recursive: true });
 let child,
@@ -58,16 +71,29 @@ const suites = full
       ...forwarded.filter((a) => a !== '--record'),
     ])
   : [forwarded];
-const summary = [];
+const summary = suites.map((suite, i) => ({
+  suite,
+  status: 'pending',
+  evidence: `suite-${i + 1}`,
+  rerun: [
+    'npm',
+    'run',
+    'check',
+    '--',
+    ...(dev || suite.includes('--development') ? ['--dev-build'] : []),
+    ...suite.filter((a) => a !== '--development'),
+  ].join(' '),
+}));
 try {
   await run('npm', ['run', 'lint']);
   await run('npm', ['run', dev ? 'build:dev' : 'build']);
-  await run('npm', ['test']);
+  await run('npm', ['test', ...(unitTests ? ['--', '--files', unitTests] : [])]);
   for (let i = 0; i < suites.length; i++) {
     const evidence = join(output, `suite-${i + 1}`);
     mkdirSync(evidence);
     const development = suites[i].includes('--development');
     if (development) await run('npm', ['run', 'build:dev']);
+    let suiteError;
     try {
       await run(
         process.execPath,
@@ -77,15 +103,11 @@ try {
           E2E_OUTPUT: evidence,
         },
       );
-      summary.push({ suite: suites[i], status: 'passed', evidence: `suite-${i + 1}` });
+      summary[i].status = 'passed';
     } catch (error) {
-      summary.push({
-        suite: suites[i],
-        status: 'failed',
-        error: error.message,
-        evidence: `suite-${i + 1}`,
-      });
-      if (!full || interrupted) throw error;
+      summary[i].status = 'failed';
+      summary[i].error = error.message;
+      suiteError = error;
     } finally {
       if (development) await run('npm', ['run', 'build']);
     }
@@ -95,6 +117,10 @@ try {
         ? join(root, '../test-vault')
         : join(root, 'test-vault');
       appendFileSync(join(vault, 'Validation results.md'), readFileSync(report));
+    }
+    if (suiteError) {
+      console.error(`Rerun failed scope: ${summary[i].rerun}`);
+      if (!keepGoing || interrupted) throw suiteError;
     }
   }
   if (summary.some((s) => s.status === 'failed')) process.exitCode = 1;
@@ -106,6 +132,7 @@ try {
     join(output, 'summary.json'),
     JSON.stringify(
       {
+        unitTests: unitTests ? unitTests.split(',') : 'all',
         suites: summary,
         pending: [
           'Live authenticated Codex/Claude checks; no personal credentials copied',
