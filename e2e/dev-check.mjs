@@ -1087,12 +1087,13 @@ if (only.includes('highlight'))
             mark=code.matches('.annotate-highlight')?code:code.querySelector('.annotate-highlight'),
             marks=[...root.querySelectorAll('.annotate-highlight')],
             plain=marks.find(n=>n.textContent.startsWith('This paragraph')),
-            style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain),
-            rects=[...plain.getClientRects()], cr=mark.getBoundingClientRect();
+            style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain);
           return {font:cs.fontSize,plainFont:ps.fontSize,background:cs.backgroundColor,plainBackground:ps.backgroundColor,
             padding:style.padding,margin:style.margin,codeBackground:style.backgroundColor,
             codeFont:cs.fontFamily,plainFamily:ps.fontFamily,
-            height:cr.height,plainHeight:rects[0].height,
+            lineHeight:cs.lineHeight,plainLineHeight:ps.lineHeight,
+            fragmentHeights:[...mark.getClientRects()].map(r=>r.height),
+            decorationHeight:parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom)+parseFloat(cs.borderTopWidth)+parseFloat(cs.borderBottomWidth),
             ids:[...new Set(marks.map(n=>n.dataset.annotateThread))],
             badges:root.querySelectorAll('.annotate-count').length,
             wrapped:new Set(marks.flatMap(n=>[...n.getClientRects()].map(r=>Math.round(r.top)))).size>1};
@@ -1110,9 +1111,17 @@ if (only.includes('highlight'))
           `${mode}: code pill leaves gaps`,
         );
         assert(geometry.codeBackground === 'rgba(0, 0, 0, 0)', `${mode}: separate code background`);
+        // Font ascent/descent varies between code and prose. Check line sizing and
+        // individual wrapped fragments instead of requiring identical glyph boxes.
         assert(
-          Math.abs(geometry.height - geometry.plainHeight) < 1,
-          `${mode}: mismatched highlight heights`,
+          geometry.lineHeight === geometry.plainLineHeight &&
+            geometry.fragmentHeights.length > 0 &&
+            geometry.fragmentHeights.every(
+              (height) =>
+                height > 0 &&
+                height <= parseFloat(geometry.plainLineHeight) + geometry.decorationHeight + 1,
+            ),
+          `${mode}: code highlight exceeds the surrounding line ${JSON.stringify(geometry)}`,
         );
         assert(geometry.codeFont !== geometry.plainFamily, `${mode}: preserve the code typeface`);
         assert(
