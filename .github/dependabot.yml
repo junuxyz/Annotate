@@ -1,27 +1,31 @@
 version: 2
+multi-ecosystem-groups:
+  weekly-dependencies:
+    schedule:
+      interval: weekly
 updates:
   - package-ecosystem: npm
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    groups:
-      npm-minor-and-patch:
-        patterns: ['*']
-        update-types: [minor, patch]
+    patterns: ['*']
+    multi-ecosystem-group: weekly-dependencies
+    open-pull-requests-limit: 1
     ignore:
-      # Keep types aligned with the oldest supported Node runtime.
-      - dependency-name: '@types/node'
+      # Review major upgrades manually instead of opening individual bot PRs.
+      - dependency-name: '*'
         update-types: ['version-update:semver-major']
-      # typescript-eslint currently supports TypeScript <6.1, not TypeScript 7.
-      - dependency-name: typescript
-        versions: ['>=7.0.0 <8.0.0']
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+    patterns: ['*']
+    multi-ecosystem-group: weekly-dependencies
+    open-pull-requests-limit: 1
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
     groups:
-      actions-minor-and-patch:
+      actions-security:
+        applies-to: security-updates
         patterns: ['*']
-        update-types: [minor, patch]
