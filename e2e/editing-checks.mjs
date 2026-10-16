@@ -1,6 +1,12 @@
 import * as h from './e2e.mjs';
 const { ev, key, type, click, shot, check, sleep, P, CMD, SHIFT } = h;
 const Q = 'Boundary target: violet flower.';
+await h.send('Emulation.setDeviceMetricsOverride', {
+  width: 1024,
+  height: 680,
+  deviceScaleFactor: 1,
+  mobile: false,
+});
 const move = async (selector) => {
   const pt = await ev(
     `const e=document.querySelector(${JSON.stringify(selector)}),r=e.getBoundingClientRect();return [r.left+r.width/2,r.top+r.height/2]`,

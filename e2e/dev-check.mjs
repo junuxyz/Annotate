@@ -956,7 +956,7 @@ if (only.includes('smoke')) {
     await ev(`app.commands.executeCommandById('app:reload')`).catch(() => {});
     await sleep(300);
     await until(
-      `${P}return !!p?.data?.threads?.some(t=>t.comments.some(c=>c.body==='smoke comment'))`,
+      `return !!window.app?.plugins?.plugins?.annotate?.data?.threads?.some(t=>t.comments.some(c=>c.body==='smoke comment'))`,
       'saved comments after app reload',
       10000,
     );

@@ -72,7 +72,7 @@ const click = async (sel) => {
   pt = await ev(
     `await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const e=document.querySelector(${JSON.stringify(sel)}),r=e.getBoundingClientRect();const x=r.x+r.width/2,y=r.y+r.height/2;if(!e.contains(document.elementFromPoint(x,y)))throw Error('Click target is covered: '+${JSON.stringify(sel)});return [x,y]`,
   );
-  for (const t of ['mousePressed', 'mouseReleased'])
+  for (const t of ['mousePressed', 'mouseReleased']) {
     await send('Input.dispatchMouseEvent', {
       type: t,
       x: pt[0],
@@ -80,6 +80,8 @@ const click = async (sel) => {
       button: 'left',
       clickCount: 1,
     });
+    if (t === 'mousePressed') await sleep(50);
+  }
   await sleep(250);
 };
 const shot = async (name) => {
