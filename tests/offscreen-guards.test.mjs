@@ -42,6 +42,8 @@ function fixture() {
   ]) {
     electron.dialog[method] = nativeCall;
   }
+  app.setAsDefaultProtocolClient = nativeCall;
+  app.removeAsDefaultProtocolClient = nativeCall;
   installOffscreenGuards(electron);
   return { electron, session, handlers: () => ({ requestHandler, checkHandler }) };
 }
@@ -117,5 +119,14 @@ test('existing and new sessions deny permissions even after handler replacement'
   assert.equal(newCheck(), false);
   assert.throws(() => {
     partition.setPermissionCheckHandler = () => true;
+  }, TypeError);
+});
+
+test('protocol registration and removal never change host URL handlers', () => {
+  const { electron: e } = fixture();
+  assert.equal(e.app.setAsDefaultProtocolClient('obsidian'), false);
+  assert.equal(e.app.removeAsDefaultProtocolClient('obsidian'), false);
+  assert.throws(() => {
+    e.app.setAsDefaultProtocolClient = () => true;
   }, TypeError);
 });

@@ -47,6 +47,12 @@ function installOffscreenGuards(electron, audit = () => {}) {
     audit('blocked Menu.popup');
     options.callback?.();
   });
+  for (const method of ['setAsDefaultProtocolClient', 'removeAsDefaultProtocolClient']) {
+    replace(electron.app, method, () => {
+      audit('blocked app.' + method);
+      return false;
+    });
+  }
   replace(electron.globalShortcut, 'register', () => {
     audit('blocked globalShortcut.register');
     return false;

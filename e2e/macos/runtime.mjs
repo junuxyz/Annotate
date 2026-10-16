@@ -179,6 +179,7 @@ function prepareBundle(installation, cache) {
     'Add :LSBackgroundOnly bool true',
     'Add :LSUIElement bool true',
     'Delete :ElectronAsarIntegrity',
+    'Delete :CFBundleURLTypes',
   ])
     execFileSync('/usr/libexec/PlistBuddy', ['-c', command, info]);
   const appArchive = join(bundle, 'Contents/Resources/app.asar');

@@ -46,6 +46,11 @@ export async function verifyGuards(client) {
       e.shell.showItemInFolder('/synthetic/not-a-file');
       const menu = e.Menu.buildFromTemplate([{ label: 'Synthetic' }]);
       await new Promise((resolve) => menu.popup({ callback: resolve }));
+      expect(
+        e.app.setAsDefaultProtocolClient('obsidian') === false,
+        'protocol registration denial',
+      );
+      expect(e.app.removeAsDefaultProtocolClient('obsidian') === false, 'protocol removal denial');
       const accelerator = 'CommandOrControl+Alt+Shift+F24';
       expect(e.globalShortcut.register(accelerator, () => {}) === false, 'shortcut denial');
       e.globalShortcut.registerAll([accelerator], () => {});
