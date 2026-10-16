@@ -25,6 +25,20 @@ contacts the selected provider.
 Set the executable path if needed, then click **Reconnect**. Claude's model field
 accepts aliases such as `sonnet` or `opus`.
 
+### Files outside the vault
+
+Annotate searches standard executable locations outside the vault to find Codex
+and Claude Code. The ChatGPT model picker reads `~/.codex/models_cache.json`.
+When ChatGPT is enabled, Annotate creates a separate Codex home for the vault
+under `~/.annotate/codex/` and links its `auth.json` to the existing Codex login
+file, using `CODEX_HOME` when configured. Keychain-only Codex logins are not
+automatically shared. The isolated home holds Codex's session and runtime data.
+
+Both integrations create temporary working directories outside the vault, and
+the CLIs access their provider authentication data. These locations support CLI
+discovery, authentication, and conversation state; they are separate from the
+vault folders granted to assistant note tools.
+
 ## What a request shares
 
 An assistant request supplies the complete current note, selected passage,
@@ -36,6 +50,9 @@ Start with `@comment` to save without an AI reply. Annotate removes that prefix
 from the saved text. This prevents an immediate request. It does not permanently
 exclude the comment from later assistant context. Local commenting and manual
 highlighting work with assistants disabled.
+
+Do not include information you do not want to share in a note or conversation
+you send to an assistant.
 
 Comments and settings live in the vault's plugin data. Your vault's sync and
 backup tools may copy that data elsewhere. The provider and CLI may also retain

@@ -479,7 +479,7 @@ export default class Annotate extends Plugin {
       selectedReply.hidden = true;
       owner.getSelection()?.removeAllRanges();
     };
-    for (const button of [reply, selectedReply])
+    for (const button of [copy, reply, edit, remove, selectedReply])
       button.addEventListener('mousedown', (event) => event.preventDefault());
     reply.addEventListener('click', () => {
       captureSelection();

@@ -956,7 +956,7 @@ if (only.includes('smoke')) {
     await ev(`app.commands.executeCommandById('app:reload')`).catch(() => {});
     await sleep(300);
     await until(
-      `${P}return !!p?.data?.threads?.some(t=>t.comments.some(c=>c.body==='smoke comment'))`,
+      `return !!window.app?.plugins?.plugins?.annotate?.data?.threads?.some(t=>t.comments.some(c=>c.body==='smoke comment'))`,
       'saved comments after app reload',
       10000,
     );
@@ -1087,12 +1087,13 @@ if (only.includes('highlight'))
             mark=code.matches('.annotate-highlight')?code:code.querySelector('.annotate-highlight'),
             marks=[...root.querySelectorAll('.annotate-highlight')],
             plain=marks.find(n=>n.textContent.startsWith('This paragraph')),
-            style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain),
-            rects=[...plain.getClientRects()], cr=mark.getBoundingClientRect();
+            style=getComputedStyle(code), cs=getComputedStyle(mark), ps=getComputedStyle(plain);
           return {font:cs.fontSize,plainFont:ps.fontSize,background:cs.backgroundColor,plainBackground:ps.backgroundColor,
             padding:style.padding,margin:style.margin,codeBackground:style.backgroundColor,
             codeFont:cs.fontFamily,plainFamily:ps.fontFamily,
-            height:cr.height,plainHeight:rects[0].height,
+            lineHeight:cs.lineHeight,plainLineHeight:ps.lineHeight,
+            fragmentHeights:[...mark.getClientRects()].map(r=>r.height),
+            decorationHeight:parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom)+parseFloat(cs.borderTopWidth)+parseFloat(cs.borderBottomWidth),
             ids:[...new Set(marks.map(n=>n.dataset.annotateThread))],
             badges:root.querySelectorAll('.annotate-count').length,
             wrapped:new Set(marks.flatMap(n=>[...n.getClientRects()].map(r=>Math.round(r.top)))).size>1};
@@ -1110,9 +1111,17 @@ if (only.includes('highlight'))
           `${mode}: code pill leaves gaps`,
         );
         assert(geometry.codeBackground === 'rgba(0, 0, 0, 0)', `${mode}: separate code background`);
+        // Font ascent/descent varies between code and prose. Check line sizing and
+        // individual wrapped fragments instead of requiring identical glyph boxes.
         assert(
-          Math.abs(geometry.height - geometry.plainHeight) < 1,
-          `${mode}: mismatched highlight heights`,
+          geometry.lineHeight === geometry.plainLineHeight &&
+            geometry.fragmentHeights.length > 0 &&
+            geometry.fragmentHeights.every(
+              (height) =>
+                height > 0 &&
+                height <= parseFloat(geometry.plainLineHeight) + geometry.decorationHeight + 1,
+            ),
+          `${mode}: code highlight exceeds the surrounding line ${JSON.stringify(geometry)}`,
         );
         assert(geometry.codeFont !== geometry.plainFamily, `${mode}: preserve the code typeface`);
         assert(
@@ -1691,6 +1700,10 @@ if (only.includes('preview')) {
   await step('preview: hidden Reading tab catches up when activated', async () => {
     await resetThreads();
     await createComment('reading', 'Background tab refresh');
+    await until(
+      `return app.workspace.activeLeaf.view.previewMode.containerEl.querySelector('.annotate-reading-count')?.textContent==='1'`,
+      'Reading tab shows its initial comment count',
+    );
     await ev(
       `${P}p.closePopup();window.annotatePreviewLeaf=app.workspace.activeLeaf;const other=app.workspace.getLeaf('tab');await other.openFile(app.vault.getFileByPath('Fixtures/Mentions.md'));app.workspace.setActiveLeaf(other,{focus:true});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
     );
@@ -1699,16 +1712,17 @@ if (only.includes('preview')) {
         `${P}const root=window.annotatePreviewLeaf.view.previewMode.containerEl;return {shown:root.isShown(),sections:[...p.readingSections.values()].filter(s=>root.contains(s.root)&&s.root.isConnected).length}`,
       );
       assert(!visibility.shown, `Reading tab must be hidden: ${JSON.stringify(visibility)}`);
-      const hiddenMarkup = await ev(
-        `return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`,
+      await ev(
+        `${P}const root=window.annotatePreviewLeaf.view.previewMode.containerEl;const sections=[...p.readingSections.values()].filter(s=>root.contains(s.root)&&s.root.isConnected);window.annotatePreviewProbe={render:p.renderReadingSection,calls:0,roots:sections.map(s=>({root:s.root,html:s.root.innerHTML}))};p.renderReadingSection=function(section){if(section.path===${JSON.stringify(NOTE)}&&!section.root.isShown())window.annotatePreviewProbe.calls++;return window.annotatePreviewProbe.render.call(this,section)}`,
       );
       await ev(
         `${P}p.data.threads[0].comments.push({id:'hidden-tab-reply',author:'Synthetic',body:'A background reply',createdAt:1});p.changed();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))`,
       );
       assert(
-        (await ev(`return window.annotatePreviewLeaf.view.previewMode.containerEl.innerHTML`)) ===
-          hiddenMarkup,
-        'hidden tab does not rebuild its markup for a comment update',
+        await ev(
+          `return window.annotatePreviewProbe.calls===0&&window.annotatePreviewProbe.roots.every(({root,html})=>!root.isConnected||root.innerHTML===html)`,
+        ),
+        'hidden tab does not render or rebuild its annotation sections for a comment update',
       );
       await ev(`app.workspace.setActiveLeaf(window.annotatePreviewLeaf,{focus:true})`);
       await until(
@@ -1716,7 +1730,9 @@ if (only.includes('preview')) {
         'activated Reading tab shows the pending reply count',
       );
     } finally {
-      await ev(`delete window.annotatePreviewLeaf`);
+      await ev(
+        `${P}if(window.annotatePreviewProbe){p.renderReadingSection=window.annotatePreviewProbe.render;delete window.annotatePreviewProbe}delete window.annotatePreviewLeaf`,
+      );
     }
   });
   await step(
@@ -1827,7 +1843,7 @@ if (only.includes('access')) {
   await checkAccess({ ev, step, until, assert, shot, press, themes });
 }
 
-if (only.includes('providers') || only.includes('claude-live')) {
+if (only.includes('providers') || only.includes('claude-live') || only.includes('codex-live')) {
   const { checkProviders } = await import('./provider-checks.mjs');
   await checkProviders({
     only,
@@ -1965,7 +1981,7 @@ if (only.includes('auto-update')) {
           `${P}p.closePopup();document.activeElement?.blur();const s=app.setting,previous=s.shouldUsePopout;try{s.shouldUsePopout=()=>false;s.open();s.openTabById('annotate')}finally{s.shouldUsePopout=previous}`,
         );
         await until(
-          `${P}return p!==window.annotateBeforeAuto&&!window.annotateBeforeAuto.syncing&&!!p.stopDevelopmentUpdates`,
+          `${P}return !!p&&p!==window.annotateBeforeAuto&&!window.annotateBeforeAuto.syncing&&!!p.stopDevelopmentUpdates`,
           'new development build loads automatically',
           7000,
         );
@@ -2000,7 +2016,7 @@ if (only.includes('auto-update')) {
           await ev(`${P}window.annotateBeforeRestore=p`);
           publishDevelopmentBuild(directory, originals);
           await until(
-            `${P}return p!==window.annotateBeforeRestore`,
+            `${P}return !!p&&p!==window.annotateBeforeRestore&&!window.annotateBeforeRestore.syncing&&!!p.stopDevelopmentUpdates`,
             'original development artifact restored',
             7000,
           );

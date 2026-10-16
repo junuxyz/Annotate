@@ -13,7 +13,8 @@
 - Hover over a comment to edit or remove it. **Escape** cancels an edit.
 - Resolve a thread to hide its highlight. Open the current note's comments from
   the ribbon or command palette to find resolved threads and reopen them.
-- Thread and comment deletion require a second click.
+- Thread and comment deletion take effect immediately. Use **Undo** in the
+  notification to restore the deleted thread or comment.
 
 ## Markdown and math
 
@@ -35,7 +36,8 @@ on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
 **Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
 Edit Annotate shortcuts under **Settings → Annotate → Advanced → Keyboard shortcuts**.
 
-Choose **Color** to set or remove text color. The command
+Choose **Color** to change text color or restore the default. Text colors follow
+the active theme and can be combined with highlights. The command
 **Annotate: Color selected text with last color** reapplies your last choice.
 Use **Cmd+Shift+J** on macOS or **Ctrl+Shift+J** on Windows/Linux.
 Click a shortcut to record a replacement, **Add** to assign another, or the remove
