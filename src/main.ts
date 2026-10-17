@@ -1,3 +1,4 @@
+import './dom';
 import {
   highlightEdit,
   highlightChanges,
@@ -81,8 +82,17 @@ import logoUrl from '../assets/annotate-icon.png';
 declare const ANNOTATE_DEVELOPMENT: boolean;
 declare const ANNOTATE_BUILD_DIRECTORY: string;
 
+/** Keep UI timers with their owning window, including cancellation after a popout closes. */
+function uiDelay(doc: Document, callback: () => void, milliseconds: number): () => void {
+  const win = doc.defaultView;
+  const timer = win?.setTimeout(callback, milliseconds);
+  return () => {
+    if (timer !== undefined) win?.clearTimeout(timer);
+  };
+}
+
 function pluginLogo(doc: Document): HTMLImageElement {
-  const image = doc.createElement('img');
+  const image = doc.win.createEl('img');
   image.className = 'annotate-logo';
   image.src = logoUrl;
   image.alt = '';
@@ -122,7 +132,7 @@ const ICONS = {
   shrink: 'minimize-2',
 } as const;
 function icon(doc: Document, name: keyof typeof ICONS): HTMLElement {
-  const element = doc.createElement('span');
+  const element = doc.win.createSpan();
   element.className = 'annotate-icon';
   element.setAttribute('aria-hidden', 'true');
   setIcon(element, ICONS[name]);
@@ -134,7 +144,7 @@ function iconButton(
   label: string,
   cls = '',
 ): HTMLButtonElement {
-  const button = doc.createElement('button');
+  const button = doc.win.createEl('button');
   button.type = 'button';
   button.className = `annotate-icon-button ${cls}`.trim();
   button.setAttribute('aria-label', label);
@@ -149,26 +159,31 @@ function copyButton(
   cls: string,
 ): HTMLButtonElement {
   const button = iconButton(doc, 'copy', label, cls);
-  let reset: ReturnType<typeof setTimeout> | undefined;
-  button.addEventListener('click', async () => {
+  let reset: (() => void) | undefined;
+  const copy = async () => {
     try {
       const clipboard = doc.defaultView?.navigator.clipboard;
       if (!clipboard) throw new Error('Clipboard unavailable');
       await clipboard.writeText(text());
-      clearTimeout(reset);
+      reset?.();
       button.replaceChildren(icon(doc, 'check'));
       button.setAttribute('aria-label', 'Copied');
       button.title = 'Copied';
-      reset = setTimeout(() => {
-        if (!button.isConnected) return;
-        button.replaceChildren(icon(doc, 'copy'));
-        button.setAttribute('aria-label', label);
-        button.title = label;
-      }, 1500);
+      reset = uiDelay(
+        doc,
+        () => {
+          if (!button.isConnected) return;
+          button.replaceChildren(icon(doc, 'copy'));
+          button.setAttribute('aria-label', label);
+          button.title = label;
+        },
+        1500,
+      );
     } catch {
       new Notice('Could not copy to clipboard. Try again.');
     }
-  });
+  };
+  button.addEventListener('click', () => void copy());
   return button;
 }
 function threadText(thread: Thread): string {
@@ -189,8 +204,8 @@ function threadText(thread: Thread): string {
   ].join('\n\n---\n\n');
 }
 function countBadge(doc: Document, thread: Thread): HTMLButtonElement {
-  const button = doc.createElement('button'),
-    count = doc.createElement('span');
+  const button = doc.win.createEl('button'),
+    count = doc.win.createSpan();
   button.className = 'annotate-count';
   count.textContent = String(thread.comments.length);
   button.append(icon(doc, 'comment'), count);
@@ -212,11 +227,11 @@ export function relativeTime(time: number, now = Date.now()): string {
 }
 /** Collapses a list item's height and opacity before removing it. */
 function collapse(item: HTMLElement): void {
-  item.style.height = `${item.offsetHeight}px`;
+  item.setCssStyles({ height: `${item.offsetHeight}px` });
   void item.offsetHeight;
   item.classList.add('annotate-is-leaving');
-  item.style.height = '0px';
-  setTimeout(() => item.remove(), 200);
+  item.setCssStyles({ height: '0px' });
+  uiDelay(item.ownerDocument, () => item.remove(), 200);
 }
 const initial = (name: string) => (name.trim() || '?').slice(0, 1).toUpperCase();
 const thinking = (status?: string) => status === 'pending' || status === 'streaming';
@@ -279,7 +294,7 @@ export default class Annotate extends Plugin {
   private draft: { target: Target; view: EditorView | null } | null = null;
   private disposePopup: (() => void) | null = null;
   private selectionHandlers = new WeakMap<HTMLElement, () => void>();
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private saveTimer: ReturnType<Window['setTimeout']> | null = null;
   private saveQueue: Promise<void> = Promise.resolve();
   private disposed = false;
   private storageHealthy = true;
@@ -308,9 +323,9 @@ export default class Annotate extends Plugin {
   private cancellations = new Set<string>();
   private retiring = new Set<HTMLElement>();
   private drafts = new Map<string, string>();
-  private toast: { element: HTMLElement; timer?: ReturnType<typeof setTimeout> } | null = null;
+  private toast: { element: HTMLElement; timer?: () => void } | null = null;
   private pulseId: string | null = null;
-  private pulseTimer: ReturnType<typeof setTimeout> | undefined;
+  private pulseTimer: (() => void) | undefined;
   private refreshPending = false;
   private skillsRequest: Promise<CodexSkill[]> | null = null;
   private accessController: AgentAccess | null = null;
@@ -428,12 +443,12 @@ export default class Annotate extends Plugin {
   }
   private messageElement(list: Element, thread: Thread, comment: Thread['comments'][number]): void {
     const owner = list.ownerDocument,
-      item = owner.createElement('article'),
-      heading = owner.createElement('div'),
-      avatar = owner.createElement('span'),
-      author = owner.createElement('strong'),
-      time = owner.createElement('time'),
-      body = owner.createElement('div');
+      item = owner.win.createEl('article'),
+      heading = owner.win.createDiv(),
+      avatar = owner.win.createSpan(),
+      author = owner.win.createEl('strong'),
+      time = owner.win.createEl('time'),
+      body = owner.win.createDiv();
     const ai = comment.role === 'assistant';
     item.dataset.messageId = comment.id;
     item.className = ai ? 'annotate-message annotate-message-ai' : 'annotate-message';
@@ -447,7 +462,7 @@ export default class Annotate extends Plugin {
     time.title = new Date(comment.createdAt).toLocaleString();
     heading.className = 'annotate-message-heading';
     heading.append(avatar, author, time);
-    const actions = owner.createElement('div');
+    const actions = owner.win.createDiv();
     actions.className = 'annotate-message-actions';
     const edit = iconButton(owner, 'edit', 'Edit comment', 'annotate-message-edit');
     const remove = iconButton(owner, 'trash', 'Remove comment', 'annotate-message-remove');
@@ -455,7 +470,7 @@ export default class Annotate extends Plugin {
     const copy = copyButton(owner, 'Copy message', () => comment.body, 'annotate-message-copy');
     reply.hidden = thread.resolved;
     let selectedText = '';
-    const selectedReply = owner.createElement('button');
+    const selectedReply = owner.win.createEl('button');
     selectedReply.type = 'button';
     selectedReply.className = 'annotate-selection-reply annotate-pill';
     selectedReply.textContent = 'Quote and reply';
@@ -476,8 +491,12 @@ export default class Annotate extends Plugin {
         const height = owner.defaultView?.innerHeight ?? 600;
         const button = selectedReply.getBoundingClientRect();
         const above = rect.top - button.height - 8;
-        selectedReply.style.left = `${Math.max(12, Math.min(rect.left, width - button.width - 12))}px`;
-        selectedReply.style.top = `${Math.max(12, Math.min(above >= 12 ? above : rect.bottom + 8, height - button.height - 12))}px`;
+        selectedReply.setCssStyles({
+          left: `${Math.max(12, Math.min(rect.left, width - button.width - 12))}px`,
+        });
+        selectedReply.setCssStyles({
+          top: `${Math.max(12, Math.min(above >= 12 ? above : rect.bottom + 8, height - button.height - 12))}px`,
+        });
       }
     };
     this.selectionHandlers.set(body, captureSelection);
@@ -498,11 +517,11 @@ export default class Annotate extends Plugin {
     heading.append(actions);
     edit.addEventListener('click', () => {
       if (this.threadBusy(thread) || item.querySelector('.annotate-message-editor')) return;
-      const form = owner.createElement('form'),
-        input = owner.createElement('textarea'),
-        buttons = owner.createElement('div');
-      const save = owner.createElement('button'),
-        cancel = owner.createElement('button');
+      const form = owner.win.createEl('form'),
+        input = owner.win.createEl('textarea'),
+        buttons = owner.win.createDiv();
+      const save = owner.win.createEl('button'),
+        cancel = owner.win.createEl('button');
       form.className = 'annotate-message-editor';
       input.value = comment.body;
       input.rows = Math.min(8, Math.max(2, comment.body.split('\n').length));
@@ -550,6 +569,7 @@ export default class Annotate extends Plugin {
           event.key === 'Enter' &&
           !event.shiftKey &&
           !event.isComposing &&
+          // Safari/Electron IME can report legacy composition key 229 after isComposing resets.
           event.keyCode !== 229
         ) {
           event.preventDefault();
@@ -591,8 +611,8 @@ export default class Annotate extends Plugin {
     });
     body.className = 'annotate-message-body markdown-rendered';
     body.addEventListener('click', (event) => {
-      const target = event.target;
-      const link = target instanceof Element ? target.closest('a.internal-link') : null;
+      const target = event.targetNode;
+      const link = target?.instanceOf(Element) ? target.closest('a.internal-link') : null;
       const href = link?.getAttribute('data-href') ?? link?.getAttribute('href');
       if (!href) return;
       event.preventDefault();
@@ -601,7 +621,7 @@ export default class Annotate extends Plugin {
     this.paintBody(body, comment, thread.path);
     item.append(heading);
     if (comment.quote) {
-      const quoted = owner.createElement('blockquote');
+      const quoted = owner.win.createEl('blockquote');
       quoted.className = 'annotate-reply-quote';
       quoted.textContent = comment.quote.text;
       quoted.title = comment.quote.text;
@@ -690,7 +710,7 @@ export default class Annotate extends Plugin {
         );
         if (!item) {
           this.messageElement(list, thread, comment);
-          item = list.lastElementChild instanceof HTMLElement ? list.lastElementChild : undefined;
+          item = list.lastElementChild?.instanceOf(HTMLElement) ? list.lastElementChild : undefined;
         }
         const body = item?.querySelector<HTMLElement>('.annotate-message-body');
         if (body) this.paintBody(body, comment, thread.path);
@@ -715,7 +735,9 @@ export default class Annotate extends Plugin {
     if (reset) reset.hidden = !['unavailable', 'unknown'].includes(turn);
     const bar = panel.querySelector<HTMLElement>('.annotate-ai-bar');
     if (bar)
-      bar.hidden = [...bar.children].every((child) => child instanceof HTMLElement && child.hidden);
+      bar.hidden = [...bar.children].every(
+        (child) => child.instanceOf(HTMLElement) && child.hidden,
+      );
   }
   private async requestCodex(
     thread: Thread,
@@ -932,7 +954,7 @@ export default class Annotate extends Plugin {
     this.configureCodex();
     this.scheduleSave();
     // The nested CodeMirror class has its own `this`.
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- CodeMirror classes need the enclosing plugin instance.
     const plugin = this;
     this.registerEditorExtension(
       ViewPlugin.fromClass(
@@ -989,9 +1011,8 @@ export default class Annotate extends Plugin {
             ),
           eventHandlers: {
             click: (event, view) => {
-              const element = event.target;
-              const win = view.dom.ownerDocument.defaultView;
-              if (!win || !(element instanceof win.Element)) return false;
+              const element = event.targetNode;
+              if (!element?.instanceOf(Element)) return false;
               const mark = element.closest('[data-annotate-thread]');
               const id = mark?.getAttribute('data-annotate-thread');
               const thread = plugin.data.threads.find((t) => t.id === id);
@@ -1138,7 +1159,7 @@ export default class Annotate extends Plugin {
       }),
     );
     const refreshReading = () => {
-      requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
         if (this.disposed) return;
         for (const section of this.readingSections.values())
           if (section.dirty && section.root.isShown()) this.renderReadingSection(section);
@@ -1195,7 +1216,7 @@ export default class Annotate extends Plugin {
         const { syncLocalBuild } = await import('./sync');
         if (!this.storageHealthy)
           throw new Error('Resolve the comment storage error before syncing.');
-        if (this.saveTimer) clearTimeout(this.saveTimer);
+        if (this.saveTimer) window.clearTimeout(this.saveTimer);
         this.saveTimer = null;
         await this.persistOrThrow();
         const manager: unknown = Reflect.get(this.app, 'plugins');
@@ -1262,7 +1283,8 @@ export default class Annotate extends Plugin {
     this.hideSelectionTools();
     for (const dispose of this.selectionDocuments.values()) dispose();
     this.selectionDocuments.clear();
-    for (const style of this.highlightStyles.values()) style.remove();
+    for (const [doc, style] of this.highlightStyles)
+      doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((sheet) => sheet !== style);
     this.highlightStyles.clear();
     for (const probe of this.connectionProbes.values()) probe.disable();
     this.connectionProbes.clear();
@@ -1272,8 +1294,8 @@ export default class Annotate extends Plugin {
     this.closePopup();
     for (const panel of [...this.retiring]) this.retire(panel);
     this.dismissToast(true);
-    clearTimeout(this.pulseTimer);
-    if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.pulseTimer?.();
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
     if (this.storageHealthy) void this.persist();
     this.views.clear();
     for (const section of this.readingSections.values()) clearReadingMarks(section.root);
@@ -1284,7 +1306,7 @@ export default class Annotate extends Plugin {
 
   private selectionTools: { element: HTMLElement; target: Target } | null = null;
   private selectionDocuments = new Map<Document, () => void>();
-  private highlightStyles = new Map<Document, HTMLStyleElement>();
+  private highlightStyles = new Map<Document, CSSStyleSheet>();
   private noteHighlightCache = new WeakMap<
     EditorView['state']['doc'],
     { highlights: ReturnType<typeof noteHighlights>; colors: ReturnType<typeof noteHighlights> }
@@ -1316,21 +1338,26 @@ export default class Annotate extends Plugin {
     for (const doc of this.selectionDocuments.keys()) {
       let style = this.highlightStyles.get(doc);
       if (!style) {
-        style = doc.createElement('style');
-        doc.head.append(style);
+        const win = doc.defaultView;
+        if (!win) continue;
+        style = new win.CSSStyleSheet();
+        doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, style];
         this.highlightStyles.set(doc, style);
       }
-      style.textContent = this.data.highlights.colors
-        .map(
-          (color) =>
-            `[data-annotate-highlight="${color.id}"] { ${highlightStyle(color.value, this.data.highlights.shape).replaceAll(';', ' !important;')} }`,
-        )
-        .concat(
-          textColors.map(
-            (color) => `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
-          ),
-        )
-        .join('\n');
+      style.replaceSync(
+        this.data.highlights.colors
+          .map(
+            (color) =>
+              `[data-annotate-highlight="${color.id}"] { ${highlightStyle(color.value, this.data.highlights.shape).replaceAll(';', ' !important;')} }`,
+          )
+          .concat(
+            textColors.map(
+              (color) =>
+                `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
+            ),
+          )
+          .join('\n'),
+      );
     }
   }
 
@@ -1372,44 +1399,44 @@ export default class Annotate extends Plugin {
 
   private watchSelections(doc: Document): void {
     if (this.selectionDocuments.has(doc)) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: (() => void) | undefined;
     let dragging = false;
     const schedule = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (
-          dragging ||
-          this.disposed ||
-          this.popup ||
-          this.selectionTools?.element.contains(doc.activeElement)
-        )
-          return;
-        const selected = this.selectedNote();
-        const selection = doc.getSelection();
-        const node = selection?.anchorNode;
-        const element = node?.nodeType === 1 ? node : node?.parentElement;
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (
-          doc.activeElement?.closest('input, textarea, .modal-container, .prompt') ||
-          !selected ||
-          selected.doc !== doc ||
-          !element ||
-          !view?.containerEl?.contains(element) ||
-          (element instanceof doc.defaultView!.Element &&
-            element.closest('.annotate-panel, input, textarea, .metadata-container'))
-        ) {
-          this.hideSelectionTools();
-          return;
-        }
-        this.showSelectionTools(selected);
-      }, 100);
+      timer?.();
+      timer = uiDelay(
+        doc,
+        () => {
+          if (
+            dragging ||
+            this.disposed ||
+            this.popup ||
+            this.selectionTools?.element.contains(doc.activeElement)
+          )
+            return;
+          const selected = this.selectedNote();
+          const selection = doc.getSelection();
+          const node = selection?.anchorNode;
+          const element = node?.nodeType === 1 ? node : node?.parentElement;
+          const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+          if (
+            doc.activeElement?.closest('input, textarea, .modal-container, .prompt') ||
+            !selected ||
+            selected.doc !== doc ||
+            !element ||
+            !view?.containerEl?.contains(element) ||
+            (element.instanceOf(Element) &&
+              element.closest('.annotate-panel, input, textarea, .metadata-container'))
+          ) {
+            this.hideSelectionTools();
+            return;
+          }
+          this.showSelectionTools(selected);
+        },
+        100,
+      );
     };
     const down = (event: MouseEvent) => {
-      if (
-        event.target instanceof doc.defaultView!.Node &&
-        this.selectionTools?.element.contains(event.target)
-      )
-        return;
+      if (event.targetNode && this.selectionTools?.element.contains(event.targetNode)) return;
       dragging = true;
       this.hideSelectionTools();
     };
@@ -1419,12 +1446,12 @@ export default class Annotate extends Plugin {
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        clearTimeout(timer);
+        timer?.();
         this.hideSelectionTools();
       } else schedule();
     };
     const scroll = () => {
-      clearTimeout(timer);
+      timer?.();
       this.hideSelectionTools();
     };
     const input = () => {
@@ -1445,8 +1472,8 @@ export default class Annotate extends Plugin {
     doc.addEventListener('keyup', key);
     doc.addEventListener('selectionchange', schedule);
     doc.addEventListener('scroll', scroll, true);
-    this.selectionDocuments.set(doc, () => {
-      clearTimeout(timer);
+    const dispose = () => {
+      timer?.();
       doc.removeEventListener('input', input, true);
       doc.removeEventListener('compositionstart', compositionStart);
       doc.removeEventListener('compositionend', compositionEnd);
@@ -1456,7 +1483,14 @@ export default class Annotate extends Plugin {
       doc.removeEventListener('keyup', key);
       doc.removeEventListener('selectionchange', schedule);
       doc.removeEventListener('scroll', scroll, true);
-    });
+      doc.defaultView?.removeEventListener('unload', dispose);
+      const sheet = this.highlightStyles.get(doc);
+      if (sheet) doc.adoptedStyleSheets = doc.adoptedStyleSheets.filter((item) => item !== sheet);
+      this.highlightStyles.delete(doc);
+      this.selectionDocuments.delete(doc);
+    };
+    this.selectionDocuments.set(doc, dispose);
+    doc.defaultView?.addEventListener('unload', dispose);
     this.refreshHighlightStyles();
   }
 
@@ -1475,22 +1509,22 @@ export default class Annotate extends Plugin {
       return;
     this.hideSelectionTools();
     if (!rect) return;
-    const bar = doc.createElement('div');
+    const bar = doc.win.createDiv();
     bar.className = 'annotate-selection-tools';
     bar.setAttribute('role', 'toolbar');
     bar.setAttribute('aria-label', 'Selection actions');
     bar.addEventListener('mousedown', (event) => event.preventDefault());
     const button = (text: string, action: () => void, glyph?: string) => {
-      const button = doc.createElement('button');
+      const button = doc.win.createEl('button');
       button.type = 'button';
       if (glyph) {
-        const icon = doc.createElement('span');
+        const icon = doc.win.createSpan();
         icon.className = 'annotate-selection-icon';
         icon.setAttribute('aria-hidden', 'true');
         setIcon(icon, glyph);
         button.append(icon);
       }
-      const label = doc.createElement('span');
+      const label = doc.win.createSpan();
       label.className = 'annotate-selection-label';
       label.textContent = text;
       button.append(label);
@@ -1511,7 +1545,7 @@ export default class Annotate extends Plugin {
           swatch.setAttribute('aria-label', `Highlight ${color.name}`);
           swatch.setAttribute('aria-pressed', String(color.id === this.recentHighlight().id));
         }
-        const separator = doc.createElement('span');
+        const separator = doc.win.createSpan();
         separator.className = 'annotate-palette-divider';
         separator.setAttribute('aria-hidden', 'true');
         bar.append(separator);
@@ -1543,7 +1577,7 @@ export default class Annotate extends Plugin {
           swatch.setAttribute('aria-label', `Text color ${color.name}`);
           swatch.setAttribute('aria-pressed', String(color.id === this.recentTextColor().id));
         }
-        const separator = doc.createElement('span');
+        const separator = doc.win.createSpan();
         separator.className = 'annotate-palette-divider';
         separator.setAttribute('aria-hidden', 'true');
         bar.append(separator);
@@ -1566,7 +1600,7 @@ export default class Annotate extends Plugin {
     ]
       .filter(Boolean)
       .join(' · ');
-    const divider = doc.createElement('span');
+    const divider = doc.win.createSpan();
     divider.className = 'annotate-selection-divider';
     divider.setAttribute('aria-hidden', 'true');
     bar.append(divider);
@@ -1598,10 +1632,14 @@ export default class Annotate extends Plugin {
       const win = doc.defaultView;
       if (!win) return;
       const bounds = bar.getBoundingClientRect();
-      bar.style.left = `${Math.max(8, Math.min((rect.left + rect.right - bounds.width) / 2, win.innerWidth - bounds.width - 8))}px`;
+      bar.setCssStyles({
+        left: `${Math.max(8, Math.min((rect.left + rect.right - bounds.width) / 2, win.innerWidth - bounds.width - 8))}px`,
+      });
       const above = rect.top - bounds.height - 6;
       const top = above >= 8 ? above : rect.bottom + 6;
-      bar.style.top = `${Math.max(8, Math.min(top, win.innerHeight - bounds.height - 8))}px`;
+      bar.setCssStyles({
+        top: `${Math.max(8, Math.min(top, win.innerHeight - bounds.height - 8))}px`,
+      });
     };
     place();
   }
@@ -1899,7 +1937,7 @@ export default class Annotate extends Plugin {
       if (this.refreshPending) return;
       this.refreshPending = true;
     }
-    requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
       if (!exclude) this.refreshPending = false;
       if (this.disposed) return;
       for (const view of this.views)
@@ -1915,8 +1953,8 @@ export default class Annotate extends Plugin {
     this.refreshViews();
   }
   scheduleSave(): void {
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => {
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;
       void this.persist();
     }, 300);
@@ -1999,7 +2037,7 @@ export default class Annotate extends Plugin {
     this.configureCodex();
     this.refreshHighlightStyles();
     this.refreshViews();
-    if (this.settingsTab?.containerEl?.isShown()) this.settingsTab.display();
+    if (this.settingsTab?.containerEl?.isShown()) this.settingsTab.update();
     return true;
   }
   private persistOrThrow(): Promise<void> {
@@ -2033,7 +2071,7 @@ export default class Annotate extends Plugin {
       panel.inert = true;
       panel.setAttribute('aria-hidden', 'true');
       this.retiring.add(panel);
-      setTimeout(() => this.retire(panel), 140);
+      uiDelay(panel.ownerDocument, () => this.retire(panel), 140);
     }
     const wasOpen = this.openThreadId !== null;
     this.openThreadId = null;
@@ -2050,9 +2088,9 @@ export default class Annotate extends Plugin {
   /** Shows one transient notice with an Undo action; a newer notice replaces it. */
   showUndo(doc: Document, message: string, undo: () => void): void {
     this.dismissToast(true);
-    const element = doc.createElement('div'),
-      text = doc.createElement('span'),
-      button = doc.createElement('button');
+    const element = doc.win.createDiv(),
+      text = doc.win.createSpan(),
+      button = doc.win.createEl('button');
     element.className = 'annotate-toast';
     element.setAttribute('role', 'status');
     text.textContent = message;
@@ -2067,12 +2105,16 @@ export default class Annotate extends Plugin {
     doc.body.append(element);
     const toast: NonNullable<typeof this.toast> = { element };
     const arm = (ms: number) => {
-      clearTimeout(toast.timer);
-      toast.timer = setTimeout(() => {
-        if (this.toast === toast) this.dismissToast();
-      }, ms);
+      toast.timer?.();
+      toast.timer = uiDelay(
+        doc,
+        () => {
+          if (this.toast === toast) this.dismissToast();
+        },
+        ms,
+      );
     };
-    element.addEventListener('mouseenter', () => clearTimeout(toast.timer));
+    element.addEventListener('mouseenter', () => toast.timer?.());
     element.addEventListener('mouseleave', () => arm(2500));
     this.toast = toast;
     arm(6000);
@@ -2081,11 +2123,11 @@ export default class Annotate extends Plugin {
     const toast = this.toast;
     this.toast = null;
     if (!toast) return;
-    clearTimeout(toast.timer);
+    toast.timer?.();
     if (immediate) toast.element.remove();
     else {
       toast.element.classList.add('annotate-is-closing');
-      setTimeout(() => toast.element.remove(), 160);
+      uiDelay(toast.element.ownerDocument, () => toast.element.remove(), 160);
     }
   }
   /** Scrolls a thread's highlight into view, pulses it once, and opens the thread there. */
@@ -2095,12 +2137,16 @@ export default class Annotate extends Plugin {
       this.openThread(thread);
       return;
     }
-    clearTimeout(this.pulseTimer);
+    this.pulseTimer?.();
     this.pulseId = thread.id;
-    this.pulseTimer = setTimeout(() => {
-      this.pulseId = null;
-      this.refreshViews();
-    }, 1400);
+    this.pulseTimer = uiDelay(
+      view.containerEl.ownerDocument,
+      () => {
+        this.pulseId = null;
+        this.refreshViews();
+      },
+      1400,
+    );
     const doc = view.containerEl.ownerDocument;
     const mark = () =>
       view.containerEl.querySelector<HTMLElement>(
@@ -2114,26 +2160,30 @@ export default class Annotate extends Plugin {
       );
     } else mark()?.scrollIntoView({ block: 'center' });
     this.refreshViews();
-    setTimeout(() => {
-      if (this.disposed || !this.data.threads.includes(thread)) return;
-      const rect = mark()?.getBoundingClientRect();
-      this.openThread(thread, rect && rect.height ? rect : undefined, doc);
-    }, 90);
+    uiDelay(
+      doc,
+      () => {
+        if (this.disposed || !this.data.threads.includes(thread)) return;
+        const rect = mark()?.getBoundingClientRect();
+        this.openThread(thread, rect && rect.height ? rect : undefined, doc);
+      },
+      90,
+    );
   }
   private panel(rect?: Pick<DOMRect, 'left' | 'bottom'>, doc: Document = document): HTMLElement {
     this.hideSelectionTools();
     this.closePopup();
     for (const old of [...this.retiring]) this.retire(old);
-    const panel = doc.createElement('section');
+    const panel = doc.win.createEl('section');
     panel.className = 'annotate-popover annotate-panel';
     panel.setAttribute('role', 'dialog');
-    const title = doc.createElement('span');
+    const title = doc.win.createSpan();
     title.id = `annotate-thread-label-${crypto.randomUUID()}`;
     title.hidden = true;
     title.textContent = 'Comment thread';
     panel.setAttribute('aria-labelledby', title.id);
     panel.append(title);
-    const header = doc.createElement('header');
+    const header = doc.win.createEl('header');
     header.className = 'annotate-header';
     const close = iconButton(doc, 'x', 'Close comments', 'annotate-close');
     close.addEventListener('click', () => this.closePopup());
@@ -2143,7 +2193,7 @@ export default class Annotate extends Plugin {
     this.popup = panel;
     const outside = (event: MouseEvent) => {
       if (panel.classList.contains('annotate-fullscreen')) return;
-      if (event.target instanceof Node && !panel.contains(event.target)) this.closePopup();
+      if (event.targetNode && !panel.contains(event.targetNode)) this.closePopup();
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -2157,8 +2207,9 @@ export default class Annotate extends Plugin {
       const selection = doc.getSelection();
       const anchor = selection?.anchorNode;
       const element = anchor?.nodeType === 1 ? anchor : anchor?.parentElement;
-      const body =
-        element instanceof Element ? element.closest<HTMLElement>('.annotate-message-body') : null;
+      const body = element?.instanceOf(Element)
+        ? element.closest<HTMLElement>('.annotate-message-body')
+        : null;
       const next = body && panel.contains(body) ? body : null;
       if (selectedBody && selectedBody !== next) this.selectionHandlers.get(selectedBody)?.();
       if (next) this.selectionHandlers.get(next)?.();
@@ -2201,18 +2252,22 @@ export default class Annotate extends Plugin {
     const win = doc.defaultView;
     if (!win) return;
     const bounds = element.getBoundingClientRect();
-    element.style.left = `${Math.max(12, Math.min(rect?.left ?? (win.innerWidth - bounds.width) / 2, win.innerWidth - bounds.width - 12))}px`;
-    element.style.top = `${Math.max(12, Math.min((rect?.bottom ?? 100) + 10, win.innerHeight - bounds.height - 12))}px`;
+    element.setCssStyles({
+      left: `${Math.max(12, Math.min(rect?.left ?? (win.innerWidth - bounds.width) / 2, win.innerWidth - bounds.width - 12))}px`,
+    });
+    element.setCssStyles({
+      top: `${Math.max(12, Math.min((rect?.bottom ?? 100) + 10, win.innerHeight - bounds.height - 12))}px`,
+    });
   }
   private quote(panel: HTMLElement, anchor: Anchor): void {
-    const quote = panel.ownerDocument.createElement('blockquote');
+    const quote = panel.ownerDocument.win.createEl('blockquote');
     quote.className = 'annotate-quote';
     quote.textContent = anchor.quote;
     const header = panel.querySelector('.annotate-header');
     if (header) header.prepend(quote);
     else panel.append(quote);
     if (anchor.orphaned) {
-      const warning = panel.ownerDocument.createElement('p');
+      const warning = panel.ownerDocument.win.createEl('p');
       warning.className = 'annotate-muted annotate-orphaned';
       warning.textContent =
         'The original text was removed or cannot be located uniquely. The comments are preserved.';
@@ -2228,23 +2283,23 @@ export default class Annotate extends Plugin {
     notePath?: string,
   ): void {
     const doc = panel.ownerDocument,
-      form = doc.createElement('form'),
-      input = doc.createElement('textarea'),
-      button = doc.createElement('button');
+      form = doc.win.createEl('form'),
+      input = doc.win.createEl('textarea'),
+      button = doc.win.createEl('button');
     form.className = 'annotate-composer';
-    const context = doc.createElement('p');
+    const context = doc.win.createEl('p');
     context.className = 'annotate-context-preview';
     context.textContent = `AI context: complete note ${notePath ?? ''}, selected passage, and earlier thread messages. @comment saves locally without starting a request; it can enter later AI context.`;
     context.hidden = true;
     panel.append(context);
     input.placeholder = label;
-    const inputLabel = doc.createElement('label');
+    const inputLabel = doc.win.createEl('label');
     input.id = `annotate-composer-${crypto.randomUUID()}`;
     inputLabel.htmlFor = input.id;
     inputLabel.hidden = true;
     inputLabel.textContent = label;
     input.rows = 1;
-    const avatar = doc.createElement('span');
+    const avatar = doc.win.createSpan();
     avatar.className = 'annotate-avatar';
     avatar.textContent = initial(this.data.author || 'You');
     avatar.setAttribute('aria-hidden', 'true');
@@ -2275,11 +2330,11 @@ export default class Annotate extends Plugin {
       button.title = `${asking ? 'Ask assistant' : 'Save comment'} (Enter); new line (Shift+Enter)`;
       // Measure at auto height, then restore the old height first so the change can transition.
       const previous = input.style.height;
-      input.style.height = 'auto';
+      input.setCssStyles({ height: 'auto' });
       const next = `${Math.min(160, Math.max(24, input.scrollHeight))}px`;
-      input.style.height = previous;
+      input.setCssStyles({ height: previous });
       void input.offsetHeight;
-      input.style.height = next;
+      input.setCssStyles({ height: next });
     };
     input.addEventListener('input', () => {
       sync();
@@ -2287,13 +2342,13 @@ export default class Annotate extends Plugin {
       if (input.value.trim()) this.drafts.set(draftKey, input.value);
       else this.drafts.delete(draftKey);
     });
-    const inputContainer = doc.createElement('div');
+    const inputContainer = doc.win.createDiv();
     inputContainer.className = 'annotate-composer-input';
     let replyQuote: ReplyQuote | undefined;
-    const preview = doc.createElement('div');
+    const preview = doc.win.createDiv();
     preview.className = 'annotate-reply-preview';
     preview.hidden = true;
-    const quoted = doc.createElement('blockquote');
+    const quoted = doc.win.createEl('blockquote');
     quoted.className = 'annotate-reply-quote';
     const clearQuote = iconButton(doc, 'x', 'Remove quote');
     preview.append(quoted, clearQuote);
@@ -2315,15 +2370,15 @@ export default class Annotate extends Plugin {
         preview.hidden = false;
         input.focus({ preventScroll: true });
       };
-    const hint = doc.createElement('div');
+    const hint = doc.win.createDiv();
     hint.className = 'annotate-composer-hint';
     hint.setAttribute('aria-hidden', 'true');
     const key = (text: string) => {
-      const element = doc.createElement('kbd');
+      const element = doc.win.createEl('kbd');
       element.textContent = text;
       return element;
     };
-    const hintInner = doc.createElement('span');
+    const hintInner = doc.win.createSpan();
     hintInner.append(
       key('↵'),
       doc.createTextNode(' to send'),
@@ -2361,6 +2416,7 @@ export default class Annotate extends Plugin {
         });
     });
     input.addEventListener('keydown', (event) => {
+      // Preserve the legacy IME guard when compositionend precedes the confirming Enter.
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         event.stopPropagation();
@@ -2447,7 +2503,7 @@ export default class Annotate extends Plugin {
     const panel = this.panel(rect, doc),
       owner = panel.ownerDocument;
     this.quote(panel, thread.anchor);
-    const list = owner.createElement('div');
+    const list = owner.win.createDiv();
     list.className = 'annotate-messages';
     panel.append(list);
     this.openThreadId = thread.id;
@@ -2455,7 +2511,7 @@ export default class Annotate extends Plugin {
     for (const comment of thread.comments) this.messageElement(list, thread, comment);
     const header = panel.querySelector('.annotate-header'),
       close = header?.querySelector('.annotate-close');
-    const actions = owner.createElement('div');
+    const actions = owner.win.createDiv();
     actions.className = 'annotate-actions';
     header?.insertBefore(actions, close ?? null);
     actions.append(
@@ -2500,20 +2556,20 @@ export default class Annotate extends Plugin {
       });
     });
     if (thread.resolved) {
-      const banner = owner.createElement('div');
+      const banner = owner.win.createDiv();
       banner.className = 'annotate-resolved-banner';
       banner.append(icon(owner, 'check'), owner.createTextNode('Resolved'));
       panel.insertBefore(banner, list);
     }
     if (this.data.codex.enabled || thread.codex) {
-      const bar = owner.createElement('div');
+      const bar = owner.win.createDiv();
       bar.className = 'annotate-ai-bar';
       panel.append(bar);
-      const status = owner.createElement('p');
+      const status = owner.win.createEl('p');
       status.className = 'annotate-codex-status';
       status.setAttribute('role', 'status');
       bar.append(status);
-      const cancel = owner.createElement('button');
+      const cancel = owner.win.createEl('button');
       cancel.type = 'button';
       cancel.className = 'annotate-pill annotate-codex-cancel';
       cancel.append(icon(owner, 'stop'), owner.createTextNode('Stop'));
@@ -2526,7 +2582,7 @@ export default class Annotate extends Plugin {
             ?.interrupt(thread.codex.sessionId)
             .catch((error) => new Notice(String(error)));
       });
-      const reconnect = owner.createElement('button');
+      const reconnect = owner.win.createEl('button');
       reconnect.type = 'button';
       reconnect.className = 'annotate-pill annotate-codex-reconnect';
       reconnect.append(icon(owner, 'refresh'), owner.createTextNode('Reconnect'));
@@ -2535,7 +2591,7 @@ export default class Annotate extends Plugin {
         if (this.backend) void this.backend.connect().catch(() => this.paintCodex());
         else this.configureCodex();
       });
-      const reset = owner.createElement('button');
+      const reset = owner.win.createEl('button');
       reset.type = 'button';
       reset.className = 'annotate-pill annotate-codex-reset';
       reset.append(icon(owner, 'sparkle'), owner.createTextNode('Start new conversation'));
@@ -2615,7 +2671,7 @@ class ThreadList extends Modal {
         this.plugin.revealThread(thread);
       };
       row.addEventListener('click', (event) => {
-        if (event.target instanceof Element && event.target.closest('button')) return;
+        if (event.targetNode?.instanceOf(Element) && event.targetNode.closest('button')) return;
         openRow();
       });
       row.addEventListener('keydown', (event) => {

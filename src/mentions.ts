@@ -1,3 +1,4 @@
+import './dom';
 import { assistantIcon } from './logos';
 import { providers, providerSchema, type ProviderId } from './ai';
 import type { CodexSkill } from './codex';
@@ -16,7 +17,7 @@ export function mentionMenu(
     preferred,
     ...providerSchema.options.filter((id) => id !== preferred),
   ];
-  const menu = doc.createElement('div');
+  const menu = doc.win.createDiv();
   menu.className = 'annotate-mention-menu';
   menu.id = `annotate-mentions-${crypto.randomUUID()}`;
   menu.setAttribute('role', 'listbox');
@@ -77,14 +78,14 @@ export function mentionMenu(
     menu.replaceChildren();
     menu.setAttribute('aria-label', skills ? 'Codex skills' : 'Message mentions');
     matches.forEach((choice, i) => {
-      const option = doc.createElement('button');
+      const option = doc.win.createEl('button');
       option.type = 'button';
       option.tabIndex = -1;
       option.className = 'annotate-mention-option' + (skills ? ' annotate-skill-option' : '');
       option.id = `${menu.id}-${i}`;
       option.setAttribute('role', 'option');
-      const name = doc.createElement('strong'),
-        detail = doc.createElement('span');
+      const name = doc.win.createEl('strong'),
+        detail = doc.win.createSpan();
       if (choice.kind === 'assistant') {
         name.textContent = providers[choice.provider].name;
         detail.textContent = `@${choice.provider}`;
@@ -177,6 +178,7 @@ export function mentionMenu(
       !range ||
       composing ||
       event.isComposing ||
+      // IME confirmation must not choose a mention when isComposing has already reset.
       event.keyCode === 229 ||
       event.shiftKey ||
       event.ctrlKey ||

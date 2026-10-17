@@ -83,7 +83,7 @@ body.theme-dark {
   flex: 0 0 auto;
   object-fit: contain;
 }
-.annotate-brand-heading {
+.annotate-brand-heading .setting-item-name {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1451,4 +1451,9 @@ button.annotate-count:hover {
 .annotate-other-models input,
 .annotate-other-models select {
   width: 100%;
+}
+
+/* Custom shortcut rows occupy the complete declarative setting container. */
+.annotate-hotkey-settings {
+  display: block;
 }
