@@ -39,9 +39,13 @@ export async function checkAccess({
     await until(`return !document.querySelector('.annotate-operation-history')`, 'history closed');
   };
   await ev(
-    `${P}if(s)throw Error('Access check already running');window.__annotateAccessCheck={folder:${JSON.stringify(folder)},sibling:${JSON.stringify(sibling)},previousAgent:structuredClone(p.data.agent)};const x=window.__annotateAccessCheck;p.data.codex.enabled=false;p.configureCodex();p.agentAccess.cancelApprovals();x.previousController=p.accessController;x.historyDirectory=p.manifest.dir+'/access-check-'+Date.now();await app.vault.adapter.mkdir(x.historyDirectory);p.accessController=new x.previousController.constructor({app,directory:()=>x.historyDirectory,settings:()=>p.data.agent,save:()=>p.persistOrThrow(),reconfigure:()=>p.configureCodex()});const notes=await p.agentAccess.notes();x.notes=notes;p.data.agent={folders:[],webSearch:false,services:[],consentVersion:1};await p.persistOrThrow();await app.vault.createFolder(x.folder);await app.vault.createFolder(x.sibling);await app.vault.create(${JSON.stringify(path)},${JSON.stringify(original)});await app.vault.create(x.sibling+'/Other.md','Synthetic sibling secret');x.mount=document.body.createDiv({cls:'annotate-access-check-settings'});p.agentAccess.renderSettings(x.mount)`,
+    `${P}if(s)throw Error('Access check already running');window.__annotateAccessCheck={folder:${JSON.stringify(folder)},sibling:${JSON.stringify(sibling)},previousAgent:structuredClone(p.data.agent)};const x=window.__annotateAccessCheck;p.data.codex.enabled=false;p.configureCodex();p.agentAccess.cancelApprovals();x.previousController=p.accessController;x.historyDirectory=p.manifest.dir+'/access-check-'+Date.now();await app.vault.adapter.mkdir(x.historyDirectory);p.accessController=new x.previousController.constructor({app,directory:()=>x.historyDirectory,settings:()=>p.data.agent,save:()=>p.persistOrThrow(),reconfigure:()=>p.configureCodex()});const notes=await p.agentAccess.notes();x.notes=notes;p.data.agent={folders:[],webSearch:false,services:[],consentVersion:1};await p.persistOrThrow();await app.vault.createFolder(x.folder);await app.vault.createFolder(x.sibling);await app.vault.create(${JSON.stringify(path)},${JSON.stringify(original)});await app.vault.create(x.sibling+'/Other.md','Synthetic sibling secret');p.settingsTab.update();const settings=app.setting,previous=settings.shouldUsePopout;try{settings.shouldUsePopout=()=>false;settings.open();settings.openTabById('annotate')}finally{settings.shouldUsePopout=previous}`,
   );
   try {
+    await until(
+      `return !!document.querySelector('.annotate-settings .annotate-agent-settings select')`,
+      'native declarative access settings rendered',
+    );
     await step('access: defaults deny notes, web, and services', async () => {
       assert(
         await ev(
@@ -58,14 +62,14 @@ export async function checkAccess({
       assert(denied, 'ungranted read denied');
       assert(
         await ev(
-          `${P}return s.mount.textContent.includes('Terminal access is unavailable')&&s.mount.querySelector('select').querySelector('option[value="'+s.folder+'"]')!==null`,
+          `${P}const mount=document.querySelector('.annotate-settings .annotate-agent-settings');return mount.textContent.includes('Terminal access is unavailable')&&mount.querySelector('select').querySelector('option[value="'+s.folder+'"]')!==null`,
         ),
         'actual settings show terminal restriction and visible fixture folder',
       );
     });
     await step('access: settings folder approval cancels without granting', async () => {
       await ev(
-        `${P}const select=s.mount.querySelector('select');select.value=s.folder;select.dispatchEvent(new Event('change'));[...s.mount.querySelectorAll('button')].find(b=>b.textContent==='Allow folder').click()`,
+        `${P}const mount=document.querySelector('.annotate-settings .annotate-agent-settings'),select=mount.querySelector('select');select.value=s.folder;select.dispatchEvent(new Event('change'));[...mount.querySelectorAll('button')].find(b=>b.textContent==='Allow folder').click()`,
       );
       await until(
         `return !!document.querySelector('.annotate-access-prompt')`,
@@ -83,6 +87,7 @@ export async function checkAccess({
         'cancel closes folder prompt',
       );
       assert(await ev(`${P}return !p.data.agent.folders.length`), 'cancel keeps folders empty');
+      await ev(`app.setting.close()`);
     });
     await step('access: note context requires explicit folder consent', async () => {
       await pendingContext(path);
@@ -322,7 +327,7 @@ export async function checkAccess({
     });
   } finally {
     await ev(
-      `${P}if(s){p.agentAccess.cancelApprovals();for(const close of document.querySelectorAll('.annotate-operation-history .modal-close-button'))close.click();if(s.trashOriginal)app.fileManager.trashFile=s.trashOriginal;for(const path of s.links??[])if(require('node:fs').existsSync(path))require('node:fs').unlinkSync(path);s.mount?.remove();p.accessController=s.previousController;await app.vault.adapter.rmdir(s.historyDirectory,true);for(const folder of [s.folder,s.sibling]){const file=app.vault.getAbstractFileByPath(folder);if(file)await app.vault.delete(file,true)}p.data.agent=s.previousAgent;p.data.codex.enabled=false;p.configureCodex();await p.persistOrThrow();delete window.__annotateAccessCheck}`,
+      `${P}if(s){p.agentAccess.cancelApprovals();for(const close of document.querySelectorAll('.annotate-operation-history .modal-close-button'))close.click();if(s.trashOriginal)app.fileManager.trashFile=s.trashOriginal;for(const path of s.links??[])if(require('node:fs').existsSync(path))require('node:fs').unlinkSync(path);app.setting.close();p.accessController=s.previousController;await app.vault.adapter.rmdir(s.historyDirectory,true);for(const folder of [s.folder,s.sibling]){const file=app.vault.getAbstractFileByPath(folder);if(file)await app.vault.delete(file,true)}p.data.agent=s.previousAgent;p.data.codex.enabled=false;p.configureCodex();await p.persistOrThrow();delete window.__annotateAccessCheck}`,
     );
   }
 }
