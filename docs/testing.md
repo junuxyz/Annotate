@@ -153,12 +153,25 @@ dispatch. Only the `check` job is a required PR status check. Feature-branch pus
 do not start a second copy alongside the PR run. A newer push cancels the older
 fast run for that PR or branch.
 
-Pre-tag E2E is manual. Dispatch `.github/workflows/e2e.yml` with `ref` set to the
-exact commit SHA you intend to tag. It provisions pinned Obsidian in a disposable
-macOS VM, runs `check:release`, and uploads evidence plus the validated commit and
-distribution hashes. Wait for success before creating the version tag. Do not
-tag a different commit or rebuild the validated distribution before publishing.
-Caches and raw evidence stay out of Git.
+Pre-tag E2E is manual. Dispatch `.github/workflows/e2e.yml` on the branch containing
+the exact commit to tag, with its full SHA as the `ref` input. The workflow requires
+the dispatch SHA, input SHA and checked-out SHA to match. This also binds the
+attestation's source identity to the commit actually validated. For example, after
+pushing the final release commit to `main`:
+
+```sh
+gh workflow run e2e.yml --ref main -f ref="$(git rev-parse HEAD)"
+```
+
+It provisions pinned Obsidian in a disposable macOS VM and runs `check:release`.
+After success, it copies the verified distribution without rebuilding, signs a
+GitHub build provenance attestation for all three files, and uploads the
+`obsidian-e2e-evidence` artifact. The artifact contains `distribution/`,
+`validated-build.json`, `validated-commit.txt` and `attestation.jsonl`, alongside
+the native reports. Failed runs may upload diagnostic evidence but are not release
+approval. Wait for the entire workflow to succeed before creating the version tag.
+Publish the downloaded distribution, preserving its hashes. Caches and raw evidence
+stay out of Git. See [release verification](development.md#releases).
 
 ## Recorded model traces
 
