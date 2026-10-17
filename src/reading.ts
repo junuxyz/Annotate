@@ -1,3 +1,5 @@
+import './dom';
+import { decodeHTMLStrict } from 'entities';
 import { parser, GFM } from '@lezer/markdown';
 import type { Anchor } from './model';
 
@@ -24,7 +26,7 @@ function finish<T>(projection: ProjectionBuilder<T>): Projection<T> {
   return { text: projection.chars.join(''), points: projection.points };
 }
 
-export function projectSource(source: string, doc: Document): Projection<SourcePoint> {
+export function projectSource(source: string, _doc?: Document): Projection<SourcePoint> {
   const hidden = new Uint8Array(source.length);
   const replacements = new Map<number, { end: number; text: string }>();
   const hide = (from: number, to: number) => hidden.fill(1, from, to);
@@ -58,9 +60,10 @@ export function projectSource(source: string, doc: Document): Projection<SourceP
         hide(node.from, node.to);
       if (node.name === 'Escape') hide(node.from, node.from + 1);
       if (node.name === 'Entity') {
-        const entity = doc.createElement('textarea');
-        entity.innerHTML = source.slice(node.from, node.to);
-        replacements.set(node.from, { end: node.to, text: entity.value });
+        replacements.set(node.from, {
+          end: node.to,
+          text: decodeHTMLStrict(source.slice(node.from, node.to)),
+        });
       }
     },
   });
@@ -110,13 +113,13 @@ export function projectDom(root: HTMLElement): Projection<DomPoint | null> {
     'TH',
   ]);
   const visit = (node: Node): void => {
-    if (node instanceof win.Text) {
+    if (node.instanceOf(win.Text)) {
       const text = node.data;
       for (let offset = 0; offset < text.length; offset++)
         append(projected, text.charAt(offset), { node, offset });
       return;
     }
-    if (!(node instanceof win.HTMLElement)) return;
+    if (!node.instanceOf(win.HTMLElement)) return;
     if (
       node.matches(
         'button, script, style, .annotate-count, .copy-code-button, .markdown-embed, .callout-title, .math, .math-block',
@@ -183,7 +186,7 @@ export function markReadingAnchor(
     const range = root.ownerDocument.createRange();
     range.setStart(node, group.from);
     range.setEnd(node, group.to);
-    const mark = root.ownerDocument.createElement('span');
+    const mark = root.ownerDocument.win.createSpan();
     mark.className = 'annotate-reading-mark ' + className;
     if (id) mark.dataset.annotateThread = id;
     range.surroundContents(mark);

@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { Window } from 'happy-dom';
+import { Window } from './dom.mjs';
 import {
   projectSource,
   sectionBounds,
@@ -106,4 +106,52 @@ test('unmappable rendered content is left intact rather than highlighted at a wr
     0,
   );
   assert.equal(el.innerHTML, '<p>custom rendered output</p>');
+});
+
+test('entity decoding preserves named, numeric and multi-codepoint source ranges without HTML parsing', () => {
+  for (const [entity, decoded] of [
+    ['&ClockwiseContourIntegral;', '∲'],
+    ['&NotEqualTilde;', '≂̸'],
+    ['&#x1f600;', '😀'],
+    ['&#128;', '€'],
+    ['&#0;', '�'],
+    ['&lt;', '<'],
+  ]) {
+    const source = `before ${entity} after`;
+    const projected = projectSource(source);
+    assert.equal(projected.text, `before ${decoded} after`);
+    for (let index = 7; index < 7 + decoded.length; index++)
+      assert.deepEqual(projected.points[index], { from: 7, to: 7 + entity.length });
+    const element = root('<p></p>');
+    element.firstChild.textContent = `before ${decoded} after`;
+    const marks = markReadingAnchor(
+      element,
+      source,
+      { from: 0, to: source.length },
+      makeAnchor(source, 7, 7 + entity.length),
+      'annotate-highlight',
+    );
+    assert.equal(marks.map((mark) => mark.textContent).join(''), decoded);
+  }
+});
+
+test('reading marks and projections preserve a secondary window document', async () => {
+  const other = new Window();
+  try {
+    const element = other.document.createElement('div');
+    element.innerHTML = '<p>other &amp; note</p>';
+    const source = 'other &amp; note';
+    const marks = markReadingAnchor(
+      element,
+      source,
+      { from: 0, to: source.length },
+      makeAnchor(source, 0, source.length),
+      'annotate-highlight',
+    );
+    assert.equal(marks.length, 1);
+    assert.equal(marks[0].ownerDocument, other.document);
+    assert.equal(marks[0].textContent, 'other & note');
+  } finally {
+    await other.happyDOM.close();
+  }
 });
