@@ -1,3 +1,7 @@
+import * as timers from 'node:timers';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { z } from 'zod';
 import type { DataAdapter } from 'obsidian';
 
@@ -12,8 +16,6 @@ export async function syncLocalBuild(options: {
   enable: () => Promise<void>;
   development?: boolean;
 }): Promise<string> {
-  const fs: typeof import('node:fs/promises') = require('node:fs/promises');
-  const path: typeof import('node:path') = require('node:path');
   if (!path.isAbsolute(options.source)) throw new Error('Choose an absolute local build folder.');
   const next = await Promise.all(
     files.map((file) => fs.readFile(path.join(options.source, file), 'utf8')),
@@ -54,12 +56,9 @@ const developmentSchema = z.object({
 const attemptSchema = z.object({ lastAttempt: z.string().regex(/^[a-f0-9]{64}$/) });
 
 function fingerprint(contents: string[]): string {
-  const crypto: typeof import('node:crypto') = require('node:crypto');
   return crypto.createHash('sha256').update(contents.join('\0')).digest('hex');
 }
 async function developmentId(source: string): Promise<string> {
-  const fs: typeof import('node:fs/promises') = require('node:fs/promises');
-  const path: typeof import('node:path') = require('node:path');
   return developmentSchema.parse(
     JSON.parse(await fs.readFile(path.join(source, 'development.json'), 'utf8')),
   ).buildId;
@@ -101,10 +100,10 @@ export async function watchDevelopmentBuild(options: {
       running = false;
     }
   };
-  const timer = setInterval(() => void check(), options.intervalMs ?? 1000);
+  const timer = timers.setInterval(() => void check(), options.intervalMs ?? 1000);
   void check();
   return () => {
     stopped = true;
-    clearInterval(timer);
+    timers.clearInterval(timer);
   };
 }

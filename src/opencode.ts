@@ -1,3 +1,10 @@
+import * as timers from 'node:timers';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
+import * as http from 'node:http';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import { z } from 'zod';
@@ -174,16 +181,12 @@ export class OpenCodeBackend implements AssistantBackend {
     return this.startup;
   }
   private environment(): NodeJS.ProcessEnv {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const os = require('node:os') as typeof import('node:os');
-    const path = require('node:path') as typeof import('node:path');
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'annotate-opencode-'));
     this.scratch = scratch;
     this.guardDirectory = path.join(scratch, 'guard');
     this.guardToken = crypto.randomUUID();
     fs.mkdirSync(this.guardDirectory, { mode: 0o700 });
     const pluginPath = path.join(scratch, 'guard.mjs');
-    const { pathToFileURL } = require('node:url') as typeof import('node:url');
     this.guardPlugin = pathToFileURL(pluginPath).href;
     // No dependencies or host plugins. A session receipt proves registration before context is sent.
     fs.writeFileSync(
@@ -273,9 +276,6 @@ export const AnnotateGuard = async () => {
     return env;
   }
   private refreshModels(env: NodeJS.ProcessEnv): Promise<boolean> {
-    const { spawn } = require('node:child_process') as typeof import('node:child_process');
-    const fs = require('node:fs') as typeof import('node:fs');
-    const path = require('node:path') as typeof import('node:path');
     const refreshEnv = { ...env };
     // A timed-out catalogue process must not leave dependency locks in the server's state.
     for (const key of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']) {
@@ -295,12 +295,10 @@ export const AnnotateGuard = async () => {
     child.stdout.resume();
     child.stderr.resume();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => child.kill('SIGKILL'), 12_000);
+      const timer = timers.setTimeout(() => child.kill('SIGKILL'), 12_000);
       const finish = (success: boolean) => {
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         if (this.child === child) this.child = null;
-        const fs = require('node:fs') as typeof import('node:fs');
-        const path = require('node:path') as typeof import('node:path');
         resolve(
           success &&
             !!env.XDG_CACHE_HOME &&
@@ -312,7 +310,6 @@ export const AnnotateGuard = async () => {
     });
   }
   private async start(generation: number): Promise<void> {
-    const { spawn } = require('node:child_process') as typeof import('node:child_process');
     this.stop();
     this.password = crypto.randomUUID();
     const env = this.environment();
@@ -331,12 +328,12 @@ export const AnnotateGuard = async () => {
     child.stderr.on('data', () => {});
     await new Promise<void>((resolve, reject) => {
       let buffer = '';
-      const timer = setTimeout(() => {
+      const timer = timers.setTimeout(() => {
         reject(new Error('OpenCode startup timed out.'));
         child.kill();
       }, 20_000);
       const fail = () => {
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         reject(
           new Error('Cannot start OpenCode. Install OpenCode 1.19.2 and check its command path.'),
         );
@@ -350,7 +347,7 @@ export const AnnotateGuard = async () => {
         const match = /opencode server listening on http:\/\/127\.0\.0\.1:(\d+)/i.exec(buffer);
         if (!match) return;
         this.port = Number(match[1]);
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         resolve();
       });
       child.once('close', () => {
@@ -417,8 +414,6 @@ export const AnnotateGuard = async () => {
     if (!this.enabled || generation !== this.generation) throw new Error('OpenCode disconnected.');
   }
   private async verifyGuard(session: string, signal: AbortSignal): Promise<void> {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const path = require('node:path') as typeof import('node:path');
     const receipt = path.join(this.guardDirectory, session);
     for (let attempt = 0; attempt < 40 && !signal.aborted; attempt++) {
       try {
@@ -429,12 +424,11 @@ export const AnnotateGuard = async () => {
       } catch (error) {
         if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') break;
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      await new Promise<void>((resolve) => timers.setTimeout(resolve, 50));
     }
     throw new Error('OpenCode execution guard did not initialize. No note context was sent.');
   }
   private response(route: string, body?: unknown, signal?: AbortSignal): Promise<IncomingMessage> {
-    const http = require('node:http') as typeof import('node:http');
     return new Promise((resolve, reject) => {
       const request = http.request(
         {
@@ -501,14 +495,14 @@ export const AnnotateGuard = async () => {
     const done = (state: ResponseState, error?: string) => {
       if (finished) return;
       finished = true;
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       this.active.delete(id);
       controller.abort();
       if (remote && state !== 'completed')
         void this.json(`/session/${remote}/abort`, {}).catch(() => {});
       finish(state, error);
     };
-    const timer = setTimeout(
+    const timer = timers.setTimeout(
       () => done('unknown', 'Response timed out. It will not be resent.'),
       120_000,
     );
@@ -639,13 +633,12 @@ export const AnnotateGuard = async () => {
     this.scratch = null;
     const cleanup = () => {
       if (!scratch) return;
-      const fs = require('node:fs') as typeof import('node:fs');
       fs.rmSync(scratch, { recursive: true, force: true });
     };
     if (child && child.exitCode === null && child.signalCode === null && child.pid) {
-      const timer = setTimeout(() => child.kill('SIGKILL'), 1000);
+      const timer = timers.setTimeout(() => child.kill('SIGKILL'), 1000);
       child.once('close', () => {
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         cleanup();
       });
       child.kill();

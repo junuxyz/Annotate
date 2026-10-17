@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { z } from 'zod';
 import {
   CodexBackend,
@@ -22,9 +25,6 @@ export const providers = {
 export function resolveExecutable(executable: string): string {
   if (!executable) return executable;
   try {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const os = require('node:os') as typeof import('node:os');
-    const path = require('node:path') as typeof import('node:path');
     const home = os.homedir();
     const standardCodexPaths = [
       'codex',
@@ -69,7 +69,7 @@ export function resolveExecutable(executable: string): string {
       }
     }
   } catch {
-    // Not running under Node; keep the configured name.
+    // Keep the configured name if executable discovery is unavailable.
   }
   return executable;
 }
@@ -85,12 +85,15 @@ export const claudeModels: Record<string, string> = {
 /** ChatGPT models Codex last cached for this account, so settings can list them before a check. */
 export function cachedChatgptModels(): Record<string, string> {
   try {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const os = require('node:os') as typeof import('node:os');
-    const path = require('node:path') as typeof import('node:path');
-    const cache = JSON.parse(
-      fs.readFileSync(path.join(os.homedir(), '.codex', 'models_cache.json'), 'utf8'),
-    ) as { models?: { slug?: unknown; display_name?: unknown }[] };
+    const cache = z
+      .object({
+        models: z
+          .array(z.object({ slug: z.unknown().optional(), display_name: z.unknown().optional() }))
+          .optional(),
+      })
+      .parse(
+        JSON.parse(fs.readFileSync(path.join(os.homedir(), '.codex', 'models_cache.json'), 'utf8')),
+      );
     const models: Record<string, string> = {};
     for (const m of cache.models ?? [])
       if (typeof m.slug === 'string')

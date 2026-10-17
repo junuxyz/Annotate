@@ -47,7 +47,7 @@ export const noteHistorySchema = z.array(
 export type NoteOperation = z.infer<typeof noteHistorySchema>[number];
 
 /** Literal vault-relative paths only. A folder grant of '.' explicitly selects the vault root. */
-export function normalizeNoteFolder(value: string, configDir = '.obsidian'): string {
+export function normalizeNoteFolder(value: string, configDir: string): string {
   if (value === '.') return '.';
   if (
     !value ||

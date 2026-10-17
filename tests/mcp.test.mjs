@@ -405,3 +405,14 @@ test('HTTPS transport aborts an in-flight request without retrying it', async ()
     https.request = original;
   }
 });
+
+test('approval failures normalize unknown rejection reasons without sending a tool call', async () => {
+  const item = fixture({ approve: () => Promise.reject('Approval unavailable') });
+  const [tool] = await item.client.tools();
+  await assert.rejects(tool.execute({ text: 'private' }, context()), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /Approval unavailable/);
+    return true;
+  });
+  assert.ok(!item.requests.some((request) => request.rpc.method === 'tools/call'));
+});

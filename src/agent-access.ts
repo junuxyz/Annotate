@@ -1,3 +1,6 @@
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import {
   FileSystemAdapter,
   MarkdownView,
@@ -262,9 +265,6 @@ export class AgentAccess {
     const adapter = this.options.app.vault.adapter;
     if (!(adapter instanceof FileSystemAdapter))
       throw new Error('Assistant note tools require a local filesystem vault.');
-    const os = require('node:os') as typeof import('node:os');
-    const path = require('node:path') as typeof import('node:path');
-    const crypto = require('node:crypto') as typeof import('node:crypto');
     const key = crypto
       .createHash('sha256')
       .update(adapter.getBasePath())
@@ -431,7 +431,7 @@ export class AgentAccess {
         }),
       )
       .addText((text) =>
-        text.setPlaceholder('https://service.example/mcp').onChange((value) => {
+        text.setPlaceholder('Service endpoint').onChange((value) => {
           url = value;
         }),
       )

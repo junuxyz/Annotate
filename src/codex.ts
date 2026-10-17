@@ -1,3 +1,8 @@
+import * as timers from 'node:timers';
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { version as pluginVersion } from '../manifest.json';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
@@ -16,7 +21,7 @@ const envelope = z.object({
   method: z.string().optional(),
   params: z.unknown().optional(),
   result: z.unknown().optional(),
-  error: z.object({ message: z.string() }).passthrough().optional(),
+  error: z.object({ message: z.string() }).loose().optional(),
 });
 const deltaSchema = z.object({
   threadId: z.string(),
@@ -147,14 +152,14 @@ export class CodexBackend {
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
-      timer: ReturnType<typeof setTimeout>;
+      timer: ReturnType<typeof timers.setTimeout>;
     }
   >();
   private active = new Map<string, Active>();
   private resumed = new Set<string>();
   private buffer = '';
   private enabled = false;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof timers.setTimeout> | null = null;
   private attempts = 0;
   private scratch: string | null = null;
   private home: string | null = null;
@@ -239,10 +244,6 @@ export class CodexBackend {
     try {
       if (typeof process === 'undefined' || !process.versions?.node)
         throw new Error('Codex integration requires Obsidian desktop.');
-      const { spawn } = require('node:child_process') as typeof import('node:child_process');
-      const fs = require('node:fs') as typeof import('node:fs');
-      const os = require('node:os') as typeof import('node:os');
-      const path = require('node:path') as typeof import('node:path');
       this.scratch ??= fs.realpathSync(
         fs.mkdtempSync(path.join(os.tmpdir(), 'obsidian-annotate-')),
       );
@@ -406,7 +407,7 @@ export class CodexBackend {
     if (!this.child) return Promise.reject(new Error('Codex is disconnected.'));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = timers.setTimeout(() => {
         this.pending.delete(id);
         reject(new OutcomeUnknown(`Codex ${method} timed out. Do not resend automatically.`));
       }, 30000);
@@ -415,7 +416,7 @@ export class CodexBackend {
         if (error) {
           const p = this.pending.get(id);
           if (p) {
-            clearTimeout(p.timer);
+            timers.clearTimeout(p.timer);
             this.pending.delete(id);
             reject(new OutcomeUnknown(error.message));
           }
@@ -441,7 +442,7 @@ export class CodexBackend {
       if (typeof msg.id === 'number' && !msg.method) {
         const p = this.pending.get(msg.id);
         if (p) {
-          clearTimeout(p.timer);
+          timers.clearTimeout(p.timer);
           this.pending.delete(msg.id);
           if (msg.error) p.reject(new Error(msg.error.message));
           else p.resolve(msg.result);
@@ -628,7 +629,7 @@ export class CodexBackend {
     if (this.enabled && this.attempts < 3) {
       this.attempts++;
       this.stateChanged('reconnecting', message);
-      this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = timers.setTimeout(() => {
         this.reconnectTimer = null;
         void this.connect().catch(() => {});
       }, 1000 * this.attempts);
@@ -640,7 +641,7 @@ export class CodexBackend {
     child?.kill();
     this.resumed.clear();
     for (const p of this.pending.values()) {
-      clearTimeout(p.timer);
+      timers.clearTimeout(p.timer);
       p.reject(new OutcomeUnknown('Codex connection closed. Request outcome may be unknown.'));
     }
     this.pending.clear();
@@ -653,12 +654,11 @@ export class CodexBackend {
   }
   disable(): void {
     this.enabled = false;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    if (this.reconnectTimer) timers.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.stopChild();
     this.stateChanged('disabled');
     if (this.scratch) {
-      const fs = require('node:fs') as typeof import('node:fs');
       fs.rmSync(this.scratch, { recursive: true, force: true });
       this.scratch = null;
     }
