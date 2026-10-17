@@ -891,7 +891,7 @@ export default class Annotate extends Plugin {
         return false;
       }
       if (!this.data.codex.enabled) {
-        new Notice('Enable the assistant in Annotate settings first.');
+        new Notice('Enable the assistant under Settings → Annotate first.');
         return false;
       }
       if (invocation && invocation.provider !== this.data.assistant.provider) {
@@ -1973,7 +1973,7 @@ export default class Annotate extends Plugin {
       data.agent = { folders: [], webSearch: false, services: [], consentVersion: 1 };
       for (const thread of data.threads) if (thread.codex) thread.codex.sessionId = undefined;
       new Notice(
-        'Annotate: assistant access now uses approved note folders. Review the sharing information in settings before enabling AI again.',
+        'Annotate: assistant access now uses approved note folders. Review the sharing information in Settings before enabling AI again.',
         10000,
       );
     }
@@ -2984,7 +2984,7 @@ class CommentsSettings extends PluginSettingTab {
             .addText((text) => {
               hexInput = text.inputEl;
               text
-                .setPlaceholder('#rrggbb or #rrggbbaa')
+                .setPlaceholder('Hex color')
                 .setValue(color.value)
                 .onChange((value) => {
                   const valid = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value.trim());

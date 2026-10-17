@@ -33,7 +33,19 @@ export default defineConfig(
       'obsidianmd/ui/sentence-case': [
         'warn',
         {
-          brands: ['Obsidian', 'Annotate', 'ChatGPT', 'OpenCode', 'Codex', 'Claude'],
+          brands: [
+            'Obsidian',
+            'Annotate',
+            'ChatGPT',
+            'OpenCode',
+            'Codex',
+            'Claude',
+            'Ctrl',
+            'Cmd',
+            'Alt',
+            'Settings',
+            'Hotkeys',
+          ],
           acronyms: ['AI', 'CLI', 'MCP', 'HTTPS', 'URL', 'JSON'],
         },
       ],
@@ -52,8 +64,15 @@ export default defineConfig(
         { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }],
+      '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': 'error',
+    },
+  },
+  {
+    files: ['src/main.ts', 'src/mentions.ts'],
+    rules: {
+      // Preserve keyCode 229 so IME confirmation does not submit a comment.
+      '@typescript-eslint/no-deprecated': ['error', { allow: [{ from: 'lib', name: 'keyCode' }] }],
     },
   },
 );
