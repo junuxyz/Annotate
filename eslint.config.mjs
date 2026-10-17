@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
+import obsidianmd from 'eslint-plugin-obsidianmd';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
@@ -24,14 +25,28 @@ export default defineConfig(
     },
   },
   {
+    files: ['src/**/*.ts'],
+    extends: obsidianmd.configs.recommended.filter(
+      (config) => !config.files?.includes('package.json'),
+    ),
+    rules: {
+      'obsidianmd/ui/sentence-case': [
+        'warn',
+        {
+          brands: ['Obsidian', 'Annotate', 'ChatGPT', 'OpenCode', 'Codex', 'Claude'],
+          acronyms: ['AI', 'CLI', 'MCP', 'HTTPS', 'URL', 'JSON'],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.ts'],
     extends: [tseslint.configs.recommended],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
     rules: {
-      // Node modules load lazily so mobile can still load the plugin.
-      '@typescript-eslint/no-require-imports': ['error', { allow: ['^node:'] }],
+      '@typescript-eslint/no-require-imports': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
