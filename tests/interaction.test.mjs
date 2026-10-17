@@ -1780,3 +1780,113 @@ test('legacy assistant settings require new consent before connecting or sharing
     await tick();
   }
 });
+
+test('searchable settings preserve combined thread data, persistence and change side effects', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    plugin.data.threads.push({
+      id: 'settings-thread',
+      path: 'test.md',
+      resolved: false,
+      anchor: { quote: 'synthetic', prefix: '', suffix: '', from: 0, to: 9, orphaned: false },
+      comments: [
+        {
+          id: 'settings-comment',
+          author: 'Synthetic',
+          body: 'Keep this note comment',
+          createdAt: 1,
+        },
+      ],
+    });
+    await plugin.persist();
+    const tab = plugin.settingTab;
+    const flatten = (items) => items.flatMap((item) => (item.items ? flatten(item.items) : [item]));
+    const definitions = flatten(tab.getSettingDefinitions());
+    for (const name of [
+      'Your name',
+      'Ask AI in comments',
+      'Default assistant',
+      'ChatGPT',
+      'Claude',
+      'OpenCode',
+      'Approve a note folder',
+      'Web search',
+      'Add MCP service',
+      'Highlight shape',
+      'Highlight palette',
+      'Keyboard shortcuts',
+    ])
+      assert.ok(
+        definitions.some((definition) => definition.name === name),
+        name,
+      );
+    assert.ok(
+      definitions.every((definition) => !definition.control),
+      'custom callbacks must not auto-save plugin.settings over thread data',
+    );
+    assert.equal(tab.updates, 0, 'search indexing does not update the tab');
+    const original = structuredClone(plugin.saved);
+    let handler;
+    const component = {
+      setPlaceholder() {
+        return this;
+      },
+      setValue() {
+        return this;
+      },
+      setDesc() {
+        return this;
+      },
+      addOptions() {
+        return this;
+      },
+      addOption() {
+        return this;
+      },
+      onChange(callback) {
+        handler = callback;
+        return this;
+      },
+      addText(callback) {
+        callback(this);
+        return this;
+      },
+      addDropdown(callback) {
+        callback(this);
+        return this;
+      },
+      addToggle(callback) {
+        callback(this);
+        return this;
+      },
+    };
+    definitions.find((definition) => definition.name === 'Your name').render(component);
+    handler('Synthetic settings author');
+    await plugin.persist();
+    assert.equal(plugin.saved.author, 'Synthetic settings author');
+    assert.deepEqual(plugin.saved.threads, original.threads);
+    assert.deepEqual(plugin.saved.agent, original.agent);
+    let refreshed = 0,
+      configured = 0;
+    plugin.refreshHighlightStyles = () => refreshed++;
+    plugin.configureCodex = () => configured++;
+    definitions.find((definition) => definition.name === 'Highlight shape').render(component);
+    handler('underline');
+    assert.equal(refreshed, 1);
+    definitions.find((definition) => definition.name === 'Default assistant').render(component);
+    handler('claude');
+    assert.equal(configured, 1);
+    assert.equal(tab.updates, 1);
+    await plugin.persist();
+    assert.equal(plugin.saved.highlights.shape, 'underline');
+    assert.equal(plugin.saved.assistant.provider, 'claude');
+    assert.deepEqual(plugin.saved.threads, original.threads);
+    tab.hide();
+    assert.equal(plugin.connectionLabels.size, 0);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});

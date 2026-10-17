@@ -9,6 +9,7 @@ import {
   Setting,
   TFolder,
   type App,
+  type SettingDefinition,
 } from 'obsidian';
 import { z } from 'zod';
 import type { HostTool } from './codex';
@@ -322,140 +323,157 @@ export class AgentAccess {
     paint();
     modal.open();
   }
-  renderSettings(container: HTMLElement): void {
-    new Setting(container).setName('Assistant access').setHeading();
-    container.createEl('p', {
-      cls: 'setting-item-description',
-      text: 'ChatGPT note tools may read and change notes only in approved folders. Claude receives supplied context and has no note tools. Terminal access is unavailable. Hidden folders and Obsidian configuration are excluded.',
-    });
+  getSettingDefinitions(refresh: () => void): SettingDefinition[] {
+    const definitions: SettingDefinition[] = [];
     for (const folder of this.options.settings().folders) {
-      new Setting(container)
-        .setName(folder === '.' ? 'Entire vault · visible Markdown notes' : folder)
-        .addButton((button) =>
-          button.setButtonText('Revoke').onClick(async () => {
-            this.cancelApprovals();
-            this.options.settings().folders = this.options
-              .settings()
-              .folders.filter((value) => value !== folder);
-            await this.options.save();
-            this.options.reconfigure();
-            container.empty();
-            this.renderSettings(container);
-          }),
-        );
+      definitions.push({
+        name: folder === '.' ? 'Entire vault · visible Markdown notes' : folder,
+        render: (setting) => {
+          setting
+            .setName(folder === '.' ? 'Entire vault · visible Markdown notes' : folder)
+            .addButton((button) =>
+              button.setButtonText('Revoke').onClick(async () => {
+                this.cancelApprovals();
+                this.options.settings().folders = this.options
+                  .settings()
+                  .folders.filter((value) => value !== folder);
+                await this.options.save();
+                this.options.reconfigure();
+                refresh();
+              }),
+            );
+        },
+      });
     }
     let selected = '';
-    new Setting(container)
-      .setName('Approve a note folder')
-      .addDropdown((dropdown) => {
-        dropdown.addOption('', 'Choose a folder…').addOption('.', 'Entire vault');
-        for (const entry of this.options.app.vault.getAllLoadedFiles()) {
-          if (!(entry instanceof TFolder) || !entry.path || entry.path === '/') continue;
-          try {
-            normalizeNoteFolder(entry.path, this.options.app.vault.configDir);
-          } catch {
-            continue;
-          }
-          dropdown.addOption(entry.path, entry.path);
-        }
-        dropdown.onChange((value) => {
-          selected = value;
-        });
-      })
-      .addButton((button) =>
-        button.setButtonText('Allow folder').onClick(async () => {
-          if (!selected) return;
-          if (await this.grantFolder(selected)) {
-            container.empty();
-            this.renderSettings(container);
-          }
-        }),
-      );
-    new Setting(container)
-      .setName('Change history')
-      .setDesc('Review snapshots and undo a complete assistant operation.')
-      .addButton((button) =>
-        button.setButtonText('View history').onClick(() => {
-          void this.showHistory().catch((error: unknown) => new Notice(String(error)));
-        }),
-      );
-    new Setting(container)
-      .setName('Web search')
-      .setDesc(
-        'Off by default. When enabled, ChatGPT can send search queries derived from note context to the web search service. Command networking remains disabled.',
-      )
-      .addToggle((toggle) =>
-        toggle.setValue(this.options.settings().webSearch).onChange(async (value) => {
-          this.options.settings().webSearch = value;
-          await this.options.save();
-          this.options.reconfigure();
-        }),
-      );
-    new Setting(container).setName('Selected MCP services').setHeading();
-    container.createEl('p', {
-      cls: 'setting-item-description',
-      text: 'Add a public HTTPS MCP endpoint explicitly. No CLI services, credentials, browser cookies, or plugins are inherited. Every external tool call requires approval of its full arguments. Authenticated and local command servers are unavailable in this release.',
+    definitions.push({
+      name: 'Approve a note folder',
+      desc: 'Assistants access only approved folders. Hidden folders and Obsidian configuration stay excluded. Terminal access is unavailable.',
+      render: (setting) => {
+        setting
+          .addDropdown((dropdown) => {
+            dropdown.addOption('', 'Choose a folder…').addOption('.', 'Entire vault');
+            for (const entry of this.options.app.vault.getAllLoadedFiles()) {
+              if (!(entry instanceof TFolder) || !entry.path || entry.path === '/') continue;
+              try {
+                normalizeNoteFolder(entry.path, this.options.app.vault.configDir);
+              } catch {
+                continue;
+              }
+              dropdown.addOption(entry.path, entry.path);
+            }
+            dropdown.onChange((value) => {
+              selected = value;
+            });
+          })
+          .addButton((button) =>
+            button.setButtonText('Allow folder').onClick(async () => {
+              if (!selected) return;
+              if (await this.grantFolder(selected)) {
+                refresh();
+              }
+            }),
+          );
+      },
+    });
+    definitions.push({
+      name: 'Change history',
+      render: (setting) => {
+        setting
+          .setDesc('Review snapshots and undo a complete assistant operation.')
+          .addButton((button) =>
+            button.setButtonText('View history').onClick(() => {
+              void this.showHistory().catch((error: unknown) => new Notice(String(error)));
+            }),
+          );
+      },
+    });
+    definitions.push({
+      name: 'Web search',
+      render: (setting) => {
+        setting
+          .setDesc(
+            'Off by default. When enabled, ChatGPT can send search queries derived from note context to the web search service. Command networking remains disabled.',
+          )
+          .addToggle((toggle) =>
+            toggle.setValue(this.options.settings().webSearch).onChange(async (value) => {
+              this.options.settings().webSearch = value;
+              await this.options.save();
+              this.options.reconfigure();
+            }),
+          );
+      },
     });
     for (const service of this.options.settings().services) {
-      new Setting(container)
-        .setName(service.name)
-        .setDesc(service.url)
-        .addToggle((toggle) =>
-          toggle.setValue(service.enabled).onChange(async (value) => {
-            this.cancelApprovals();
-            service.enabled = value;
-            await this.options.save();
-            this.options.reconfigure();
-          }),
-        )
-        .addButton((button) =>
-          button.setButtonText('Remove').onClick(async () => {
-            this.cancelApprovals();
-            this.options.settings().services = this.options
-              .settings()
-              .services.filter((entry) => entry.id !== service.id);
-            await this.options.save();
-            this.options.reconfigure();
-            container.empty();
-            this.renderSettings(container);
-          }),
-        );
+      definitions.push({
+        name: service.name,
+        desc: service.url,
+        aliases: ['Selected MCP services'],
+        render: (setting) => {
+          setting
+            .setDesc(service.url)
+            .addToggle((toggle) =>
+              toggle.setValue(service.enabled).onChange(async (value) => {
+                this.cancelApprovals();
+                service.enabled = value;
+                await this.options.save();
+                this.options.reconfigure();
+              }),
+            )
+            .addButton((button) =>
+              button.setButtonText('Remove').onClick(async () => {
+                this.cancelApprovals();
+                this.options.settings().services = this.options
+                  .settings()
+                  .services.filter((entry) => entry.id !== service.id);
+                await this.options.save();
+                this.options.reconfigure();
+                refresh();
+              }),
+            );
+        },
+      });
     }
     let name = '',
       url = '';
-    new Setting(container)
-      .setName('Add MCP service')
-      .addText((text) =>
-        text.setPlaceholder('Service name').onChange((value) => {
-          name = value;
-        }),
-      )
-      .addText((text) =>
-        text.setPlaceholder('Service endpoint').onChange((value) => {
-          url = value;
-        }),
-      )
-      .addButton((button) =>
-        button.setButtonText('Add disabled').onClick(async () => {
-          const parsed = mcpServiceSchema.safeParse({
-            id: crypto.randomUUID(),
-            name,
-            url,
-            enabled: false,
-          });
-          if (!parsed.success) {
-            new Notice('Enter a service name and a valid HTTPS endpoint without credentials.');
-            return;
-          }
-          if (this.options.settings().services.length >= 20) {
-            new Notice('At most 20 MCP services can be configured.');
-            return;
-          }
-          this.options.settings().services.push(parsed.data);
-          await this.options.save();
-          container.empty();
-          this.renderSettings(container);
-        }),
-      );
+    definitions.push({
+      name: 'Add MCP service',
+      desc: 'Public HTTPS endpoints only. Each external tool call needs approval. Credentials and local servers are unavailable.',
+      render: (setting) => {
+        setting
+          .addText((text) =>
+            text.setPlaceholder('Service name').onChange((value) => {
+              name = value;
+            }),
+          )
+          .addText((text) =>
+            text.setPlaceholder('Public endpoint URL').onChange((value) => {
+              url = value;
+            }),
+          )
+          .addButton((button) =>
+            button.setButtonText('Add disabled').onClick(async () => {
+              const parsed = mcpServiceSchema.safeParse({
+                id: crypto.randomUUID(),
+                name,
+                url,
+                enabled: false,
+              });
+              if (!parsed.success) {
+                new Notice('Enter a service name and a valid HTTPS endpoint without credentials.');
+                return;
+              }
+              if (this.options.settings().services.length >= 20) {
+                new Notice('At most 20 MCP services can be configured.');
+                return;
+              }
+              this.options.settings().services.push(parsed.data);
+              await this.options.save();
+              refresh();
+            }),
+          );
+      },
+    });
+    return definitions;
   }
 }

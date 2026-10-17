@@ -68,10 +68,16 @@ request starts with the updated saved history.
 
 `hotkeys.ts` edits the host's existing shortcut overrides rather than duplicating
 them in plugin data. Advanced settings list every registered Annotate command,
-including commands without a default key. The Obsidian hotkey manager is an
+and new installations leave all commands unassigned. The Obsidian hotkey manager is an
 internal API; its capabilities and returned bindings are checked before use.
 The recorder uses a modal key scope, checks command collisions, and rolls back
 in-memory overrides if native persistence fails.
+
+The settings tab exposes individually named declarative definitions for host search.
+Custom render callbacks retain Annotate's queued save path and assistant/highlight
+side effects. They do not use the host's automatic `plugin.settings` persistence,
+because comments and settings share `plugin.data`. Dynamic settings call `update()`;
+row cleanup and `hide()` close the shortcut recorder and release connection labels.
 
 `dataSchema` in `model.ts` defines saved format version `1`. The `codex` fields
 hold the shared enable switch and thread session state. `assistant` selects the

@@ -72,7 +72,9 @@ export class Plugin {
     this.commands.push(command);
   }
   addRibbonIcon() {}
-  addSettingTab() {}
+  addSettingTab(tab) {
+    this.settingTab = tab;
+  }
 }
 export class MarkdownView {}
 export class Modal {}
@@ -81,7 +83,17 @@ export class Notice {
     if (message.includes('could not save')) throw new Error(message);
   }
 }
-export class PluginSettingTab {}
+export class PluginSettingTab {
+  updates = 0;
+  constructor(app, plugin) {
+    this.app = app;
+    this.plugin = plugin;
+  }
+  update() {
+    this.updates++;
+  }
+  hide() {}
+}
 export class Setting {}
 
 export class TFile {
