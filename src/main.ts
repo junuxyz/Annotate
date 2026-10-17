@@ -4,6 +4,7 @@ import {
   highlightChanges,
   noteHighlights,
   highlightStyle,
+  highlightPaletteStyles,
   highlightShapes,
   textColorEdit,
   textColors,
@@ -1344,20 +1345,7 @@ export default class Annotate extends Plugin {
         doc.adoptedStyleSheets = [...doc.adoptedStyleSheets, style];
         this.highlightStyles.set(doc, style);
       }
-      style.replaceSync(
-        this.data.highlights.colors
-          .map(
-            (color) =>
-              `[data-annotate-highlight="${color.id}"] { ${highlightStyle(color.value, this.data.highlights.shape).replaceAll(';', ' !important;')} }`,
-          )
-          .concat(
-            textColors.map(
-              (color) =>
-                `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
-            ),
-          )
-          .join('\n'),
-      );
+      style.replaceSync(highlightPaletteStyles(this.data.highlights));
     }
   }
 

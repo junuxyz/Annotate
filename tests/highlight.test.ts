@@ -4,6 +4,7 @@ import { Text } from '@codemirror/state';
 import {
   defaultHighlights,
   highlightEdit,
+  highlightStyle,
   highlightChanges,
   highlightSettingsSchema,
   noteHighlights,
@@ -200,4 +201,19 @@ void test('partial recoloring preserves bold styling and comment anchors without
       (mark[0].match(/font-weight:/g) ?? []).length,
       /터널|시각/.test(mark[1] ?? '') ? 1 : 0,
     );
+});
+
+void test('saved highlights inherit text color and retain their light-mode palette', () => {
+  const { result } = apply('흰 글자와 기존 글자색 유지', 0, 15);
+  assert.match(result, /style="color: inherit; background: #ffe06680;/);
+  assert.equal(result.replace(/<[^>]+>/g, ''), '흰 글자와 기존 글자색 유지');
+  for (const shape of ['rounded', 'flat', 'underline'] as const) {
+    const light = highlightStyle(yellow.value, shape);
+    const dark = highlightStyle(yellow.value, shape, 'dark');
+    assert.match(light, /color: inherit;/);
+    assert.match(dark, /color: inherit;/);
+    assert.ok(!light.includes('color-mix'));
+    assert.ok(dark.includes('color-mix'), `${shape} uses a dimmer dark highlight`);
+    if (shape === 'underline') assert.match(dark, /background: transparent;/);
+  }
 });

@@ -1912,6 +1912,14 @@ test('palette sheets update per window and remove only owned sheets on window an
         [...sheet.cssRules].map((rule) => rule.cssText).join('\n'),
         /18, 52, 86|#123456/,
       );
+    for (const sheet of [mainSheet, otherSheet]) {
+      const dark = [...sheet.cssRules].find(
+        (rule) => rule.selectorText === '.theme-dark [data-annotate-highlight="yellow"]',
+      );
+      assert.ok(dark, 'each window updates existing saved highlights in dark mode');
+      assert.equal(dark.style.color, 'inherit', 'the theme cannot force black text');
+      assert.equal(dark.style.getPropertyPriority('color'), 'important');
+    }
     other.dispatchEvent(new other.Event('unload'));
     assert.deepEqual(other.document.adoptedStyleSheets, [otherBase]);
     assert.equal(plugin.selectionDocuments.has(other.document), false);

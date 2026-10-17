@@ -31,10 +31,33 @@ export const defaultHighlights = (): HighlightSettings => ({
   recent: 'yellow',
   textRecent: 'red',
 });
-export function highlightStyle(value: string, shape: HighlightSettings['shape']): string {
+export function highlightStyle(
+  value: string,
+  shape: HighlightSettings['shape'],
+  theme: 'light' | 'dark' = 'light',
+): string {
+  const background = theme === 'dark' ? `color-mix(in srgb, ${value} 45%, transparent)` : value;
   if (shape === 'underline')
-    return `background: transparent; box-shadow: inset 0 -0.2em ${value}; border-radius: 0;`;
-  return `background: ${value}; box-shadow: none; border-radius: ${shape === 'rounded' ? '0.2em' : '0'};`;
+    return `color: inherit; background: transparent; box-shadow: inset 0 -0.2em ${background}; border-radius: 0;`;
+  return `color: inherit; background: ${background}; box-shadow: none; border-radius: ${shape === 'rounded' ? '0.2em' : '0'};`;
+}
+export function highlightPaletteStyles(
+  settings: Pick<HighlightSettings, 'colors' | 'shape'>,
+): string {
+  return settings.colors
+    .flatMap((color) => {
+      const selector = `[data-annotate-highlight="${color.id}"]`;
+      return [
+        `${selector} { ${highlightStyle(color.value, settings.shape).replaceAll(';', ' !important;')} }`,
+        `.theme-dark ${selector} { ${highlightStyle(color.value, settings.shape, 'dark').replaceAll(';', ' !important;')} }`,
+      ];
+    })
+    .concat(
+      textColors.map(
+        (color) => `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
+      ),
+    )
+    .join('\n');
 }
 function opening(color: HighlightColor, shape: HighlightSettings['shape']): string {
   return `<mark data-annotate-highlight="${color.id}" style="${highlightStyle(color.value, shape)}">`;
