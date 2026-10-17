@@ -459,6 +459,14 @@ button.annotate-count:hover {
 .annotate-markdown-content > :last-child {
   margin-bottom: 0;
 }
+.annotate-message-body table {
+  font-size: inherit;
+  line-height: inherit;
+}
+.annotate-message-body table :is(th, td) {
+  font-size: inherit;
+  line-height: inherit;
+}
 .annotate-message-body p {
   margin: 0 0 0.6em;
 }
