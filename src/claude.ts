@@ -1,9 +1,14 @@
+import * as timers from 'node:timers';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import { spawn } from 'node:child_process';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import type { AssistantBackend } from './ai';
 import type { ConnectionState, ResponseState } from './codex';
 
-const envelope = z.object({ type: z.string() }).passthrough();
+const envelope = z.object({ type: z.string() }).loose();
 const claudeDelta = z.object({
   event: z.object({
     type: z.literal('content_block_delta'),
@@ -64,7 +69,6 @@ export class ClaudeBackend implements AssistantBackend {
     return this.startup;
   }
   private environment(): NodeJS.ProcessEnv {
-    const path = require('node:path') as typeof import('node:path');
     const env = { ...process.env };
     for (const key of Object.keys(env))
       if (/^(ANTHROPIC_|CLAUDE_|OPENCODE_|XAI_|OPENAI_|GOOGLE_|GEMINI_|AWS_|AZURE_)/.test(key))
@@ -75,9 +79,6 @@ export class ClaudeBackend implements AssistantBackend {
     return env;
   }
   private directory(): string {
-    const fs = require('node:fs') as typeof import('node:fs');
-    const os = require('node:os') as typeof import('node:os');
-    const path = require('node:path') as typeof import('node:path');
     return (this.scratch ??= fs.mkdtempSync(path.join(os.tmpdir(), 'annotate-assistant-')));
   }
   private async check(): Promise<void> {
@@ -96,7 +97,6 @@ export class ClaudeBackend implements AssistantBackend {
       );
   }
   private command(args: string[]): Promise<string> {
-    const { spawn } = require('node:child_process') as typeof import('node:child_process');
     return new Promise((resolve, reject) => {
       const child = spawn(this.executable, args, {
         cwd: this.directory(),
@@ -105,7 +105,7 @@ export class ClaudeBackend implements AssistantBackend {
       });
       this.checks.add(child);
       let output = '';
-      const timer = setTimeout(() => {
+      const timer = timers.setTimeout(() => {
         child.kill();
         reject(new Error('Assistant connection timed out.'));
       }, 10_000);
@@ -119,12 +119,12 @@ export class ClaudeBackend implements AssistantBackend {
       child.stderr.on('data', () => {});
       child.stdin.end();
       child.on('error', () => {
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         this.checks.delete(child);
         reject(new Error(`Cannot start ${this.executable}. Set its absolute path in settings.`));
       });
       child.on('close', (code) => {
-        clearTimeout(timer);
+        timers.clearTimeout(timer);
         this.checks.delete(child);
         if (code === 0) resolve(output);
         else reject(new Error('CLI connection failed. Check your subscription login in Terminal.'));
@@ -151,7 +151,6 @@ export class ClaudeBackend implements AssistantBackend {
     if (!this.enabled || this.state !== 'ready')
       throw new Error('Assistant disconnected before sending.');
     if (this.active.has(id)) throw new Error('This annotation already has an active response.');
-    const { spawn } = require('node:child_process') as typeof import('node:child_process');
     const args = [
       '-p',
       '--safe-mode',
@@ -183,12 +182,12 @@ export class ClaudeBackend implements AssistantBackend {
     const done = (state: ResponseState, error?: string) => {
       if (finished) return;
       finished = true;
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       this.active.delete(id);
       child.kill();
       finish(state, error);
     };
-    const timer = setTimeout(
+    const timer = timers.setTimeout(
       () => done('unknown', 'Response timed out. It will not be resent.'),
       120_000,
     );
@@ -264,7 +263,6 @@ export class ClaudeBackend implements AssistantBackend {
     for (const request of this.active.values())
       request.finish('unknown', 'Assistant disconnected. The request will not be resent.');
     if (this.scratch) {
-      const fs = require('node:fs') as typeof import('node:fs');
       fs.rmSync(this.scratch, { recursive: true, force: true });
       this.scratch = null;
     }

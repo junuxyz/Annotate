@@ -1,15 +1,15 @@
+import * as timers from 'node:timers';
+import * as https from 'node:https';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 const argumentsSchema = z.record(z.string(), z.json());
 const protocolVersion = '2025-06-18';
 const maximumBytes = 1024 * 1024;
-const endpointSchema = z
-  .string()
-  .url()
-  .refine((value) => {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.hash;
-  }, 'Use an HTTPS endpoint without credentials or a fragment.');
+const endpointSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === 'https:' && !url.username && !url.password && !url.hash;
+}, 'Use an HTTPS endpoint without credentials or a fragment.');
 export const mcpServiceSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/),
   name: z.string().trim().min(1).max(100),
@@ -48,7 +48,7 @@ const rpcSchema = z.object({
 const toolSchema = z.object({
   name: z.string().regex(/^[a-zA-Z0-9_.-]{1,128}$/),
   description: z.string().max(16_384).optional(),
-  inputSchema: z.object({ type: z.literal('object') }).passthrough(),
+  inputSchema: z.object({ type: z.literal('object') }).loose(),
 });
 const listSchema = z.object({
   tools: z.array(toolSchema).max(100),
@@ -93,13 +93,12 @@ function responseMessage(
 export function requestMcp(request: McpRequest): Promise<McpResponse> {
   checkSignal(request.signal);
   endpointSchema.parse(request.url);
-  const https = require('node:https') as typeof import('node:https');
   return new Promise((resolve, reject) => {
     let finished = false;
     const finish = (error?: Error, response?: McpResponse) => {
       if (finished) return;
       finished = true;
-      clearTimeout(timer);
+      timers.clearTimeout(timer);
       request.signal?.removeEventListener('abort', abort);
       if (error) reject(error);
       else if (response) resolve(response);
@@ -158,7 +157,10 @@ export function requestMcp(request: McpRequest): Promise<McpResponse> {
     );
     const abort = () => outgoing.destroy(new Error('MCP request cancelled.'));
     outgoing.on('error', (error) => finish(error));
-    const timer = setTimeout(() => outgoing.destroy(new Error('MCP request timed out.')), 30_000);
+    const timer = timers.setTimeout(
+      () => outgoing.destroy(new Error('MCP request timed out.')),
+      30_000,
+    );
     request.signal?.addEventListener('abort', abort, { once: true });
     if (request.signal?.aborted) abort();
     else outgoing.end(request.body);
@@ -199,7 +201,7 @@ export class McpServices {
           },
           (error: unknown) => {
             request.signal.removeEventListener('abort', abort);
-            reject(error);
+            reject(error instanceof Error ? error : new Error(String(error)));
           },
         );
     });
@@ -324,7 +326,6 @@ export class McpServices {
     for (const service of services) {
       const session = await this.discover(service, signal);
       for (const tool of session.tools) {
-        const { createHash } = require('node:crypto') as typeof import('node:crypto');
         const suffix = createHash('sha256')
           .update(service.id + '\0' + tool.name)
           .digest('hex')
@@ -345,7 +346,7 @@ export class McpServices {
               serviceName: service.name,
               url: service.url,
               toolName: tool.name,
-              arguments: JSON.parse(argumentsJson),
+              arguments: argumentsSchema.parse(JSON.parse(argumentsJson)),
               argumentsJson,
             });
             this.check(service, context.signal);
@@ -355,12 +356,12 @@ export class McpServices {
                 service,
                 session,
                 'tools/call',
-                { name: tool.name, arguments: JSON.parse(argumentsJson) },
+                { name: tool.name, arguments: argumentsSchema.parse(JSON.parse(argumentsJson)) },
                 context.signal,
               );
               return z
                 .object({ content: z.array(z.unknown()), isError: z.boolean().optional() })
-                .passthrough()
+                .loose()
                 .parse(response);
             } catch (error) {
               throw new Error(

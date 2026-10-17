@@ -125,8 +125,8 @@ test('literal paths reject traversal, hidden folders, encoded and absolute paths
     'C:/Notes',
     'Notes/a.',
   ])
-    assert.throws(() => normalizeNoteFolder(path), path);
-  assert.equal(normalizeNoteFolder('Notes/Research'), 'Notes/Research');
+    assert.throws(() => normalizeNoteFolder(path, '.obsidian'), path);
+  assert.equal(normalizeNoteFolder('Notes/Research', '.obsidian'), 'Notes/Research');
 });
 test('reads and searches stay within explicit folders and Markdown files', async () => {
   const f = await fixture();
