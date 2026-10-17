@@ -38,12 +38,13 @@ import {
   Notice,
   Plugin,
   PluginSettingTab,
-  Setting,
   TFile,
   setIcon,
   editorInfoField,
   editorLivePreviewField,
   type MarkdownPostProcessorContext,
+  type SettingDefinitionItem,
+  type SettingDefinition,
 } from 'obsidian';
 import { StateEffect } from '@codemirror/state';
 import {
@@ -1035,9 +1036,9 @@ export default class Annotate extends Plugin {
     this.watchSelections(document);
     this.refreshHighlightStyles();
     this.addCommand({
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'h' }],
       id: 'highlight-selection',
       name: 'Highlight selection with last color',
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'h' }],
       checkCallback: (checking) => {
         const selected = this.selectedNote();
         if (!selected) return false;
@@ -1046,9 +1047,9 @@ export default class Annotate extends Plugin {
       },
     });
     this.addCommand({
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'j' }],
       id: 'color-selection-text',
       name: 'Color selected text with last color',
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'j' }],
       checkCallback: (checking) => {
         const selected = this.selectedNote();
         if (!selected) return false;
@@ -1057,9 +1058,9 @@ export default class Annotate extends Plugin {
       },
     });
     this.addCommand({
+      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'm' }],
       id: 'add-selection-comment',
       name: 'Comment on selection',
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'm' }],
       checkCallback: (checking) => {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!view?.file) return false;
@@ -2680,61 +2681,69 @@ class CommentsSettings extends PluginSettingTab {
   constructor(private plugin: Annotate) {
     super(plugin.app, plugin);
   }
-  display(): void {
-    this.disposeShortcuts?.();
-    const { containerEl } = this;
-    containerEl.empty();
-    containerEl.addClass('annotate-settings');
-    this.plugin.connectionLabels.clear();
-    const heading = containerEl.createEl('h2', {
-      cls: 'annotate-brand-heading',
-      text: 'Annotate',
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    // Render callbacks retain Annotate's combined comments/settings storage and side effects.
+    const definitions: SettingDefinitionItem[] = [
+      {
+        name: 'Annotate',
+        searchable: false,
+        render: (setting) => {
+          this.containerEl.addClass('annotate-settings');
+          setting.setHeading().setClass('annotate-brand-heading');
+          setting.nameEl.prepend(pluginLogo(this.containerEl.ownerDocument));
+          if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT)
+            setting.setDesc('Development · automatic local updates enabled');
+        },
+      },
+    ];
+    definitions.push({
+      name: 'Your name',
+      desc: 'Shown on comments you write.',
+      render: (setting) => {
+        setting.setDesc('Shown on comments you write.').addText((text) =>
+          text
+            .setPlaceholder('Name')
+            .setValue(this.plugin.data.author)
+            .onChange((value) => {
+              this.plugin.data.author = value;
+              this.plugin.changed();
+            }),
+        );
+      },
     });
-    heading.prepend(pluginLogo(containerEl.ownerDocument));
-    if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT)
-      containerEl.createEl('p', {
-        cls: 'setting-item-description',
-        text: 'Development · Automatic local updates enabled',
-      });
-    new Setting(containerEl)
-      .setName('Your name')
-      .setDesc('Shown on comments you write.')
-      .addText((text) =>
-        text
-          .setPlaceholder('Name')
-          .setValue(this.plugin.data.author)
-          .onChange((value) => {
-            this.plugin.data.author = value;
-            this.plugin.changed();
-          }),
-      );
-
     const provider = this.plugin.data.assistant.provider;
-    new Setting(containerEl).setName('AI assistant').setHeading();
-    new Setting(containerEl)
-      .setName('Ask AI in comments')
-      .setDesc(
-        'AI requests send the complete current note, selected passage, question, and prior thread messages to the selected assistant’s model provider. Earlier @comment messages may be included later. Review folder access below. Start with @comment to save without starting a request.',
-      )
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
-          this.plugin.data.codex.enabled = value;
-          this.plugin.changed();
-          this.plugin.configureCodex();
-        }),
-      );
-    new Setting(containerEl)
-      .setName('Default assistant')
-      .setDesc(`Receives messages by default. Currently @${provider}.`)
-      .addDropdown((dropdown) => {
-        for (const [id, entry] of Object.entries(providers)) dropdown.addOption(id, entry.name);
-        dropdown.setValue(provider).onChange((value) => {
-          this.plugin.data.assistant.provider = providerSchema.parse(value);
-          this.plugin.changed();
-          this.plugin.configureCodex();
-          this.display();
-        });
-      });
+    definitions.push({
+      name: 'Ask AI in comments',
+      render: (setting) => {
+        setting
+          .setDesc(
+            'AI requests send the complete current note, selected passage, question, and prior thread messages to the selected assistant’s model provider. Earlier @comment messages may be included later. Review folder access below. Start with @comment to save without starting a request.',
+          )
+          .addToggle((toggle) =>
+            toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
+              this.plugin.data.codex.enabled = value;
+              this.plugin.changed();
+              this.plugin.configureCodex();
+            }),
+          );
+      },
+    });
+    definitions.push({
+      name: 'Default assistant',
+      render: (setting) => {
+        setting
+          .setDesc(`Receives messages by default. Currently @${provider}.`)
+          .addDropdown((dropdown) => {
+            for (const [id, entry] of Object.entries(providers)) dropdown.addOption(id, entry.name);
+            dropdown.setValue(provider).onChange((value) => {
+              this.plugin.data.assistant.provider = providerSchema.parse(value);
+              this.plugin.changed();
+              this.plugin.configureCodex();
+              this.update();
+            });
+          });
+      },
+    });
     for (const id of providerSchema.options) {
       const name = providers[id].name;
       const login =
@@ -2766,212 +2775,266 @@ class CommentsSettings extends PluginSettingTab {
           this.plugin.configureCodex();
         fillModels();
       };
-      const row = new Setting(containerEl).setName(name);
-      row.addDropdown((dropdown) => {
-        fillModels = () => {
-          dropdown.selectEl.empty();
-          const labels = id === 'opencode' ? featuredModelLabels(models(), config.model) : models();
-          const options = Object.keys(labels);
-          for (const model of options) dropdown.addOption(model, labels[model] ?? model);
-          dropdown.selectEl.toggle(options.length > 0);
-          dropdown.setValue(config.model || options[0] || '');
-          refreshOthers();
-        };
-        fillModels();
-        dropdown.selectEl.addClass('annotate-settings-model');
-        dropdown.selectEl.setAttribute('aria-label', `${name} model`);
-        dropdown.onChange(selectModel);
-      });
-      row.addButton((button) =>
-        button.setButtonText('Check').onClick(async () => {
-          button.setDisabled(true).setButtonText('Checking…');
-          const connected = await this.plugin.checkConnection(id);
-          if (
-            connected &&
-            this.plugin.data.codex.enabled &&
-            id === this.plugin.data.assistant.provider &&
-            this.plugin.backend?.state !== 'ready'
-          )
-            this.plugin.configureCodex();
-          fillModels();
-          button.setDisabled(false).setButtonText(connected ? 'Connected' : 'Retry');
-        }),
-      );
-      if (id === 'opencode') {
-        const others = row.descEl.createDiv({ cls: 'annotate-other-models' });
-        others.hidden = true;
-        others.id = `annotate-other-models-${crypto.randomUUID()}`;
-        let othersButton: HTMLButtonElement | undefined;
-        const picker = createOtherModelPicker({
-          container: others,
-          labels: models,
-          pricing: () => this.plugin.opencodeModelPricing,
-          onChoose: (value) => {
-            selectModel(value);
-            others.hidden = true;
-            othersButton?.setAttribute('aria-expanded', 'false');
-            othersButton?.focus();
-          },
-        });
-        refreshOthers = picker.refresh;
-        row.addButton((button) => {
-          othersButton = button.buttonEl;
-          button.buttonEl.setAttribute('aria-expanded', 'false');
-          button.buttonEl.setAttribute('aria-controls', others.id);
-          button.setButtonText('Others').onClick(() => {
-            others.hidden = !others.hidden;
-            button.buttonEl.setAttribute('aria-expanded', String(!others.hidden));
-            if (!others.hidden) {
-              picker.refresh();
-              picker.focus();
-            }
+      definitions.push({
+        name,
+        aliases: [`${name} model`, `${name} connection`],
+        render: (row) => {
+          row.addDropdown((dropdown) => {
+            fillModels = () => {
+              dropdown.selectEl.empty();
+              const labels =
+                id === 'opencode' ? featuredModelLabels(models(), config.model) : models();
+              const options = Object.keys(labels);
+              for (const model of options) dropdown.addOption(model, labels[model] ?? model);
+              dropdown.selectEl.toggle(options.length > 0);
+              dropdown.setValue(config.model || options[0] || '');
+              refreshOthers();
+            };
+            fillModels();
+            dropdown.selectEl.addClass('annotate-settings-model');
+            dropdown.selectEl.setAttribute('aria-label', `${name} model`);
+            dropdown.onChange(selectModel);
           });
-        });
-      }
-      row.settingEl.addClass('annotate-settings-provider');
-      const connection = row.descEl.createDiv({ cls: 'annotate-settings-codex-status' });
-      connection.dataset.provider = id;
-      connection.setAttribute('role', 'status');
-      this.plugin.connectionLabels.set(id, connection);
-      row.descEl.createDiv({
-        cls: 'annotate-settings-hint',
-        text:
-          id === 'opencode'
-            ? 'Check to refresh models. Find additional models in Others.'
-            : `Not connected? Run ${login} in Terminal, then Check.`,
+          row.addButton((button) =>
+            button.setButtonText('Check').onClick(async () => {
+              button.setDisabled(true).setButtonText('Checking…');
+              const connected = await this.plugin.checkConnection(id);
+              if (
+                connected &&
+                this.plugin.data.codex.enabled &&
+                id === this.plugin.data.assistant.provider &&
+                this.plugin.backend?.state !== 'ready'
+              )
+                this.plugin.configureCodex();
+              fillModels();
+              button.setDisabled(false).setButtonText(connected ? 'Connected' : 'Retry');
+            }),
+          );
+          if (id === 'opencode') {
+            const others = row.descEl.createDiv({ cls: 'annotate-other-models' });
+            others.hidden = true;
+            others.id = `annotate-other-models-${crypto.randomUUID()}`;
+            let othersButton: HTMLButtonElement | undefined;
+            const picker = createOtherModelPicker({
+              container: others,
+              labels: models,
+              pricing: () => this.plugin.opencodeModelPricing,
+              onChoose: (value) => {
+                selectModel(value);
+                others.hidden = true;
+                othersButton?.setAttribute('aria-expanded', 'false');
+                othersButton?.focus();
+              },
+            });
+            refreshOthers = picker.refresh;
+            row.addButton((button) => {
+              othersButton = button.buttonEl;
+              button.buttonEl.setAttribute('aria-expanded', 'false');
+              button.buttonEl.setAttribute('aria-controls', others.id);
+              button.setButtonText('Others').onClick(() => {
+                others.hidden = !others.hidden;
+                button.buttonEl.setAttribute('aria-expanded', String(!others.hidden));
+                if (!others.hidden) {
+                  picker.refresh();
+                  picker.focus();
+                }
+              });
+            });
+          }
+          row.settingEl.addClass('annotate-settings-provider');
+          const connection = row.descEl.createDiv({ cls: 'annotate-settings-codex-status' });
+          connection.dataset.provider = id;
+          connection.setAttribute('role', 'status');
+          this.plugin.connectionLabels.set(id, connection);
+          row.descEl.createDiv({
+            cls: 'annotate-settings-hint',
+            text:
+              id === 'opencode'
+                ? 'Check to refresh models. Find additional models in Others.'
+                : `Not connected? Run ${login} in Terminal, then Check.`,
+          });
+          this.plugin.paintConnections();
+          return () => {
+            if (this.plugin.connectionLabels.get(id) === connection)
+              this.plugin.connectionLabels.delete(id);
+          };
+        },
       });
     }
-    this.plugin.paintConnections();
-
-    const access = containerEl.createDiv({ cls: 'annotate-agent-settings' });
-    this.plugin.agentAccess.renderSettings(access);
-
-    const advanced = containerEl.createEl('details', { cls: 'annotate-settings-advanced' });
-    advanced.createEl('summary', { text: 'Advanced' });
-    this.disposeShortcuts = renderShortcutSettings(
-      advanced.createDiv({ cls: 'annotate-hotkey-settings' }),
-      this.plugin.app,
-    );
-    new Setting(advanced).setName('Highlight shape').addDropdown((dropdown) =>
-      dropdown
-        .addOptions(highlightShapes)
-        .setValue(this.plugin.data.highlights.shape)
-        .onChange((value) => {
-          if (value !== 'rounded' && value !== 'flat' && value !== 'underline') return;
-          this.plugin.data.highlights.shape = value;
-          this.plugin.refreshHighlightStyles();
-          this.plugin.changed();
-        }),
-    );
+    definitions.push({
+      type: 'group',
+      heading: 'Assistant access',
+      cls: 'annotate-agent-settings',
+      items: this.plugin.agentAccess.getSettingDefinitions(() => this.update()),
+    });
+    const advanced: SettingDefinition[] = [
+      {
+        name: 'Keyboard shortcuts',
+        render: (setting) => {
+          this.disposeShortcuts?.();
+          setting.settingEl.addClass('annotate-hotkey-settings');
+          setting.infoEl.remove();
+          const root = setting.settingEl.createDiv();
+          const dispose = renderShortcutSettings(root, this.plugin.app);
+          this.disposeShortcuts = dispose;
+          return () => {
+            dispose();
+            if (this.disposeShortcuts === dispose) this.disposeShortcuts = null;
+          };
+        },
+      },
+    ];
+    advanced.push({
+      name: 'Highlight shape',
+      render: (setting) => {
+        setting.addDropdown((dropdown) =>
+          dropdown
+            .addOptions(highlightShapes)
+            .setValue(this.plugin.data.highlights.shape)
+            .onChange((value) => {
+              if (value !== 'rounded' && value !== 'flat' && value !== 'underline') return;
+              this.plugin.data.highlights.shape = value;
+              this.plugin.refreshHighlightStyles();
+              this.plugin.changed();
+            }),
+        );
+      },
+    });
     for (const color of this.plugin.data.highlights.colors) {
       let hexInput: HTMLInputElement | undefined;
-      new Setting(advanced)
-        .setName('Highlight color')
-        .setClass('annotate-settings-highlight-color')
-        .addText((text) =>
-          text
-            .setPlaceholder('Color name')
-            .setValue(color.name)
-            .onChange((value) => {
-              if (!value.trim()) return;
-              color.name = value.trim();
-              this.plugin.changed();
-            }),
-        )
-        .addColorPicker((picker) => {
-          picker.setValue(color.value.slice(0, 7)).onChange((value) => {
-            color.value = value + color.value.slice(7);
-            if (hexInput) hexInput.value = color.value;
-            this.plugin.refreshHighlightStyles();
-            this.plugin.changed();
-          });
-        })
-        .addText((text) => {
-          hexInput = text.inputEl;
-          text
-            .setPlaceholder('#RRGGBB or #RRGGBBAA')
-            .setValue(color.value)
-            .onChange((value) => {
-              const valid = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value.trim());
-              text.inputEl.setAttribute('aria-invalid', String(!valid));
-              if (!valid) return;
-              color.value = value.trim();
-              this.plugin.refreshHighlightStyles();
-              this.plugin.changed();
-            });
-          text.inputEl.setAttribute('aria-label', `${color.name} highlight color`);
-        })
-        .addButton((button) =>
-          button
-            .setButtonText('Remove')
-            .setDisabled(this.plugin.data.highlights.colors.length === 1)
-            .onClick(() => {
-              this.plugin.data.highlights.colors = this.plugin.data.highlights.colors.filter(
-                (item) => item.id !== color.id,
-              );
-              this.plugin.data.highlights.recent = this.plugin.recentHighlight().id;
-              this.plugin.refreshHighlightStyles();
-              this.plugin.changed();
-              this.display();
-            }),
-        );
+      advanced.push({
+        name: `Highlight color: ${color.name}`,
+        render: (setting) => {
+          setting
+            .setName('Highlight color')
+            .setClass('annotate-settings-highlight-color')
+            .addText((text) =>
+              text
+                .setPlaceholder('Color name')
+                .setValue(color.name)
+                .onChange((value) => {
+                  if (!value.trim()) return;
+                  color.name = value.trim();
+                  this.plugin.changed();
+                }),
+            )
+            .addColorPicker((picker) => {
+              picker.setValue(color.value.slice(0, 7)).onChange((value) => {
+                color.value = value + color.value.slice(7);
+                if (hexInput) hexInput.value = color.value;
+                this.plugin.refreshHighlightStyles();
+                this.plugin.changed();
+              });
+            })
+            .addText((text) => {
+              hexInput = text.inputEl;
+              text
+                .setPlaceholder('#rrggbb or #rrggbbaa')
+                .setValue(color.value)
+                .onChange((value) => {
+                  const valid = /^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(value.trim());
+                  text.inputEl.setAttribute('aria-invalid', String(!valid));
+                  if (!valid) return;
+                  color.value = value.trim();
+                  this.plugin.refreshHighlightStyles();
+                  this.plugin.changed();
+                });
+              text.inputEl.setAttribute('aria-label', `${color.name} highlight color`);
+            })
+            .addButton((button) =>
+              button
+                .setButtonText('Remove')
+                .setDisabled(this.plugin.data.highlights.colors.length === 1)
+                .onClick(() => {
+                  this.plugin.data.highlights.colors = this.plugin.data.highlights.colors.filter(
+                    (item) => item.id !== color.id,
+                  );
+                  this.plugin.data.highlights.recent = this.plugin.recentHighlight().id;
+                  this.plugin.refreshHighlightStyles();
+                  this.plugin.changed();
+                  this.update();
+                }),
+            );
+        },
+      });
     }
-    new Setting(advanced)
-      .setName('Highlight palette')
-      .setDesc(
-        'Hex colors accept optional opacity, e.g. #ffe06680. Changes apply to existing Annotate highlights while enabled.',
-      )
-      .addButton((button) =>
-        button
-          .setButtonText('Add color')
-          .setDisabled(this.plugin.data.highlights.colors.length >= 20)
-          .onClick(() => {
-            this.plugin.data.highlights.colors.push({
-              id: `color-${crypto.randomUUID()}`,
-              name: 'New color',
-              value: '#b8a3ff80',
-            });
-            this.plugin.refreshHighlightStyles();
-            this.plugin.changed();
-            this.display();
-          }),
-      );
+    advanced.push({
+      name: 'Highlight palette',
+      render: (setting) => {
+        setting
+          .setDesc(
+            'Hex colors accept optional opacity. Changes apply to existing Annotate highlights while enabled.',
+          )
+          .addButton((button) =>
+            button
+              .setButtonText('Add color')
+              .setDisabled(this.plugin.data.highlights.colors.length >= 20)
+              .onClick(() => {
+                this.plugin.data.highlights.colors.push({
+                  id: `color-${crypto.randomUUID()}`,
+                  name: 'New color',
+                  value: '#b8a3ff80',
+                });
+                this.plugin.refreshHighlightStyles();
+                this.plugin.changed();
+                this.update();
+              }),
+          );
+      },
+    });
     if (typeof ANNOTATE_DEVELOPMENT !== 'undefined' && ANNOTATE_DEVELOPMENT) {
-      new Setting(advanced)
-        .setName('Local development build')
-        .setDesc(
-          'Successful local builds update automatically when comments and AI responses are idle. No Obsidian restart needed.',
-        )
-        .addButton((button) =>
-          button
-            .setButtonText('Sync')
-            .setDisabled(this.plugin.syncing)
-            .onClick(async () => {
-              button.setDisabled(true).setButtonText('Syncing…');
-              await this.plugin.syncBuild();
-              button.setDisabled(false).setButtonText('Sync');
-            }),
-        );
+      advanced.push({
+        name: 'Local development build',
+        render: (setting) => {
+          setting
+            .setDesc(
+              'Successful local builds update automatically when comments and AI responses are idle. No Obsidian restart needed.',
+            )
+            .addButton((button) =>
+              button
+                .setButtonText('Sync')
+                .setDisabled(this.plugin.syncing)
+                .onClick(async () => {
+                  button.setDisabled(true).setButtonText('Syncing…');
+                  await this.plugin.syncBuild();
+                  button.setDisabled(false).setButtonText('Sync');
+                }),
+            );
+        },
+      });
     }
     for (const id of providerSchema.options) {
       const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant[id];
       const command = providers[id].executable;
-      new Setting(advanced)
-        .setName(`${providers[id].name} command`)
-        .setDesc(`Found automatically. Set a full path only if Check can't find ${command}.`)
-        .addText((text) =>
-          text
-            .setPlaceholder(command)
-            .setValue(config.executable === command ? '' : config.executable)
-            .onChange((value) => {
-              config.executable = value.trim() || command;
-              this.plugin.changed();
-            }),
-        );
+      advanced.push({
+        name: `${providers[id].name} command`,
+        render: (setting) => {
+          setting
+            .setDesc(`Found automatically. Set a full path only if Check can't find ${command}.`)
+            .addText((text) =>
+              text
+                .setPlaceholder(command)
+                .setValue(config.executable === command ? '' : config.executable)
+                .onChange((value) => {
+                  config.executable = value.trim() || command;
+                  this.plugin.changed();
+                }),
+            );
+        },
+      });
     }
+    definitions.push({
+      type: 'group',
+      heading: 'Advanced',
+      cls: 'annotate-settings-advanced',
+      items: advanced,
+    });
+    return definitions;
   }
   hide(): void {
     this.disposeShortcuts?.();
     this.disposeShortcuts = null;
+    this.plugin.connectionLabels.clear();
+    super.hide();
   }
 }
