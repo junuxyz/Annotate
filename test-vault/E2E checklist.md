@@ -9,6 +9,7 @@ Run these checks against the current build in this vault in the real Obsidian ap
 ## Loading and annotation workflow
 
 - [ ] Enable the current plugin build and confirm it loads without plugin errors.
+- [ ] Confirm a fresh installation has no default Annotate shortcuts. Assign Comment on selection to Cmd+Shift+M, Highlight selection to Cmd+Shift+H and Color selected text to Cmd+Shift+J in the synthetic profile before shortcut scenarios. Verify custom bindings survive reload and clearing them leaves commands unassigned.
 - [ ] In Reading mode, Live Preview, and Source mode, select text and open the composer with Cmd+Shift+M on macOS or Ctrl+Shift+M on Windows/Linux. Confirm placement beside the passage and input focus.
 - [ ] Confirm selecting text opens the Highlight | Color | Annotate menu. Check each action, the selection context menu, keyboard shortcuts, and command-palette entries.
 - [ ] Submit a comment with Enter and with the send button. Confirm Shift+Enter inserts a newline and Korean IME confirmation does not submit.

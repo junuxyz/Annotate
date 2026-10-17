@@ -438,13 +438,9 @@ test('editor interaction: create, reply, resolve, reopen, edits, persistence, cl
       'selection alone must not open the composer',
     );
     const command = plugin.commands.find((c) => c.id === 'add-selection-comment');
-    assert.deepEqual(command.hotkeys, [{ modifiers: ['Mod', 'Shift'], key: 'm' }]);
-    assert.deepEqual(plugin.commands.find((c) => c.id === 'highlight-selection').hotkeys, [
-      { modifiers: ['Mod', 'Shift'], key: 'h' },
-    ]);
-    assert.deepEqual(plugin.commands.find((c) => c.id === 'color-selection-text').hotkeys, [
-      { modifiers: ['Mod', 'Shift'], key: 'j' },
-    ]);
+    assert.equal(command.hotkeys, undefined);
+    assert.equal(plugin.commands.find((c) => c.id === 'highlight-selection').hotkeys, undefined);
+    assert.equal(plugin.commands.find((c) => c.id === 'color-selection-text').hotkeys, undefined);
     const editor = {
       getSelection: () => view.state.sliceDoc(7, 15),
       getValue: () => view.state.doc.toString(),

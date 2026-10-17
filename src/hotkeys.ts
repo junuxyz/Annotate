@@ -210,7 +210,7 @@ export function renderShortcutSettings(root: HTMLElement, app: App): () => void 
         button.extraSettingsEl.addClass('annotate-hotkey-reset');
         return button
           .setIcon('rotate-ccw')
-          .setTooltip('Reset shortcuts to default')
+          .setTooltip('Clear custom shortcuts')
           .onClick(async () => {
             try {
               await update(null);
