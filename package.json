@@ -27,15 +27,18 @@
   },
   "dependencies": {
     "@lezer/markdown": "^1.8.0",
+    "entities": "^8.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.36.0",
     "@eslint/js": "^10.0.1",
+    "@eslint/json": "^0.14.0",
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.12.0",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "globals": "^17.13.0",
     "happy-dom": "^21.0.1",
     "obsidian": "1.14.4",
@@ -57,5 +60,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/junuxyz/Annotate.git"
+  },
+  "overrides": {
+    "obsidian": "$obsidian",
+    "@eslint/js": "$@eslint/js"
   }
 }
