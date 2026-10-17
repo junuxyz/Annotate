@@ -53,7 +53,7 @@ function request(backend, id, question, cancel = false) {
   });
 }
 test('plain questions use the default assistant and @comment opts out', () => {
-  for (const provider of ['chatgpt', 'claude']) {
+  for (const provider of ['chatgpt', 'claude', 'opencode']) {
     assert.deepEqual(assistantInvocation(' explain ', provider), { provider, question: 'explain' });
     assert.equal(assistantInvocation('@comment literal @claude @chatgpt', provider), null);
   }
@@ -64,7 +64,7 @@ test('plain questions use the default assistant and @comment opts out', () => {
   assert.equal(assistantInvocation('ordinary comment'), null);
 });
 test('mentions route exactly one assistant and legacy settings default to ChatGPT', () => {
-  for (const provider of ['chatgpt', 'claude'])
+  for (const provider of ['chatgpt', 'claude', 'opencode'])
     assert.deepEqual(assistantInvocation(`Please @${provider.toUpperCase()} explain`), {
       provider,
       question: 'Please  explain',
@@ -79,6 +79,28 @@ test('mentions route exactly one assistant and legacy settings default to ChatGP
   });
   assert.equal(data.assistant.provider, 'chatgpt');
   assert.equal(data.codex.executable, 'saved-codex');
+  const legacyClaude = dataSchema.parse({
+    version: 1,
+    author: 'You',
+    threads: [],
+    assistant: { provider: 'claude', claude: { executable: 'custom-claude', model: 'sonnet' } },
+  });
+  assert.equal(legacyClaude.assistant.provider, 'claude');
+  assert.equal(legacyClaude.assistant.claude.executable, 'custom-claude');
+  assert.deepEqual(legacyClaude.assistant.opencode, { executable: 'opencode', model: '' });
+  const saved = dataSchema.parse({
+    ...data,
+    assistant: {
+      ...data.assistant,
+      provider: 'opencode',
+      opencode: { executable: 'custom-opencode', model: 'synthetic/model' },
+    },
+  });
+  assert.equal(saved.assistant.provider, 'opencode');
+  assert.equal(saved.assistant.opencode.model, 'synthetic/model');
+  assert.deepEqual(data.assistant.opencode, { executable: 'opencode', model: '' });
+  assert.throws(() => assistantInvocation('@opencode @claude question'), /one assistant/);
+  assert.equal(assistantInvocation('@comment @opencode explain', 'opencode'), null);
 });
 for (const provider of ['claude']) {
   test(`${provider}: real child process streams context once, handles cancellation, failures and recovery`, async () => {

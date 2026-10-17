@@ -13,6 +13,7 @@ export async function checkAccess({
   const sibling = `${folder} sibling`;
   const path = `${folder}/Original.md`;
   const created = `${folder}/Created.md`;
+  const deleted = `${folder}/Deleted.md`;
   const original = 'Synthetic access boundary original.';
   const edited = 'Synthetic access boundary edited.';
   const button = async (selector, label) => {
@@ -191,11 +192,20 @@ export async function checkAccess({
         `${P}s.trashOriginal=app.fileManager.trashFile;s.trashed=[];app.fileManager.trashFile=async function(file,...args){s.trashed.push(file.path);return s.trashOriginal.call(this,file,...args)}`,
       );
       await call('edit_note', { path, expectedContent: original, content: edited });
+      await ev(`await app.vault.create(${JSON.stringify(deleted)},'Synthetic deleted note')`);
+      await until(
+        `return !!app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(deleted)}))`,
+        'deletion fixture indexed',
+      );
       await call('create_note', { path: created, content: 'Synthetic created note' });
-      await call('delete_note', { path: created, expectedContent: 'Synthetic created note' });
+      await until(
+        `return !!app.metadataCache.getFileCache(app.vault.getAbstractFileByPath(${JSON.stringify(created)}))`,
+        'creation fixture indexed before grouped undo',
+      );
+      await call('delete_note', { path: deleted, expectedContent: 'Synthetic deleted note' });
       assert(
         await ev(
-          `${P}const record=s.notes.history.find(r=>r.id===s.folder+':group');return record?.status==='complete'&&record.changes.length===3&&s.trashed.includes(${JSON.stringify(created)})&&!app.vault.getAbstractFileByPath(${JSON.stringify(created)})`,
+          `${P}const record=s.notes.history.find(r=>r.id===s.folder+':group');return record?.status==='complete'&&record.changes.length===3&&s.trashed.includes(${JSON.stringify(deleted)})&&!app.vault.getAbstractFileByPath(${JSON.stringify(deleted)})&&!!app.vault.getAbstractFileByPath(${JSON.stringify(created)})`,
         ),
         'same turn grouped and deletion uses actual trash API',
       );
@@ -224,7 +234,7 @@ export async function checkAccess({
       );
       assert(
         await ev(
-          `return (await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(path)})))===${JSON.stringify(original)}&&!app.vault.getAbstractFileByPath(${JSON.stringify(created)})`,
+          `return (await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(path)})))===${JSON.stringify(original)}&&!app.vault.getAbstractFileByPath(${JSON.stringify(created)})&&(await app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(deleted)})))==='Synthetic deleted note'`,
         ),
         'entire grouped operation restored',
       );

@@ -11,6 +11,7 @@ import {
   type WrapTag,
 } from './highlight';
 import { assistantIcon } from './logos';
+import { featuredModelLabels, createOtherModelPicker, type ModelPricing } from './model-picker';
 import { commandShortcut, renderShortcutSettings } from './hotkeys';
 import {
   createAssistant,
@@ -288,6 +289,8 @@ export default class Annotate extends Plugin {
   backend: AssistantBackend | null = null;
   connectionLabels = new Map<ProviderId, HTMLElement>();
   chatgptModels: Record<string, string> = {};
+  opencodeModels: Record<string, string> = {};
+  opencodeModelPricing: Record<string, ModelPricing> = {};
   private connectionProbes = new Map<ProviderId, AssistantBackend>();
   private connectionChecks = new Map<
     ProviderId,
@@ -335,7 +338,7 @@ export default class Annotate extends Plugin {
         },
         update,
       );
-    return createAssistant({ provider, ...this.data.assistant.claude }, update);
+    return createAssistant({ provider, ...this.data.assistant[provider] }, update);
   }
   private assistantName(): string {
     return providers[this.data.assistant.provider].name;
@@ -413,6 +416,10 @@ export default class Annotate extends Plugin {
       new Notice(`${name} connection failed: ${detail}`, 10000);
       return false;
     } finally {
+      if (provider === 'opencode' && probe.models) {
+        this.opencodeModels = probe.models;
+        this.opencodeModelPricing = probe.modelPricing ?? {};
+      }
       probe.disable();
       this.connectionProbes.delete(provider);
       this.paintConnections();
@@ -2707,7 +2714,7 @@ class CommentsSettings extends PluginSettingTab {
     new Setting(containerEl)
       .setName('Ask AI in comments')
       .setDesc(
-        'AI requests send the complete current note, selected passage, question, and prior thread messages to OpenAI or Anthropic. Earlier @comment messages may be included later. Review folder access below. Start with @comment to save without starting a request.',
+        'AI requests send the complete current note, selected passage, question, and prior thread messages to the selected assistant’s model provider. Earlier @comment messages may be included later. Review folder access below. Start with @comment to save without starting a request.',
       )
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.data.codex.enabled).onChange((value) => {
@@ -2730,39 +2737,50 @@ class CommentsSettings extends PluginSettingTab {
       });
     for (const id of providerSchema.options) {
       const name = providers[id].name;
-      const login = id === 'chatgpt' ? 'codex login' : 'claude auth login';
-      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
+      const login =
+        id === 'chatgpt'
+          ? 'codex login'
+          : id === 'claude'
+            ? 'claude auth login'
+            : 'opencode auth login';
+      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant[id];
       const models = () => {
         const known =
-          id === 'claude'
-            ? claudeModels
-            : Object.keys(this.plugin.chatgptModels).length
-              ? this.plugin.chatgptModels
-              : cachedChatgptModels();
+          id === 'opencode'
+            ? this.plugin.opencodeModels
+            : id === 'claude'
+              ? claudeModels
+              : Object.keys(this.plugin.chatgptModels).length
+                ? this.plugin.chatgptModels
+                : cachedChatgptModels();
         const labels: Record<string, string> = { ...known };
         if (config.model && !labels[config.model]) labels[config.model] = config.model;
         return labels;
       };
       let fillModels = () => {};
+      let refreshOthers = () => {};
+      const selectModel = (value: string) => {
+        config.model = value;
+        this.plugin.changed();
+        if (this.plugin.data.codex.enabled && id === this.plugin.data.assistant.provider)
+          this.plugin.configureCodex();
+        fillModels();
+      };
       const row = new Setting(containerEl).setName(name);
       row.addDropdown((dropdown) => {
         fillModels = () => {
           dropdown.selectEl.empty();
-          const labels = models();
+          const labels = id === 'opencode' ? featuredModelLabels(models(), config.model) : models();
           const options = Object.keys(labels);
           for (const model of options) dropdown.addOption(model, labels[model] ?? model);
           dropdown.selectEl.toggle(options.length > 0);
           dropdown.setValue(config.model || options[0] || '');
+          refreshOthers();
         };
         fillModels();
         dropdown.selectEl.addClass('annotate-settings-model');
         dropdown.selectEl.setAttribute('aria-label', `${name} model`);
-        dropdown.onChange((value) => {
-          config.model = value;
-          this.plugin.changed();
-          if (this.plugin.data.codex.enabled && id === this.plugin.data.assistant.provider)
-            this.plugin.configureCodex();
-        });
+        dropdown.onChange(selectModel);
       });
       row.addButton((button) =>
         button.setButtonText('Check').onClick(async () => {
@@ -2775,10 +2793,41 @@ class CommentsSettings extends PluginSettingTab {
             this.plugin.backend?.state !== 'ready'
           )
             this.plugin.configureCodex();
-          if (connected) fillModels();
+          fillModels();
           button.setDisabled(false).setButtonText(connected ? 'Connected' : 'Retry');
         }),
       );
+      if (id === 'opencode') {
+        const others = row.descEl.createDiv({ cls: 'annotate-other-models' });
+        others.hidden = true;
+        others.id = `annotate-other-models-${crypto.randomUUID()}`;
+        let othersButton: HTMLButtonElement | undefined;
+        const picker = createOtherModelPicker({
+          container: others,
+          labels: models,
+          pricing: () => this.plugin.opencodeModelPricing,
+          onChoose: (value) => {
+            selectModel(value);
+            others.hidden = true;
+            othersButton?.setAttribute('aria-expanded', 'false');
+            othersButton?.focus();
+          },
+        });
+        refreshOthers = picker.refresh;
+        row.addButton((button) => {
+          othersButton = button.buttonEl;
+          button.buttonEl.setAttribute('aria-expanded', 'false');
+          button.buttonEl.setAttribute('aria-controls', others.id);
+          button.setButtonText('Others').onClick(() => {
+            others.hidden = !others.hidden;
+            button.buttonEl.setAttribute('aria-expanded', String(!others.hidden));
+            if (!others.hidden) {
+              picker.refresh();
+              picker.focus();
+            }
+          });
+        });
+      }
       row.settingEl.addClass('annotate-settings-provider');
       const connection = row.descEl.createDiv({ cls: 'annotate-settings-codex-status' });
       connection.dataset.provider = id;
@@ -2786,7 +2835,10 @@ class CommentsSettings extends PluginSettingTab {
       this.plugin.connectionLabels.set(id, connection);
       row.descEl.createDiv({
         cls: 'annotate-settings-hint',
-        text: `Not connected? Run ${login} in Terminal, then Check.`,
+        text:
+          id === 'opencode'
+            ? 'Check to refresh models. Find additional models in Others.'
+            : `Not connected? Run ${login} in Terminal, then Check.`,
       });
     }
     this.plugin.paintConnections();
@@ -2902,7 +2954,7 @@ class CommentsSettings extends PluginSettingTab {
         );
     }
     for (const id of providerSchema.options) {
-      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant.claude;
+      const config = id === 'chatgpt' ? this.plugin.data.codex : this.plugin.data.assistant[id];
       const command = providers[id].executable;
       new Setting(advanced)
         .setName(`${providers[id].name} command`)

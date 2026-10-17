@@ -1,5 +1,5 @@
 import { assistantIcon } from './logos';
-import { providers, type ProviderId } from './ai';
+import { providers, providerSchema, type ProviderId } from './ai';
 import type { CodexSkill } from './codex';
 type Choice =
   | { kind: 'comment' }
@@ -12,8 +12,10 @@ export function mentionMenu(
   loadSkills: () => Promise<CodexSkill[]> = async () => [],
 ): void {
   const doc = input.ownerDocument;
-  const providersInOrder: ProviderId[] =
-    preferred === 'claude' ? ['claude', 'chatgpt'] : ['chatgpt', 'claude'];
+  const providersInOrder: ProviderId[] = [
+    preferred,
+    ...providerSchema.options.filter((id) => id !== preferred),
+  ];
   const menu = doc.createElement('div');
   menu.className = 'annotate-mention-menu';
   menu.id = `annotate-mentions-${crypto.randomUUID()}`;

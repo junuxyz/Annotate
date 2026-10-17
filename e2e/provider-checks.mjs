@@ -44,6 +44,23 @@ export async function checkProviders({
       format: 'cjs',
       outfile: backend,
     });
+    const openCodeBackend = join(dir, 'opencode.cjs');
+    await build({
+      entryPoints: [join(plugin, 'src/opencode.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: openCodeBackend,
+    });
+    const openCodeFixture = join(dir, 'opencode-featured-free-models-fixture');
+    writeFileSync(
+      openCodeFixture,
+      readFileSync(join(plugin, 'tests/opencode-fixture.cjs'), 'utf8').replace(
+        /^#![^\n]*/,
+        `#!${process.execPath}`,
+      ),
+      { mode: 0o700 },
+    );
     const codexBackend = join(dir, 'codex.cjs');
     await build({
       entryPoints: [join(plugin, 'src/codex.ts')],
@@ -75,9 +92,9 @@ export async function checkProviders({
       { mode: 0o700 },
     );
     await ev(
-      `${P}delete require.cache[require.resolve(${JSON.stringify(backend)})];p.createBackend=function(id=this.data.assistant.provider){if(id==='chatgpt'){const {CodexBackend}=require(${JSON.stringify(codexBackend)});return new CodexBackend(${JSON.stringify(codexFixture)},()=>this.paintCodex(),{home:${JSON.stringify(join(dir, 'codex-home'))},authSource:${JSON.stringify(codexAuth)}})}const {ClaudeBackend}=require(${JSON.stringify(backend)});return new ClaudeBackend(${JSON.stringify(fixture)},'synthetic-model',()=>this.paintCodex())}`,
+      `${P}delete require.cache[require.resolve(${JSON.stringify(backend)})];p.createBackend=function(id=this.data.assistant.provider){if(id==='chatgpt'){const {CodexBackend}=require(${JSON.stringify(codexBackend)});return new CodexBackend(${JSON.stringify(codexFixture)},()=>this.paintCodex(),{home:${JSON.stringify(join(dir, 'codex-home'))},authSource:${JSON.stringify(codexAuth)}})}if(id==='opencode'){const {OpenCodeBackend}=require(${JSON.stringify(openCodeBackend)});return new OpenCodeBackend(${JSON.stringify(openCodeFixture)},'synthetic/model',()=>this.paintCodex())}const {ClaudeBackend}=require(${JSON.stringify(backend)});return new ClaudeBackend(${JSON.stringify(fixture)},'synthetic-model',()=>this.paintCodex())}`,
     );
-    for (const provider of ['chatgpt', 'claude'])
+    for (const provider of ['chatgpt', 'claude', 'opencode'])
       for (const mode of modes)
         for (const theme of themes)
           await step(

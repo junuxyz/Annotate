@@ -16,6 +16,7 @@ host. The manifest declares desktop-only support.
 | [`markdown.ts`](../src/markdown.ts), [`math.ts`](../src/math.ts) | Safe comment Markdown, render lifecycle, math delimiters, and streamed rendering                                                                             |
 | [`ai.ts`](../src/ai.ts)                                          | Provider registry, executable resolution, invocation parsing, and `AssistantBackend` interface                                                               |
 | [`codex.ts`](../src/codex.ts)                                    | Codex app-server RPC, restrictive configuration, sessions, host-tool dispatch, and cancellation                                                              |
+| [`opencode.ts`](../src/opencode.ts)                              | Context-only OpenCode server transport, isolated configuration, streamed replies, and cancellation                                                           |
 | [`claude.ts`](../src/claude.ts)                                  | Context-only Claude CLI transport, streaming, and cancellation                                                                                               |
 | [`agent-access.ts`](../src/agent-access.ts)                      | Folder consent, context checks, settings, external approvals, history UI, and host-tool wiring                                                               |
 | [`agent-settings.ts`](../src/agent-settings.ts)                  | Folder, web-search, MCP, and consent-version settings                                                                                                        |
@@ -54,7 +55,7 @@ storage paths with different recovery behavior.
 4. The plugin persists the pending assistant message before sending. `questionContext`
    supplies the full current note, selected passage, question, and reply quote.
    New sessions receive saved conversation history. Existing Codex sessions retain
-   it, while Claude receives history on each request.
+   it, while Claude and OpenCode receive history on each request.
 5. Deltas update the same saved message. The terminal state records completion,
    cancellation, failure, or an unknown outcome. Startup and incoming synced data
    run through `recoverConversations`; interrupted responses are never resent.

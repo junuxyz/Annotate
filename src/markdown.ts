@@ -66,7 +66,7 @@ export function safeCommentMarkdown(text: string): string {
 }
 
 function highlightMentions(root: HTMLElement, text: string): void {
-  const skill = /^@(?:chatgpt|claude)\s+(\/[\w:.-]+)(?=\s|$)/i.exec(text.trim())?.[1];
+  const skill = /^@(?:chatgpt|claude|opencode)\s+(\/[\w:.-]+)(?=\s|$)/i.exec(text.trim())?.[1];
   let skillHighlighted = false;
   const doc = root.ownerDocument;
   const walker = doc.createTreeWalker(root, 4);
@@ -74,14 +74,14 @@ function highlightMentions(root: HTMLElement, text: string): void {
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
     if (node.parentElement?.closest('code, pre')) continue;
-    if (/@(?:chatgpt|claude)\b/i.test(node.data) || (skill && node.data.includes(skill)))
+    if (/@(?:chatgpt|claude|opencode)\b/i.test(node.data) || (skill && node.data.includes(skill)))
       nodes.push(node);
   }
   for (const node of nodes) {
     const fragment = doc.createDocumentFragment();
-    const parts = node.data.split(/(@(?:chatgpt|claude)\b|\/[\w:.-]+)/gi);
+    const parts = node.data.split(/(@(?:chatgpt|claude|opencode)\b|\/[\w:.-]+)/gi);
     for (const part of parts) {
-      const assistant = /^@(chatgpt|claude)$/i.exec(part)?.[1]?.toLowerCase();
+      const assistant = /^@(chatgpt|claude|opencode)$/i.exec(part)?.[1]?.toLowerCase();
       const isSkill = !skillHighlighted && part === skill;
       if (assistant || isSkill) {
         const mention = doc.createElement('span');
