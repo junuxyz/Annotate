@@ -1034,11 +1034,11 @@ if (only.includes('logos'))
           );
           await createComment(mode, 'Assistant logo fixture');
           await ev(
-            `${P}const t=p.data.threads.at(-1);for(const provider of ['chatgpt','claude'])t.comments.push({id:crypto.randomUUID(),author:provider,role:'assistant',provider,body:'Synthetic '+provider+' reply',status:'completed',createdAt:Date.now()});p.openThread(t)`,
+            `${P}const t=p.data.threads.at(-1);for(const provider of ['chatgpt','claude','opencode'])t.comments.push({id:crypto.randomUUID(),author:provider,role:'assistant',provider,body:'Synthetic '+provider+' reply',status:'completed',createdAt:Date.now()});p.openThread(t)`,
           );
           assert(
             await ev(
-              `const icons=[...document.querySelectorAll('.annotate-avatar-ai svg')];return icons.length===2&&icons[0].classList.contains('annotate-openai-icon')&&icons[1].classList.contains('annotate-claude-icon')&&icons[0].querySelector('path').getAttribute('d')!==icons[1].querySelector('path').getAttribute('d')&&getComputedStyle(icons[1]).color==='rgb(217, 119, 87)'`,
+              `const icons=[...document.querySelectorAll('.annotate-avatar-ai svg')];return icons.length===3&&icons[2].classList.contains('annotate-opencode-icon')&&new Set(icons.map(i=>i.querySelector('path').getAttribute('d'))).size===3&&icons[0].classList.contains('annotate-openai-icon')&&icons[1].classList.contains('annotate-claude-icon')&&icons[0].querySelector('path').getAttribute('d')!==icons[1].querySelector('path').getAttribute('d')&&getComputedStyle(icons[1]).color==='rgb(217, 119, 87)'`,
             ),
             'assistant avatars use different marks',
           );
@@ -1047,7 +1047,7 @@ if (only.includes('logos'))
           await type('@');
           assert(
             await ev(
-              `const menu=document.querySelector('.annotate-mention-menu');return !menu.hidden&&menu.querySelectorAll('.annotate-assistant-icon').length===2&&getComputedStyle(menu.querySelector('.annotate-claude-icon')).color==='rgb(217, 119, 87)'`,
+              `const menu=document.querySelector('.annotate-mention-menu');return !menu.hidden&&menu.querySelectorAll('.annotate-assistant-icon').length===3&&!!menu.querySelector('.annotate-opencode-icon')&&getComputedStyle(menu.querySelector('.annotate-claude-icon')).color==='rgb(217, 119, 87)'`,
             ),
             'mention menu shows both provider logos',
           );
