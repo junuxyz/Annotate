@@ -71,8 +71,12 @@ suite on the exact release commit/build:
 npm run check:release
 ```
 
-Alternatively, dispatch **Pre-tag E2E** in GitHub Actions with the exact commit SHA.
-Wait for success and use the uploaded validated commit and distribution hashes.
+Alternatively, dispatch **Pre-tag E2E** on the branch at the exact release commit,
+using that same full SHA for the `ref` input. The dispatch SHA must match the source
+SHA so the signed provenance identifies the source that was tested. See
+[dispatch instructions](testing.md#runtime-and-isolation).
+Wait for the entire workflow to succeed and download its `obsidian-e2e-evidence`
+artifact. Use the files in `distribution/`, the validated commit and recorded hashes.
 Authenticated model checks are separate opt-ins; captured protocol traces and
 fixture CLIs cover assistant behavior without paid requests in either default suite.
 
@@ -112,3 +116,27 @@ Stage only `main.js`, `manifest.json`, and `styles.css` in a fresh directory.
 Compare staged files with the saved hashes before uploading. Existing ignored
 `release/` directories or ZIPs can contain obsolete builds. `.development/` is
 not a release artifact.
+
+The CI workflow stages these files after full validation and uses the official
+[GitHub attestation action](https://github.com/actions/attest) to sign their build
+provenance. It needs `contents: read`, `id-token: write` and `attestations: write`.
+It saves the signed bundle as `attestation.jsonl` and registers the attestation
+with GitHub. This proves build origin and file integrity, not plugin safety.
+
+Before publishing, compare each downloaded file's SHA-256 with
+`validated-build.json`, and verify provenance for each file:
+
+```sh
+gh attestation verify /path/to/evidence/distribution/main.js \
+  --repo junuxyz/Annotate \
+  --signer-workflow junuxyz/Annotate/.github/workflows/e2e.yml \
+  --source-digest FULL_VALIDATED_COMMIT_SHA
+```
+
+Repeat for `manifest.json` and `styles.css`. Set `FULL_VALIDATED_COMMIT_SHA` to
+`validated-commit.txt` and confirm it is the exact commit being tagged. The
+attestation can also be verified with the saved bundle using `--bundle
+/path/to/evidence/attestation.jsonl`. Upload only those three verified files to
+the release. Do not run a build between CI validation and upload. A local-only
+validation does not generate a GitHub attestation; use the CI workflow when
+publishing an attested release.
