@@ -110,6 +110,15 @@ writeFileSync(
   join(pdir, 'data.json'),
   JSON.stringify({ ...data, threads: [], codex: { ...data.codex, enabled: false } }, null, 2),
 );
+// Bind only the disposable synthetic profile; shipped commands have no default keys.
+writeFileSync(
+  join(vault, '.obsidian/hotkeys.json'),
+  JSON.stringify({
+    'annotate:add-selection-comment': [{ modifiers: ['Mod', 'Shift'], key: 'm' }],
+    'annotate:highlight-selection': [{ modifiers: ['Mod', 'Shift'], key: 'h' }],
+    'annotate:color-selection-text': [{ modifiers: ['Mod', 'Shift'], key: 'j' }],
+  }),
+);
 rmSync(shotsDir, { recursive: true, force: true });
 mkdirSync(shotsDir, { recursive: true });
 
@@ -1923,7 +1932,7 @@ if (only.includes('sync')) {
     );
     assert(
       await ev(
-        `return !!document.querySelector('.annotate-settings-advanced')&&document.querySelector('.vertical-tab-content').textContent.includes('Automatic local updates enabled')`,
+        `return !!document.querySelector('.annotate-settings-advanced')&&document.querySelector('.vertical-tab-content').textContent.includes('automatic local updates enabled')`,
       ),
       'Sync preserves the open Annotate settings tab',
     );
@@ -1995,7 +2004,7 @@ if (only.includes('auto-update')) {
         );
         assert(
           await ev(
-            `return document.querySelector('.vertical-tab-content')?.textContent.includes('Automatic local updates enabled')&&!!document.querySelector('.annotate-settings-advanced')`,
+            `return document.querySelector('.vertical-tab-content')?.textContent.includes('automatic local updates enabled')&&!!document.querySelector('.annotate-settings-advanced')`,
           ),
           'Annotate settings stay selected after auto-update',
         );

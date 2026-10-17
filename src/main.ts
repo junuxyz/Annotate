@@ -1036,7 +1036,6 @@ export default class Annotate extends Plugin {
     this.watchSelections(document);
     this.refreshHighlightStyles();
     this.addCommand({
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'h' }],
       id: 'highlight-selection',
       name: 'Highlight selection with last color',
       checkCallback: (checking) => {
@@ -1047,7 +1046,6 @@ export default class Annotate extends Plugin {
       },
     });
     this.addCommand({
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'j' }],
       id: 'color-selection-text',
       name: 'Color selected text with last color',
       checkCallback: (checking) => {
@@ -1058,7 +1056,6 @@ export default class Annotate extends Plugin {
       },
     });
     this.addCommand({
-      hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'm' }],
       id: 'add-selection-comment',
       name: 'Comment on selection',
       checkCallback: (checking) => {

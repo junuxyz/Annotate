@@ -109,3 +109,15 @@ test('recording handles modifiers, Escape, function keys, IME, and physical lett
   assert.equal(sameShortcut(first, { modifiers: ['Ctrl', 'Shift'], key: 'J' }, false), true);
   assert.equal(sameShortcut(first, { modifiers: ['Ctrl', 'Shift'], key: 'J' }, true), false);
 });
+
+test('unassigned defaults retain existing user overrides until explicitly cleared', async () => {
+  const native = new NativeHotkeys();
+  native.defaults = {};
+  native.custom['annotate:color'] = [first];
+  const manager = new ShortcutManager(native);
+  assert.deepEqual(manager.current('annotate:color'), [first]);
+  assert.deepEqual(manager.current('annotate:fresh-command'), []);
+  await manager.set('annotate:color', null);
+  assert.deepEqual(manager.current('annotate:color'), []);
+  assert.deepEqual(native.custom['other:command'], [second]);
+});

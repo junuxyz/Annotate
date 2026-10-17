@@ -2,7 +2,7 @@
 
 [Back to README](../README.md)
 
-- Select text and press **Cmd+Shift+M** on macOS or **Ctrl+Shift+M** on Windows/Linux.
+- Select text and choose **Annotate** from the selection menu.
   The selection context menu and command palette also offer **Comment on selection**.
 - Press **Enter** to send; **Shift+Enter** adds a line.
 - With AI enabled, messages ask the default assistant. Start with `@comment` to
@@ -31,25 +31,30 @@ Set your display name in the plugin settings.
 ## Text highlights and colors
 
 Select note text to open the compact **Highlight | Color | Annotate** menu. Choose
-**Highlight** to pick a color or remove an existing highlight. **Cmd+Shift+H**
-on macOS, or **Ctrl+Shift+H** on Windows/Linux, applies the last chosen color.
-**Cmd+Shift+M** on macOS, or **Ctrl+Shift+M** on Windows/Linux, opens the comment composer.
-Edit Annotate shortcuts under **Settings → Annotate → Advanced → Keyboard shortcuts**.
+**Highlight** to pick a color or remove an existing highlight. **Annotate** opens
+the comment composer. Choose **Color** to change text color or restore the default.
+Text colors follow the active theme and can be combined with highlights.
 
-Choose **Color** to change text color or restore the default. Text colors follow
-the active theme and can be combined with highlights. The command
-**Annotate: Color selected text with last color** reapplies your last choice.
-Use **Cmd+Shift+J** on macOS or **Ctrl+Shift+J** on Windows/Linux.
-Click a shortcut to record a replacement, **Add** to assign another, or the remove
-icon to clear a binding. **Reset shortcuts to default** restores the defaults.
+### Keyboard shortcuts
+
+New installations do not assign shortcuts, avoiding conflicts with your existing
+Obsidian commands. Assign them under **Settings → Annotate → Advanced → Keyboard
+shortcuts**, or **Settings → Hotkeys**. Existing custom shortcuts are preserved.
+
+Click **Set shortcut** to record a binding, an existing shortcut to replace it,
+**Add** to assign another, or the remove icon to clear a binding. **Clear custom
+shortcuts** removes your overrides and leaves the command unassigned.
 Escape cancels recording. Conflicts with another registered Obsidian command are
 reported before saving. Changes also appear in **Settings → Hotkeys** and survive reload.
 
-| Command                                       | Default shortcut |
-| --------------------------------------------- | ---------------- |
-| Annotate: Comment on selection                | Cmd/Ctrl+Shift+M |
-| Annotate: Highlight selection with last color | Cmd/Ctrl+Shift+H |
-| Annotate: Color selected text with last color | Cmd/Ctrl+Shift+J |
+| Command                                       | Suggested shortcut on macOS |
+| --------------------------------------------- | --------------------------- |
+| Annotate: Comment on selection                | Cmd+Shift+M                 |
+| Annotate: Highlight selection with last color | Cmd+Shift+H                 |
+| Annotate: Color selected text with last color | Cmd+Shift+J                 |
+
+These are suggestions to assign yourself, not defaults. Annotate currently
+supports macOS only.
 
 Under **Settings → Annotate → Advanced**, customize the palette with color names,
 color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may

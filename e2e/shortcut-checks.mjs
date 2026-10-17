@@ -104,10 +104,10 @@ export async function checkShortcuts({
         );
         await ev(`${row(color)}.querySelector('.annotate-hotkey-reset').click()`);
         await until(
-          `return app.hotkeyManager.getHotkeys('${color}')===undefined&&${row(color)}.textContent.includes('Cmd+Shift+J')`,
-          'default shortcut restored',
+          `return app.hotkeyManager.getHotkeys('${color}')===undefined&&${row(color)}.textContent.includes('Set shortcut')`,
+          'reset leaves command unassigned',
         );
-        await begin(color);
+        await begin(color, 'add');
         await press('j', 8 | 2 | 1);
         await recorded();
         await begin(list, 'add');
