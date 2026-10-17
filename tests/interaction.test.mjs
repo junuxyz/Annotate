@@ -2039,3 +2039,147 @@ test('native settings row reuse removes the prior shortcut subtree during cleanu
     await tick();
   }
 });
+
+test('pasted images preview above the input, survive closing, remove, and send without text', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const target = {
+    kind: 'editor',
+    path: 'test.md',
+    anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+    text: () => 'passage',
+  };
+  const png =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6SAAAAABJRU5ErkJggg==';
+  const paste = (type = 'image/png', size) => {
+    const file = new win.File([Buffer.from(png, 'base64')], 'screenshot.png', { type });
+    if (size) Object.defineProperty(file, 'size', { value: size });
+    const event = new win.Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'clipboardData', {
+      value: {
+        items: [{ kind: 'file', type, getAsFile: () => file }],
+        getData: () => '',
+      },
+    });
+    document.querySelector('.annotate-composer textarea').dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+  };
+  try {
+    plugin.source = 'passage';
+    plugin.compose(target);
+    paste();
+    await until(() => document.querySelector('.annotate-attachments img'));
+    assert.equal(document.querySelector('.annotate-send').disabled, false);
+    assert.equal(
+      document.querySelector('.annotate-attachments').nextElementSibling.tagName,
+      'TEXTAREA',
+    );
+    plugin.closePopup();
+    plugin.compose(target);
+    assert.equal(document.querySelectorAll('.annotate-attachments img').length, 1);
+    click(document.querySelector('.annotate-attachments button'));
+    assert.equal(document.querySelectorAll('.annotate-attachments img').length, 0);
+    assert.equal(document.querySelector('.annotate-send').disabled, true);
+    paste('image/svg+xml');
+    await tick();
+    assert.equal(document.querySelectorAll('.annotate-attachments img').length, 0);
+    paste('image/png', 6 * 1024 * 1024);
+    await tick();
+    assert.equal(document.querySelectorAll('.annotate-attachments img').length, 0);
+    for (let index = 0; index < 6; index++) paste();
+    await until(() => document.querySelectorAll('.annotate-attachments img').length === 6);
+    const record = plugin.record;
+    plugin.record = async () => false;
+    click(document.querySelector('.annotate-send'));
+    await until(() => !document.querySelector('.annotate-composer textarea').readOnly);
+    assert.equal(
+      document.querySelectorAll('.annotate-attachments img').length,
+      6,
+      'rejected submissions keep all images without a count limit',
+    );
+    assert.equal(document.querySelector('.annotate-send').disabled, false);
+    plugin.record = record;
+    click(document.querySelector('.annotate-send'));
+    await until(() => plugin.data.threads[0]?.comments.length === 1);
+    const comment = plugin.data.threads[0].comments[0];
+    assert.equal(comment.body, '');
+    assert.equal(comment.images.length, 6);
+    assert.equal(comment.images[0].dataUrl, 'data:image/png;base64,' + png);
+    assert.equal(document.querySelectorAll('.annotate-messages .annotate-images img').length, 6);
+    assert.equal(document.querySelectorAll('.annotate-attachments img').length, 0);
+    await plugin.persist();
+    assert.deepEqual(plugin.saved.threads[0].comments[0].images, comment.images);
+    plugin.closePopup();
+    plugin.openThread(plugin.data.threads[0]);
+    assert.equal(document.querySelectorAll('.annotate-messages .annotate-images img').length, 6);
+  } finally {
+    plugin.onunload();
+    await tick();
+  }
+});
+
+for (const retainsHistory of [true, false]) {
+  test(`image-only questions send image bytes and replay them only when needed, retainsHistory=${retainsHistory}`, async () => {
+    const { image } = await import('./image-fixture.mjs');
+    const plugin = new Plugin();
+    await plugin.onload();
+    const requests = [];
+    plugin.createBackend = () => ({
+      state: 'ready',
+      detail: '',
+      model: 'synthetic',
+      retainsHistory,
+      async enable() {},
+      disable() {},
+      async session(id) {
+        return id ?? 'image-session';
+      },
+      async ask(id, text, delta, finish, skill, images) {
+        requests.push({ context: JSON.parse(text), images });
+        delta('Synthetic image response');
+        finish('completed');
+      },
+    });
+    plugin.data.codex.enabled = true;
+    plugin.data.agent.folders = ['.'];
+    plugin.configureCodex();
+    try {
+      plugin.source = 'passage';
+      const target = {
+        kind: 'editor',
+        path: 'test.md',
+        anchor: { from: 0, to: 7, quote: 'passage', prefix: '', suffix: '', orphaned: false },
+        text: () => 'passage',
+      };
+      plugin.compose(target);
+      const thread = {
+        id: crypto.randomUUID(),
+        path: 'test.md',
+        anchor: target.anchor,
+        comments: [],
+        resolved: false,
+      };
+      plugin.data.threads.push(thread);
+      assert.equal(await plugin.record(thread, '', undefined, [image]), true);
+      await until(() => requests.length === 1);
+      assert.equal(requests[0].context.question, 'Describe the attached images.');
+      assert.deepEqual(requests[0].images, [image]);
+      assert.equal(await plugin.record(thread, 'What is shown?'), true);
+      await until(() => requests.length === 2);
+      assert.deepEqual(requests[1].images, retainsHistory ? [] : [image]);
+      if (!retainsHistory)
+        assert.deepEqual(requests[1].context.conversationHistory[0].images, [image.name]);
+      plugin.resetEditedConversation(thread);
+      assert.equal(await plugin.record(thread, 'Check the image again'), true);
+      await until(() => requests.length === 3);
+      assert.deepEqual(requests[2].images, [image]);
+      assert.ok(
+        !JSON.stringify(requests[2].context).includes('base64'),
+        'binary data stays out of the text prompt',
+      );
+    } finally {
+      plugin.onunload();
+      await tick();
+    }
+  });
+}

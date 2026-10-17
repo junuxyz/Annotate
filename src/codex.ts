@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import type { ImageAttachment } from './images';
 import { version as pluginVersion } from '../manifest.json';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
@@ -580,6 +581,7 @@ export class CodexBackend {
     delta: Active['delta'],
     finish: Active['finish'],
     skill?: CodexSkill,
+    images: ImageAttachment[] = [],
   ): Promise<void> {
     if (this.active.has(id)) throw new Error('This annotation already has an active response.');
     if (skill) throw new Error('Native Codex skills are unavailable within the note boundary.');
@@ -595,7 +597,10 @@ export class CodexBackend {
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.rpc('turn/start', {
           threadId: id,
-          input: [{ type: 'text', text, text_elements: [] }],
+          input: [
+            { type: 'text', text, text_elements: [] },
+            ...images.map((image) => ({ type: 'image', url: image.dataUrl })),
+          ],
           effort: 'medium',
           approvalPolicy: 'on-request',
           permissions: 'annotate',
@@ -668,6 +673,7 @@ export type ConversationMessage = {
   role: 'user' | 'assistant';
   content: string;
   quote?: ReplyQuote;
+  images?: ImageAttachment[];
 };
 
 export function questionContext(
@@ -681,10 +687,11 @@ export function questionContext(
   return JSON.stringify({
     noteText,
     selectedPassage,
-    conversationHistory: conversationHistory.map(({ role, content, quote }) => ({
+    conversationHistory: conversationHistory.map(({ role, content, quote, images }) => ({
       role,
       content,
       quote,
+      ...(images?.length ? { images: images.map((image) => image.name) } : {}),
     })),
     ...(quotedReply ? { quotedReply } : {}),
     question,

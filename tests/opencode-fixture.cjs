@@ -154,7 +154,7 @@ const server = http.createServer(async (req, res) => {
   const text = payload.parts[0].text;
   const context = JSON.parse(text.slice(text.indexOf('{')));
   const question = context.question;
-  const answer = JSON.stringify(context);
+  const answer = JSON.stringify(question === 'images' ? payload.parts.slice(1) : context);
   res.writeHead(204).end();
   const message = (id, role) => emit('message.updated', { info: { id, sessionID, role } });
   const part = (id, messageID, type, text) =>

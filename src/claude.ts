@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { spawn } from 'node:child_process';
+import type { ImageAttachment } from './images';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { z } from 'zod';
 import type { AssistantBackend } from './ai';
@@ -140,6 +141,8 @@ export class ClaudeBackend implements AssistantBackend {
     text: string,
     delta: (text: string) => void,
     finish: (state: ResponseState, error?: string) => void,
+    _skill?: import('./codex').CodexSkill,
+    images: ImageAttachment[] = [],
   ): Promise<void> {
     await this.connect();
     try {
@@ -171,6 +174,7 @@ export class ClaudeBackend implements AssistantBackend {
       '--model',
       this.model,
     ];
+    if (images.length) args.push('--input-format', 'stream-json');
     const child = spawn(this.executable, args, {
       cwd: this.directory(),
       env: this.environment(),
@@ -249,7 +253,29 @@ export class ClaudeBackend implements AssistantBackend {
       if (!finished)
         done('unknown', 'Assistant exited without a complete answer. It will not be resent.');
     });
-    child.stdin.end(text);
+    child.stdin.end(
+      images.length
+        ? JSON.stringify({
+            type: 'user',
+            session_id: id,
+            parent_tool_use_id: null,
+            message: {
+              role: 'user',
+              content: [
+                ...images.map((image) => ({
+                  type: 'image',
+                  source: {
+                    type: 'base64',
+                    media_type: image.dataUrl.slice(5, image.dataUrl.indexOf(';')),
+                    data: image.dataUrl.slice(image.dataUrl.indexOf(',') + 1),
+                  },
+                })),
+                { type: 'text', text },
+              ],
+            },
+          }) + '\n'
+        : text,
+    );
   }
   async interrupt(id: string): Promise<void> {
     this.active.get(id)?.finish('cancelled');

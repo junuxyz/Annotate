@@ -16,6 +16,10 @@ HTML. Assistant note tools can change notes after folder consent.
 | Plugin `agent-history/`                | Immutable snapshots of assistant note operations, including earlier note text                                            |
 | `~/.annotate/codex/<vault-path-hash>/` | Isolated Codex runtime state outside the vault, with a link to an available file-based login                             |
 
+Pasted images are stored inline in `data.json` with their messages. They increase
+the size of plugin data, backups, and conflict copies. Unsent image drafts stay
+in memory until the plugin unloads.
+
 A complete vault backup includes notes and the plugin data directory. Vault sync
 may copy recovery data too. Annotate does not encrypt these files. The isolated
 Codex runtime is outside vault-only backups.
@@ -27,7 +31,8 @@ the thread stays in the comments list as **Text missing**. Select replacement te
 in editing mode and use **Attach to selection** to repair it. Renames made through
 Obsidian preserve threads; renames made outside Obsidian cannot be tracked reliably.
 
-- Markdown notes only; no PDFs, Canvas, attachments, or collaborative editing.
+- Select passages in Markdown notes only; no PDF, Canvas, or attachment annotations,
+  or collaborative editing.
 - Reading mode skips passages it cannot map reliably to Markdown, including some
   custom rendering and equations. Use editing mode for those selections.
 - This release requires desktop Obsidian 1.14.4 or newer. Mobile is unavailable.

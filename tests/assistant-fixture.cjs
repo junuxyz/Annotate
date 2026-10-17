@@ -20,7 +20,12 @@ if (args[0] === 'auth') {
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => (text += chunk));
   process.stdin.on('end', () => {
-    const payload = JSON.parse(text.slice(text.indexOf('{')));
+    const input = JSON.parse(text.slice(text.indexOf('{')));
+    const payload = input.type === 'user' ? JSON.parse(input.message.content.at(-1).text) : input;
+    if (input.type === 'user') {
+      assert.equal(args[args.indexOf('--input-format') + 1], 'stream-json');
+      assert.equal(input.message.role, 'user');
+    }
     if (process.env.ANNOTATE_MODEL_TRACE) {
       const trace = JSON.parse(
         require('node:fs').readFileSync(process.env.ANNOTATE_MODEL_TRACE, 'utf8'),
@@ -31,7 +36,9 @@ if (args[0] === 'auth') {
         emit(event, index < trace.events.length - 1);
       return;
     }
-    const answer = JSON.stringify(payload);
+    const answer = JSON.stringify(
+      payload.question === 'images' ? input.message.content.slice(0, -1) : payload,
+    );
     const delta = (text) =>
       emit({
         type: 'stream_event',

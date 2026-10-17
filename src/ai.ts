@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
+import type { ImageAttachment } from './images';
 import {
   CodexBackend,
   type ConnectionState,
@@ -122,6 +123,7 @@ export interface AssistantBackend {
     delta: (text: string) => void,
     finish: (state: ResponseState, error?: string) => void,
     skill?: CodexSkill,
+    images?: ImageAttachment[],
   ): Promise<void>;
   interrupt(id: string): Promise<void>;
   disable(): void;

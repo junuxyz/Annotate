@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { imageAttachmentSchema } from './images';
 import { providerSchema } from './ai';
 import { highlightSettingsSchema, defaultHighlights } from './highlight';
 import { agentSettingsSchema, emptyAgentSettings } from './agent-settings';
@@ -24,6 +25,7 @@ const commentSchema = z
     author: z.string(),
     body: z.string(),
     quote: replyQuoteSchema.optional(),
+    images: z.array(imageAttachmentSchema).optional(),
     role: z.enum(['user', 'assistant']).optional(),
     provider: providerSchema.optional(),
     status: z
@@ -32,8 +34,8 @@ const commentSchema = z
     createdAt: z.number().int().nonnegative().max(8.64e15),
   })
   .refine(
-    (c) => c.body.length > 0 || c.role === 'assistant',
-    'Empty comments are only allowed for assistant responses',
+    (c) => c.body.length > 0 || !!c.images?.length || c.role === 'assistant',
+    'Comments need text or an image unless they are assistant responses',
   );
 const threadSchema = z.object({
   id: z.string().min(1),
