@@ -6,7 +6,7 @@
   The selection context menu and command palette also offer **Comment on selection**.
 - Press **Enter** to send; **Shift+Enter** adds a line.
 - With AI enabled, messages ask the default assistant. Start with `@comment` to
-  save a comment without an AI reply; only the comment text is saved. Use
+  save a comment without an AI reply; the `@comment` prefix is removed. Use
   `@chatgpt` or `@claude` to choose an assistant. With AI disabled, plain messages
   are local comments.
 - Click a highlight or comment count to open its thread and reply.
@@ -16,6 +16,20 @@
 - Thread and comment deletion take effect immediately. Use **Undo** in the
   notification to restore the deleted thread or comment.
 
+## Pasted images
+
+Paste a copied image or screenshot into the comment input with **Cmd+V** or
+**Ctrl+V**. Small previews appear above the input. Use each preview's remove
+button to discard it before sending. You can send images with or without text.
+PNG, JPEG, GIF, and WebP images are supported, each up to 5 MB. There is no
+image-count limit in Annotate.
+
+Sent images remain in the thread. With AI enabled, they are sent to the selected
+assistant along with the question. The selected model must support image input.
+With AI disabled or `@comment`, images are saved as local comments and can enter
+later assistant context. Closing and reopening the composer preserves unsent
+attachments during the current plugin session.
+
 ## Markdown and math
 
 Comments use Obsidian's native Markdown renderer, including bold, italics, lists,
@@ -23,7 +37,7 @@ tables, code blocks, callouts, highlights, footnotes, links, tags, and math.
 LaTeX supports `$…$`, `$$…$$`, `\(…\)`, and `\[…\]`.
 
 Note links resolve relative to the commented note. Editing keeps the original
-Markdown source. Images, embeds, and raw HTML display as inert text. Code blocks
+Markdown source. Markdown image links, embeds, and raw HTML display as inert text. Code blocks
 display as plain code, without running language-specific plugin processors.
 Comment rendering does not automatically load remote resources or embedded notes.
 Set your display name in the plugin settings.

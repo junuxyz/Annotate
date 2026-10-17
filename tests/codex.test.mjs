@@ -400,3 +400,31 @@ test('turn start failure aborts pending host permission before a late write', as
     b.disable();
   }
 });
+
+test('Codex sends pasted image bytes as native image inputs', async () => {
+  const { image } = await import('./image-fixture.mjs');
+  const backend = new CodexBackend(fixture, () => {}, runtime());
+  try {
+    await backend.enable();
+    const id = await backend.session();
+    const result = await new Promise((resolve, reject) => {
+      let body = '';
+      backend
+        .ask(
+          id,
+          questionContext('note', 'passage', 'images', []),
+          (delta) => {
+            body += delta;
+          },
+          (state) => resolve({ state, body }),
+          undefined,
+          [image],
+        )
+        .catch(reject);
+    });
+    assert.equal(result.state, 'completed');
+    assert.deepEqual(JSON.parse(result.body), [{ type: 'image', url: image.dataUrl }]);
+  } finally {
+    backend.disable();
+  }
+});

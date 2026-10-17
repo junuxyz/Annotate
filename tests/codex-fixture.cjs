@@ -170,6 +170,22 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       }
       return;
     }
+    if (JSON.parse(m.params.input[0].text).question === 'images') {
+      send({
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: id,
+          turnId,
+          itemId: 'answer',
+          delta: JSON.stringify(m.params.input.slice(1)),
+        },
+      });
+      send({
+        method: 'turn/completed',
+        params: { threadId: id, turn: { id: turnId, status: 'completed' } },
+      });
+      return;
+    }
     const skill = m.params.input.find((input) => input.type === 'skill');
     if (skill) {
       const valid =

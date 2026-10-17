@@ -180,3 +180,40 @@ test(
     assert.equal(resolveExecutable('/custom/pinned/codex'), '/custom/pinned/codex');
   },
 );
+
+test('Claude sends pasted image bytes as base64 image blocks through streaming stdin', async () => {
+  const { image } = await import('./image-fixture.mjs');
+  const backend = new ClaudeBackend(fixture, 'synthetic-model', () => {});
+  try {
+    await backend.enable();
+    const id = await backend.session();
+    const result = await new Promise((resolve, reject) => {
+      let body = '';
+      backend
+        .ask(
+          id,
+          JSON.stringify({ question: 'images' }),
+          (delta) => {
+            body += delta;
+          },
+          (state) => resolve({ state, body }),
+          undefined,
+          [image],
+        )
+        .catch(reject);
+    });
+    assert.equal(result.state, 'completed');
+    assert.deepEqual(JSON.parse(result.body), [
+      {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: 'image/png',
+          data: image.dataUrl.split(',')[1],
+        },
+      },
+    ]);
+  } finally {
+    backend.disable();
+  }
+});

@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import * as http from 'node:http';
+import type { ImageAttachment } from './images';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { ClientRequest, IncomingMessage } from 'node:http';
 import { z } from 'zod';
@@ -481,6 +482,8 @@ export const AnnotateGuard = async () => {
     text: string,
     delta: (text: string) => void,
     finish: (state: ResponseState, error?: string) => void,
+    _skill?: import('./codex').CodexSkill,
+    images: ImageAttachment[] = [],
   ): Promise<void> {
     await this.connect();
     if (!this.enabled || this.state !== 'ready')
@@ -610,7 +613,15 @@ export const AnnotateGuard = async () => {
           agent: 'annotate',
           system: instructions,
           model: { providerID: this.model.slice(0, slash), modelID: this.model.slice(slash + 1) },
-          parts: [{ type: 'text', text }],
+          parts: [
+            { type: 'text', text },
+            ...images.map((image) => ({
+              type: 'file',
+              mime: image.dataUrl.slice(5, image.dataUrl.indexOf(';')),
+              filename: image.name,
+              url: image.dataUrl,
+            })),
+          ],
         },
         controller.signal,
       );

@@ -244,3 +244,33 @@ test('OpenCode reports a failed model refresh while retaining the cached model l
     backend.disable();
   }
 });
+
+test('OpenCode sends pasted image bytes as file parts without reading other files', async () => {
+  const { image } = await import('./image-fixture.mjs');
+  const backend = new OpenCodeBackend(fixture, '', () => {});
+  try {
+    await backend.enable();
+    const id = await backend.session();
+    const result = await new Promise((resolve, reject) => {
+      let body = '';
+      backend
+        .ask(
+          id,
+          context('images'),
+          (delta) => {
+            body += delta;
+          },
+          (state) => resolve({ state, body }),
+          undefined,
+          [image],
+        )
+        .catch(reject);
+    });
+    assert.equal(result.state, 'completed');
+    assert.deepEqual(JSON.parse(result.body), [
+      { type: 'file', mime: 'image/png', filename: image.name, url: image.dataUrl },
+    ]);
+  } finally {
+    backend.disable();
+  }
+});

@@ -1,4 +1,5 @@
 import './dom';
+import { readImage, imagePreview, type ImageAttachment } from './images';
 import {
   highlightEdit,
   highlightChanges,
@@ -200,6 +201,7 @@ function threadText(thread: Thread): string {
         `${comment.role === 'assistant' ? providers[comment.provider ?? 'chatgpt'].name : comment.author}:`,
         ...(comment.quote ? [quote(comment.quote.text)] : []),
         comment.body,
+        ...(comment.images ?? []).map((image) => `![${image.name}](${image.dataUrl})`),
       ].join('\n\n'),
     ),
   ].join('\n\n---\n\n');
@@ -323,7 +325,7 @@ export default class Annotate extends Plugin {
   private submissions = new Set<string>();
   private cancellations = new Set<string>();
   private retiring = new Set<HTMLElement>();
-  private drafts = new Map<string, string>();
+  private drafts = new Map<string, string | { text: string; images: ImageAttachment[] }>();
   private toast: { element: HTMLElement; timer?: () => void } | null = null;
   private pulseId: string | null = null;
   private pulseTimer: (() => void) | undefined;
@@ -628,6 +630,7 @@ export default class Annotate extends Plugin {
       quoted.title = comment.quote.text;
       item.append(quoted);
     }
+    if (comment.images?.length) item.append(imagePreview(owner, comment.images));
     item.append(body, selectedReply);
     list.append(item);
   }
@@ -746,6 +749,7 @@ export default class Annotate extends Plugin {
     history: ConversationMessage[],
     quote?: ReplyQuote,
     skill?: CodexSkill,
+    images: ImageAttachment[] = [],
   ): Promise<void> {
     const backend = this.backend;
     if (!backend || !this.data.codex.enabled) return;
@@ -839,6 +843,12 @@ export default class Annotate extends Plugin {
           void this.persist();
         },
         skill,
+        [
+          ...(isNewConversation || backend.retainsHistory === false
+            ? history.flatMap((message) => message.images ?? [])
+            : []),
+          ...images,
+        ],
       );
     } catch (error) {
       if (thread.codex) {
@@ -859,9 +869,14 @@ export default class Annotate extends Plugin {
       this.paintCodex();
     }
   }
-  private async record(thread: Thread, body: string, quote?: ReplyQuote): Promise<boolean> {
+  private async record(
+    thread: Thread,
+    body: string,
+    quote?: ReplyQuote,
+    images: ImageAttachment[] = [],
+  ): Promise<boolean> {
     const savedBody = commentBody(body) ?? body;
-    if (!savedBody.trim()) {
+    if (!savedBody.trim() && !images.length) {
       new Notice('Add some comment text after @comment.');
       return false;
     }
@@ -885,7 +900,9 @@ export default class Annotate extends Plugin {
           question: slash[2]?.trim() || 'Apply the selected skill to the highlighted passage.',
         };
     }
-    const question = invocation?.question ?? null;
+    const question = invocation
+      ? invocation.question || (images.length ? 'Describe the attached images.' : '')
+      : null;
     if (question !== null) {
       if (!question) {
         new Notice(`Add a question after @${this.data.assistant.provider}.`);
@@ -912,7 +929,7 @@ export default class Annotate extends Plugin {
       }
     }
     const history: ConversationMessage[] = thread.comments
-      .filter((c) => c.body.length > 0)
+      .filter((c) => c.body.length > 0 || c.images?.length)
       .map((c) => ({
         role: c.role === 'assistant' ? 'assistant' : 'user',
         content:
@@ -920,6 +937,7 @@ export default class Annotate extends Plugin {
             ? c.body
             : (assistantInvocation(c.body)?.question ?? c.body),
         quote: c.quote,
+        images: c.images,
       }));
     thread.comments.push({
       id: crypto.randomUUID(),
@@ -928,12 +946,13 @@ export default class Annotate extends Plugin {
       role: 'user',
       ...(invocation ? { provider: invocation.provider } : {}),
       ...(quote ? { quote } : {}),
+      ...(images.length ? { images } : {}),
       createdAt: Date.now(),
     });
     if (question === null && thread.codex) thread.codex.historyDirty = true;
     this.changed();
     await this.persistOrThrow();
-    if (question !== null) void this.requestCodex(thread, question, history, quote, skill);
+    if (question !== null) void this.requestCodex(thread, question, history, quote, skill, images);
     return true;
   }
 
@@ -2265,7 +2284,7 @@ export default class Annotate extends Plugin {
   private composer(
     panel: HTMLElement,
     label: string,
-    submit: (body: string, quote?: ReplyQuote) => Promise<boolean>,
+    submit: (body: string, quote?: ReplyQuote, images?: ImageAttachment[]) => Promise<boolean>,
     allowQuote = false,
     draftKey?: string,
     notePath?: string,
@@ -2297,8 +2316,18 @@ export default class Annotate extends Plugin {
     button.title = 'Save comment (Enter); new line (Shift+Enter)';
     button.className = 'annotate-send';
     button.disabled = true;
+    const savedDraft = draftKey ? this.drafts.get(draftKey) : undefined;
+    let images = savedDraft && typeof savedDraft !== 'string' ? [...savedDraft.images] : [];
+    let readingImages = 0;
+    let pending = false;
+    const saveDraft = () => {
+      if (!draftKey) return;
+      if (input.value.trim() || images.length)
+        this.drafts.set(draftKey, { text: input.value, images: [...images] });
+      else this.drafts.delete(draftKey);
+    };
     const sync = () => {
-      button.disabled = !input.value.trim();
+      button.disabled = pending || readingImages > 0 || (!input.value.trim() && !images.length);
       form.classList.toggle('annotate-has-text', !button.disabled);
       let asking: ReturnType<typeof assistantInvocation> = null;
       try {
@@ -2326,12 +2355,67 @@ export default class Annotate extends Plugin {
     };
     input.addEventListener('input', () => {
       sync();
-      if (!draftKey) return;
-      if (input.value.trim()) this.drafts.set(draftKey, input.value);
-      else this.drafts.delete(draftKey);
+      saveDraft();
     });
     const inputContainer = doc.win.createDiv();
     inputContainer.className = 'annotate-composer-input';
+    const attachments = doc.win.createDiv();
+    attachments.className = 'annotate-attachments';
+    attachments.setAttribute('aria-label', 'Attached images');
+    const renderImages = () => {
+      attachments.replaceChildren();
+      attachments.hidden = !images.length;
+      for (const image of images) {
+        const tile = imagePreview(doc, [image]);
+        const remove = iconButton(doc, 'x', `Remove image: ${image.name}`);
+        remove.disabled = pending;
+        remove.addEventListener('click', () => {
+          if (pending) return;
+          images = images.filter((entry) => entry !== image);
+          renderImages();
+          saveDraft();
+          sync();
+          input.focus({ preventScroll: true });
+        });
+        tile.append(remove);
+        attachments.append(tile);
+      }
+    };
+    let pasteQueue = Promise.resolve();
+    input.addEventListener('paste', (event) => {
+      const items = Array.from(event.clipboardData?.items ?? []);
+      const files = items
+        .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+        .flatMap((item) => {
+          const file = item.getAsFile();
+          return file ? [file] : [];
+        });
+      if (!files.length) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (pending) return;
+      const pastedText = event.clipboardData?.getData('text/plain');
+      readingImages++;
+      sync();
+      pasteQueue = pasteQueue
+        .then(async () => {
+          const pasted = await Promise.all(files.map((file) => readImage(file, doc)));
+          images = [...images, ...pasted];
+          saveDraft();
+          renderImages();
+          if (pastedText && input.isConnected) {
+            input.setRangeText(pastedText, input.selectionStart, input.selectionEnd, 'end');
+            saveDraft();
+          }
+        })
+        .catch((error) => {
+          new Notice(error instanceof Error ? error.message : 'Unable to paste image.');
+        })
+        .finally(() => {
+          readingImages--;
+          sync();
+        });
+    });
     let replyQuote: ReplyQuote | undefined;
     const preview = doc.win.createDiv();
     preview.className = 'annotate-reply-preview';
@@ -2375,20 +2459,24 @@ export default class Annotate extends Plugin {
       doc.createTextNode(' new line'),
     );
     hint.append(hintInner);
-    inputContainer.append(preview, input, hint);
+    renderImages();
+    inputContainer.append(preview, attachments, input, hint);
     mentionMenu(input, inputContainer, this.data.assistant.provider, () => this.loadSkills());
     form.append(inputLabel, avatar, inputContainer, button);
     panel.append(form);
-    let pending = false;
     form.addEventListener('submit', (event) => {
       event.preventDefault();
-      if (pending || !input.value.trim()) return;
+      if (pending || readingImages || (!input.value.trim() && !images.length)) return;
       pending = true;
       button.disabled = true;
-      void submit(input.value.trim(), replyQuote)
+      input.readOnly = true;
+      renderImages();
+      void submit(input.value.trim(), replyQuote, [...images])
         .then((success) => {
           if (success) {
             clearReply();
+            images = [];
+            renderImages();
             if (draftKey) this.drafts.delete(draftKey);
             input.value = '';
             input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -2400,7 +2488,9 @@ export default class Annotate extends Plugin {
         )
         .finally(() => {
           pending = false;
-          button.disabled = !input.value.trim();
+          input.readOnly = false;
+          renderImages();
+          sync();
         });
     });
     input.addEventListener('keydown', (event) => {
@@ -2413,8 +2503,8 @@ export default class Annotate extends Plugin {
     });
     const saved = draftKey ? this.drafts.get(draftKey) : undefined;
     if (saved) {
-      input.value = saved;
-      input.setSelectionRange(saved.length, saved.length);
+      input.value = typeof saved === 'string' ? saved : saved.text;
+      input.setSelectionRange(input.value.length, input.value.length);
     }
     sync();
     input.focus({ preventScroll: true });
@@ -2447,7 +2537,7 @@ export default class Annotate extends Plugin {
       this.data.codex.enabled
         ? `Ask @${this.data.assistant.provider}, or @comment to comment…`
         : 'Add a comment…',
-      async (body) => {
+      async (body, quote, images) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (file?.path !== target.path) {
           new Notice('Return to the selected note before adding the comment.');
@@ -2467,7 +2557,7 @@ export default class Annotate extends Plugin {
         };
         this.data.threads.push(thread);
         try {
-          if (!(await this.record(thread, body))) {
+          if (!(await this.record(thread, body, quote, images))) {
             this.data.threads = this.data.threads.filter((t) => t !== thread);
             return false;
           }
@@ -2597,9 +2687,9 @@ export default class Annotate extends Plugin {
         this.data.codex.enabled
           ? `Ask @${this.data.assistant.provider}, or @comment to comment…`
           : 'Reply…',
-        async (body, quote) => {
+        async (body, quote, images) => {
           if (!this.data.threads.includes(thread)) return false;
-          if (!(await this.record(thread, body, quote))) return false;
+          if (!(await this.record(thread, body, quote, images))) return false;
           if (!this.disposed && this.data.threads.includes(thread)) this.paintCodex();
           return true;
         },
