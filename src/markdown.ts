@@ -1,3 +1,4 @@
+import './dom';
 import { Component, MarkdownRenderer, type App } from 'obsidian';
 import { mathParts } from './math';
 import { parser } from '@lezer/markdown';
@@ -78,13 +79,13 @@ function highlightMentions(root: HTMLElement, text: string): void {
       nodes.push(node);
   }
   for (const node of nodes) {
-    const fragment = doc.createDocumentFragment();
+    const fragment = doc.win.createFragment();
     const parts = node.data.split(/(@(?:chatgpt|claude|opencode)\b|\/[\w:.-]+)/gi);
     for (const part of parts) {
       const assistant = /^@(chatgpt|claude|opencode)$/i.exec(part)?.[1]?.toLowerCase();
       const isSkill = !skillHighlighted && part === skill;
       if (assistant || isSkill) {
-        const mention = doc.createElement('span');
+        const mention = doc.win.createSpan();
         mention.className = isSkill ? 'annotate-skill-mention' : `annotate-${assistant}-mention`;
         if (isSkill) skillHighlighted = true;
         mention.textContent = part;
@@ -105,7 +106,7 @@ export class CommentMarkdown {
     const render = { text, path, component: new Component() };
     this.renders.set(body, render);
     render.component.load();
-    const content = body.ownerDocument.createElement('div');
+    const content = body.ownerDocument.win.createDiv();
     content.className = 'annotate-markdown-content';
     // Keep the LaTeX delimiters accepted by existing ChatGPT comments.
     const markdown = /\\[([]/.test(text)

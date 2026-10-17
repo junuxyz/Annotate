@@ -2,7 +2,7 @@ import { same, until } from './assertions.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { Window } from 'happy-dom';
+import { Window } from './dom.mjs';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { unlink, mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -1883,6 +1883,44 @@ test('searchable settings preserve combined thread data, persistence and change 
   } finally {
     plugin.onunload();
     await plugin.persist();
+    await tick();
+  }
+});
+
+test('palette sheets update per window and remove only owned sheets on window and plugin unload', async () => {
+  const other = new Window();
+  const base = new win.CSSStyleSheet();
+  const otherBase = new other.CSSStyleSheet();
+  document.adoptedStyleSheets = [base];
+  other.document.adoptedStyleSheets = [otherBase];
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    plugin.watchSelections(other.document);
+    const mainSheet = plugin.highlightStyles.get(document);
+    const otherSheet = plugin.highlightStyles.get(other.document);
+    assert.ok(mainSheet);
+    assert.ok(otherSheet);
+    assert.notEqual(mainSheet, otherSheet);
+    assert.deepEqual(document.adoptedStyleSheets, [base, mainSheet]);
+    assert.deepEqual(other.document.adoptedStyleSheets, [otherBase, otherSheet]);
+    plugin.data.highlights.colors[0].value = '#123456';
+    plugin.refreshHighlightStyles();
+    assert.equal(plugin.highlightStyles.get(document), mainSheet);
+    for (const sheet of [mainSheet, otherSheet])
+      assert.match(
+        [...sheet.cssRules].map((rule) => rule.cssText).join('\n'),
+        /18, 52, 86|#123456/,
+      );
+    other.dispatchEvent(new other.Event('unload'));
+    assert.deepEqual(other.document.adoptedStyleSheets, [otherBase]);
+    assert.equal(plugin.selectionDocuments.has(other.document), false);
+    assert.equal(plugin.highlightStyles.has(other.document), false);
+  } finally {
+    plugin.onunload();
+    assert.deepEqual(document.adoptedStyleSheets, [base]);
+    document.adoptedStyleSheets = [];
+    await other.happyDOM.close();
     await tick();
   }
 });

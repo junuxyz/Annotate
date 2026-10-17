@@ -1,3 +1,4 @@
+import './dom';
 export type ModelPricing = 'free' | 'paid' | 'unknown';
 
 export function fillModelOptions({
@@ -11,7 +12,7 @@ export function fillModelOptions({
 }): void {
   const doc = select.ownerDocument;
   const option = (value: string, label: string) => {
-    const item = doc.createElement('option');
+    const item = doc.win.createEl('option');
     item.value = value;
     item.textContent = label;
     return item;
@@ -27,7 +28,7 @@ export function fillModelOptions({
       ([id]) => id && (pricing[id] ?? 'unknown') === price,
     );
     if (!entries.length) continue;
-    const group = doc.createElement('optgroup');
+    const group = doc.win.createEl('optgroup');
     group.label = label;
     for (const [id, name] of entries) group.append(option(id, name));
     select.append(group);
@@ -64,11 +65,11 @@ export function createOtherModelPicker({
   onChoose: (id: string) => void;
 }): { refresh: () => void; focus: () => void } {
   const doc = container.ownerDocument;
-  const search = doc.createElement('input');
+  const search = doc.win.createEl('input');
   search.type = 'search';
   search.placeholder = 'Search all models';
   search.setAttribute('aria-label', 'Search all OpenCode models');
-  const select = doc.createElement('select');
+  const select = doc.win.createEl('select');
   select.setAttribute('aria-label', 'Other OpenCode models');
   container.append(search, select);
   const refresh = () => {

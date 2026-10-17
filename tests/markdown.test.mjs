@@ -2,7 +2,7 @@ import { same } from './assertions.mjs';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { Window } from 'happy-dom';
+import { Window } from './dom.mjs';
 import { unlink } from 'node:fs/promises';
 import { parser } from '@lezer/markdown';
 

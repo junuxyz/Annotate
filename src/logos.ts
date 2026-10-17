@@ -1,3 +1,4 @@
+import './dom';
 import type { ProviderId } from './ai';
 
 const marks = {
@@ -9,8 +10,8 @@ const marks = {
 } satisfies Record<ProviderId, string>;
 
 export function assistantIcon(doc: Document, provider: ProviderId): SVGSVGElement {
-  const svg = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const svg = doc.win.createSvg('svg');
+  const path = svg.createSvg('path');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add(
@@ -18,6 +19,5 @@ export function assistantIcon(doc: Document, provider: ProviderId): SVGSVGElemen
     provider === 'chatgpt' ? 'annotate-openai-icon' : `annotate-${provider}-icon`,
   );
   path.setAttribute('d', marks[provider]);
-  svg.append(path);
   return svg;
 }
