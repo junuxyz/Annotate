@@ -60,6 +60,8 @@ Under **Settings → Annotate → Advanced**, customize the palette with color n
 color pickers or hex values, and choose Rounded, Flat or Underline. Hex values may
 include opacity, such as `#ffe06680`. The default colors are yellow, pink and light blue.
 Palette and shape changes update existing Annotate highlights while the plugin is enabled.
+In dark mode, highlight backgrounds are dimmer and highlighted text keeps the
+surrounding text color, including separately applied text colors.
 
 Highlights are saved as inline `<mark>` elements in the note. Their saved color and
 shape remain available in Reading mode without Annotate. Code and HTML tag fragments
