@@ -44,6 +44,7 @@ export class Plugin {
       getLeavesOfType: () => [],
     },
     vault: {
+      configDir: '.obsidian',
       adapter: Object.assign(new FileSystemAdapter(), {
         write: async (path, text) => this.recovery.set(path, text),
       }),
