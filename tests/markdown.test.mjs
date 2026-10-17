@@ -134,7 +134,7 @@ test('skill commands and assistant mentions are highlighted without changing cod
   const app = {
     async renderMarkdown(text, el) {
       el.innerHTML =
-        '<p>@chatgpt /amplifier explain @claude <code>/amplifier @claude</code> /usr/local</p>';
+        '<p>@chatgpt /amplifier explain @claude @opencode <code>/amplifier @claude @opencode</code> /usr/local</p>';
     },
   };
   try {
@@ -142,6 +142,8 @@ test('skill commands and assistant mentions are highlighted without changing cod
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(body.querySelector('.annotate-skill-mention').textContent, '/amplifier');
     assert.equal(body.querySelector('.annotate-claude-mention').textContent, '@claude');
+    assert.equal(body.querySelector('.annotate-opencode-mention').textContent, '@opencode');
+    same(body.querySelector('code .annotate-opencode-mention'), null);
     same(body.querySelector('code .annotate-skill-mention'), null);
     assert.equal(body.querySelectorAll('.annotate-skill-mention').length, 1);
     renderer.paint(app, body, '/usr/local is a file path', 'test.md');

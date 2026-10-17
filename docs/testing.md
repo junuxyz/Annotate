@@ -80,14 +80,31 @@ Provider scenarios use fixture CLIs without accounts. Test hosts in `tests/host.
 substitute Obsidian APIs for unit tests; the real-app runner uses actual Obsidian.
 Documentation-only changes require source and link review.
 
-The `providers` E2E scope sends one question in a fresh thread per provider, mode
+The `providers` E2E scope sends one question in a fresh thread per provider (ChatGPT, Claude and OpenCode), mode
 and theme, then checks that the answer is rendered. It verifies input focus and
 readiness before typing and records composer/backend/thread state on failure.
 It does not chain local comments, follow-ups, provider switches or recovery in
 the UI. Those behaviors belong to the offline interaction and backend suites,
-including both providers' `@comment` completion, no-call behavior and subsequent
+including all three providers' `@comment` completion, no-call behavior and subsequent
 plain replies with saved local context. E2E smoke passes do not prove those
 individual behaviors by themselves.
+
+The OpenCode transport also has an optional CLI protocol check against a local
+synthetic model server. It uses temporary settings and synthetic credentials,
+never the host login, and does not call a real model:
+
+```sh
+ANNOTATE_OPENCODE_EXECUTABLE=/absolute/path/to/opencode \
+node --import tsx --test tests/opencode-protocol.test.mjs
+```
+
+This check exercises the installed CLI's effective permissions, session API,
+UTF-8 streaming, and pre-execution rejection of every advertised tool, including
+redirection-only shell commands. It requires the supported CLI 1.19.2. The ordinary test suite uses a
+fixture CLI for cancellation, failures, reconnection, and settings migration.
+
+For the measured free-tier failures and a local permission-boundary probe, see
+[OpenCode debugging](opencode-debugging.md).
 
 ## Pre-tag E2E validation
 

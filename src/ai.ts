@@ -7,12 +7,15 @@ import {
   type BackendSecurity,
 } from './codex';
 import { ClaudeBackend } from './claude';
+import { OpenCodeBackend } from './opencode';
+import type { ModelPricing } from './model-picker';
 
-export const providerSchema = z.enum(['chatgpt', 'claude']);
+export const providerSchema = z.enum(['chatgpt', 'claude', 'opencode']);
 export type ProviderId = z.infer<typeof providerSchema>;
 export const providers = {
   chatgpt: { name: 'ChatGPT', executable: 'codex', model: '' },
   claude: { name: 'Claude', executable: 'claude', model: 'claude-sonnet-5-5' },
+  opencode: { name: 'OpenCode', executable: 'opencode', model: '' },
 } satisfies Record<ProviderId, { name: string; executable?: string; model: string }>;
 
 /** Finds a CLI that Obsidian's GUI PATH misses, so bare names like `claude` work without setup. */
@@ -52,6 +55,7 @@ export function resolveExecutable(executable: string): string {
       path.join(home, '.claude', 'local'),
       path.join(home, '.npm-global', 'bin'),
       path.join(home, '.bun', 'bin'),
+      path.join(home, '.opencode', 'bin'),
       path.join(home, '.volta', 'bin'),
     ];
     for (const directory of directories) {
@@ -101,6 +105,7 @@ export interface AssistantBackend {
   state: ConnectionState;
   readonly activity?: Map<string, string>;
   models?: Record<string, string>;
+  modelPricing?: Record<string, ModelPricing>;
   detail: string;
   model: string | null;
   readonly retainsHistory?: boolean;
@@ -121,6 +126,7 @@ export interface AssistantBackend {
 
 type AssistantConfig =
   | { provider: 'chatgpt'; executable: string; model?: string; security?: BackendSecurity }
+  | { provider: 'opencode'; executable: string; model: string }
   | { provider: 'claude'; executable: string; model: string };
 
 export function createAssistant(config: AssistantConfig, update: () => void): AssistantBackend {
@@ -135,6 +141,8 @@ export function createAssistant(config: AssistantConfig, update: () => void): As
       backend.preferredModel = config.model ?? '';
       return backend;
     }
+    case 'opencode':
+      return new OpenCodeBackend(resolveExecutable(config.executable), config.model, update);
     case 'claude':
       return new ClaudeBackend(resolveExecutable(config.executable), config.model, update);
   }
@@ -150,11 +158,11 @@ export function assistantInvocation(
   defaultProvider?: ProviderId,
 ): { provider: ProviderId; question: string } | null {
   if (commentBody(body) !== null) return null;
-  const matches = [...body.matchAll(/(^|\s)@(chatgpt|claude)\b/gi)];
+  const matches = [...body.matchAll(/(^|\s)@(chatgpt|claude|opencode)\b/gi)];
   if (!matches.length)
     return defaultProvider ? { provider: defaultProvider, question: body.trim() } : null;
   const provider = providerSchema.parse(matches[0]?.[2]?.toLowerCase());
   if (matches.some((match) => match[2]?.toLowerCase() !== provider))
     throw new Error('Ask one assistant at a time.');
-  return { provider, question: body.replace(/(^|\s)@(chatgpt|claude)\b/gi, '$1').trim() };
+  return { provider, question: body.replace(/(^|\s)@(chatgpt|claude|opencode)\b/gi, '$1').trim() };
 }

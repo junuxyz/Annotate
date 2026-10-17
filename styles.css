@@ -463,6 +463,7 @@ button.annotate-count:hover {
 }
 .annotate-chatgpt-mention,
 .annotate-claude-mention,
+.annotate-opencode-mention,
 .annotate-skill-mention {
   color: var(--annotate-ai);
   background: color-mix(in srgb, var(--annotate-ai) 16%, transparent);
@@ -1439,4 +1440,15 @@ button.annotate-count:hover {
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.annotate-other-models:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.annotate-other-models input,
+.annotate-other-models select {
+  width: 100%;
 }

@@ -1,7 +1,25 @@
 # Development
 
-Run commands from the plugin repository root. Use Node.js 22.13 or newer in the
-22 series, or Node.js 24 or later.
+Use Node.js 22.13 or newer in the 22 series, or Node.js 24 or later.
+
+## Build and install from source
+
+Build the checkout containing the changes you want to use. A fresh clone contains
+only changes that have been pushed to GitHub; build your existing checkout to
+include local changes:
+
+```sh
+git clone https://github.com/junuxyz/Annotate.git
+cd Annotate
+npm ci
+npm run build
+```
+
+Copy the generated `main.js`, `manifest.json`, and `styles.css` into
+`<vault>/.obsidian/plugins/annotate/`, then enable Annotate in
+**Settings → Community plugins**. Keep existing plugin data files when updating.
+
+Run subsequent commands from the plugin repository root:
 
 ```sh
 npm ci
@@ -82,10 +100,10 @@ node scripts/release.mjs > /path/to/validated-build.json
 After validation, compare the files and exact tag against that record:
 
 ```sh
-npm run release:verify -- --tag 0.3.1 --hashes /path/to/validated-build.json
+npm run release:verify -- --tag 0.4.0 --hashes /path/to/validated-build.json
 ```
 
-Replace `0.3.1` with the manifest version. Obsidian tags have no `v` prefix.
+Replace `0.4.0` with the manifest version. Obsidian tags have no `v` prefix.
 The verifier checks versions, manifest/style hashes, distribution markers,
 license notices, and the supplied hash record. It does not run release tests.
 Changes to the validated build require rebuilding and revalidation.
