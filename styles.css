@@ -83,6 +83,7 @@ body.theme-dark {
   flex: 0 0 auto;
   object-fit: contain;
 }
+.modal-title.annotate-brand-heading,
 .annotate-brand-heading .setting-item-name {
   display: flex;
   align-items: center;
