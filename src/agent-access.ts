@@ -325,9 +325,10 @@ export class AgentAccess {
   }
   getSettingDefinitions(refresh: () => void): SettingDefinition[] {
     const definitions: SettingDefinition[] = [];
-    for (const folder of this.options.settings().folders) {
+    for (const [index, folder] of this.options.settings().folders.entries()) {
       definitions.push({
-        name: folder === '.' ? 'Entire vault · visible Markdown notes' : folder,
+        name: `Allowed folder ${index + 1}: ${folder}`,
+        aliases: [folder, 'Assistant access'],
         render: (setting) => {
           setting
             .setName(folder === '.' ? 'Entire vault · visible Markdown notes' : folder)
@@ -404,13 +405,14 @@ export class AgentAccess {
           );
       },
     });
-    for (const service of this.options.settings().services) {
+    for (const [index, service] of this.options.settings().services.entries()) {
       definitions.push({
-        name: service.name,
+        name: `MCP service ${index + 1}: ${service.name}`,
         desc: service.url,
-        aliases: ['Selected MCP services'],
+        aliases: [service.name, 'Selected MCP services'],
         render: (setting) => {
           setting
+            .setName(service.name)
             .setDesc(service.url)
             .addToggle((toggle) =>
               toggle.setValue(service.enabled).onChange(async (value) => {

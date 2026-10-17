@@ -1924,3 +1924,110 @@ test('palette sheets update per window and remove only owned sheets on window an
     await tick();
   }
 });
+
+test('settings retain unique host keys for repeated palette, folder and service names', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  try {
+    plugin.data.highlights.colors = [
+      { id: 'first-color', name: 'New color', value: '#ffe06680' },
+      { id: 'second-color', name: 'New color', value: '#ff80ab80' },
+    ];
+    plugin.data.agent.folders = ['Web search', 'MCP service 1: Web search'];
+    plugin.data.agent.services = [
+      { id: 'first-service', name: 'Web search', url: 'https://one.example/mcp', enabled: false },
+      { id: 'second-service', name: 'Web search', url: 'https://two.example/mcp', enabled: false },
+    ];
+    const flatten = (items) => items.flatMap((item) => (item.items ? flatten(item.items) : [item]));
+    const definitions = flatten(plugin.settingTab.getSettingDefinitions());
+    assert.equal(
+      new Set(definitions.map((entry) => entry.name)).size,
+      definitions.length,
+      'the native host uses definition names as reconciliation keys',
+    );
+    assert.equal(definitions.filter((entry) => entry.name === 'Web search').length, 1);
+    assert.equal(definitions.filter((entry) => entry.aliases?.includes('New color')).length, 2);
+    assert.equal(
+      definitions.filter((entry) => entry.aliases?.includes('Selected MCP services')).length,
+      2,
+    );
+    const second = definitions.find((entry) => entry.name.startsWith('MCP service 2:'));
+    let visibleName, remove;
+    const control = {
+      setName(name) {
+        visibleName = name;
+        return this;
+      },
+      setDesc() {
+        return this;
+      },
+      setValue() {
+        return this;
+      },
+      setButtonText() {
+        return this;
+      },
+      onChange() {
+        return this;
+      },
+      onClick(callback) {
+        remove = callback;
+        return this;
+      },
+      addToggle(callback) {
+        callback(this);
+        return this;
+      },
+      addButton(callback) {
+        callback(this);
+        return this;
+      },
+    };
+    second.render(control);
+    assert.equal(visibleName, 'Web search', 'user-facing service names stay unchanged');
+    await remove();
+    assert.deepEqual(
+      plugin.data.agent.services.map((service) => service.id),
+      ['first-service'],
+    );
+    assert.equal(plugin.settingTab.updates, 1);
+  } finally {
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});
+
+test('native settings row reuse removes the prior shortcut subtree during cleanup', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const settingEl = document.createElement('div');
+  const infoEl = document.createElement('div');
+  const controlEl = document.createElement('div');
+  settingEl.append(infoEl, controlEl);
+  settingEl.addClass = (...names) => settingEl.classList.add(...names);
+  settingEl.createDiv = () => settingEl.appendChild(document.createElement('div'));
+  document.body.append(settingEl);
+  try {
+    const flatten = (items) => items.flatMap((item) => (item.items ? flatten(item.items) : [item]));
+    for (let iteration = 0; iteration < 3; iteration++) {
+      const shortcuts = flatten(plugin.settingTab.getSettingDefinitions()).find(
+        (definition) => definition.name === 'Keyboard shortcuts',
+      );
+      const cleanup = shortcuts.render({ settingEl, infoEl, controlEl });
+      assert.equal(settingEl.children.length, 2, 'one host control and one shortcut subtree');
+      assert.ok(settingEl.querySelector('p'), 'unsupported-host fallback still renders');
+      cleanup();
+      // Native Obsidian 1.14.4 reuses Setting and clear() empties only controlEl.
+      controlEl.replaceChildren();
+      assert.equal(settingEl.children.length, 1, 'cleanup removes the subtree outside controlEl');
+      assert.equal(settingEl.textContent, '');
+    }
+    plugin.settingTab.hide();
+  } finally {
+    settingEl.remove();
+    plugin.onunload();
+    await plugin.persist();
+    await tick();
+  }
+});

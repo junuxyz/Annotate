@@ -2932,6 +2932,7 @@ class CommentsSettings extends PluginSettingTab {
           this.disposeShortcuts = dispose;
           return () => {
             dispose();
+            root.remove();
             if (this.disposeShortcuts === dispose) this.disposeShortcuts = null;
           };
         },
@@ -2953,10 +2954,11 @@ class CommentsSettings extends PluginSettingTab {
         );
       },
     });
-    for (const color of this.plugin.data.highlights.colors) {
+    for (const [index, color] of this.plugin.data.highlights.colors.entries()) {
       let hexInput: HTMLInputElement | undefined;
       advanced.push({
-        name: `Highlight color: ${color.name}`,
+        name: `Highlight color ${index + 1}: ${color.name}`,
+        aliases: [color.name, 'Highlight color'],
         render: (setting) => {
           setting
             .setName('Highlight color')
