@@ -798,6 +798,59 @@ if (only.includes('formatting'))
         },
       );
 
+if (only.includes('formatting'))
+  for (const mode of modes.filter((mode) => mode !== 'reading'))
+    for (const theme of themes)
+      for (const command of ['highlight-selection', 'color-selection-text'])
+        for (const boldFirst of [true, false])
+          await step(
+            `formatting-order [${mode}/${theme}/${command}/${boldFirst ? 'bold-first' : 'bold-last'}]`,
+            async () => {
+              const sample = '앞 터널 시각 뒤',
+                quote = '터널 시각';
+              const original = await ev(
+                `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+              );
+              try {
+                await closeModals();
+                await resetThreads();
+                await ev(
+                  `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+                );
+                await openMode(mode);
+                const commands = ['editor:toggle-bold', `annotate:${command}`];
+                if (!boldFirst) commands.reverse();
+                for (const id of commands) {
+                  await select(mode, quote);
+                  assert(
+                    await ev(`return app.commands.executeCommandById(${JSON.stringify(id)})`),
+                    `command ran: ${id}`,
+                  );
+                }
+                const source = await ev(`return app.workspace.activeLeaf.view.editor.getValue()`);
+                assert(source.startsWith('앞 **<') && source.endsWith('>** 뒤'), source);
+                await ev(
+                  `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+                );
+                await openMode('live');
+                await until(
+                  `const root=app.workspace.activeLeaf.view.containerEl.querySelector('.cm-content');return !root.textContent.includes('**')&&[...root.querySelectorAll('[data-annotate-highlight],[data-annotate-color]')].some(el=>el.textContent===${JSON.stringify(quote)}&&Number(getComputedStyle(el).fontWeight)>=600)`,
+                  'formatted text is bold with no literal stars in Live Preview',
+                );
+                await shot(`formatting-order-${mode}-${theme}-${command}-${boldFirst}`);
+                await openMode('reading');
+                await until(
+                  `const root=app.workspace.activeLeaf.view.previewMode.containerEl;return !root.textContent.includes('**')&&[...root.querySelectorAll('strong')].some(el=>el.textContent===${JSON.stringify(quote)})`,
+                  'reading mode retains bold without literal stars',
+                );
+              } finally {
+                await ev(
+                  `${P}p.hideSelectionTools();await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+                );
+              }
+            },
+          );
+
 if (only.includes('combo'))
   for (const theme of themes)
     for (const mode of modes)

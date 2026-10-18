@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import { Window } from './dom.mjs';
 import { EditorState } from '@codemirror/state';
+import { highlightEdit, textColorEdit, highlightChanges, textColors } from '../src/highlight.ts';
 import { EditorView } from '@codemirror/view';
 import { unlink, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -2183,3 +2184,58 @@ for (const retainsHistory of [true, false]) {
     }
   });
 }
+
+test('note formatting works in every order of bold, highlight and text color', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const text = '터널 시각';
+  const permutations = (items) =>
+    items.length === 0
+      ? [[]]
+      : items.flatMap((item, i) =>
+          permutations(items.filter((_, j) => i !== j)).map((rest) => [item, ...rest]),
+        );
+  try {
+    for (const delimiter of ['**', '*', '~~']) {
+      for (const order of permutations(['emphasis', 'highlight', 'color'])) {
+        let state = EditorState.create({ doc: `앞 ${text} 뒤`, extensions: plugin.extensions });
+        for (const action of order) {
+          const source = state.doc.toString();
+          const from = source.indexOf(text),
+            to = from + text.length;
+          if (action === 'emphasis') {
+            state = state.update({
+              changes: [
+                { from, insert: delimiter },
+                { from: to, insert: delimiter },
+              ],
+              selection: { anchor: from + delimiter.length, head: to + delimiter.length },
+              userEvent: 'input',
+            }).state;
+          } else {
+            const edit =
+              action === 'highlight'
+                ? highlightEdit(source, from, to, plugin.data.highlights.colors[0], 'rounded')
+                : textColorEdit(source, from, to, textColors[1]);
+            assert.ok(edit);
+            state = state.update({
+              changes: highlightChanges(source, edit, action === 'highlight' ? 'mark' : 'span'),
+              selection: { anchor: edit.selectionFrom, head: edit.selectionTo },
+            }).state;
+          }
+        }
+        const source = state.doc.toString();
+        assert.equal(source.replace(/<[^>]+>/g, ''), `앞 ${delimiter}${text}${delimiter} 뒤`);
+        assert.ok(
+          source.startsWith(`앞 ${delimiter}<`),
+          `${delimiter}: ${order.join(' → ')}: ${source}`,
+        );
+        assert.ok(source.endsWith(`>${delimiter} 뒤`), source);
+        assert.equal(state.sliceDoc(state.selection.main.from, state.selection.main.to), text);
+      }
+    }
+  } finally {
+    plugin.onunload();
+    await tick();
+  }
+});
