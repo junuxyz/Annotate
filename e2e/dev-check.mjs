@@ -720,6 +720,159 @@ if (only.includes('palette')) {
       );
 }
 
+if (only.includes('inline-code'))
+  for (const mode of modes)
+    for (const theme of themes)
+      for (const { fixture, sample, visible, codes } of [
+        {
+          fixture: 'passage',
+          sample:
+            'We calculate `W~` once and reuse it for all computations. We multiply it with a compressed matrix.',
+          visible:
+            'We calculate W~ once and reuse it for all computations. We multiply it with a compressed matrix.',
+          codes: ['W~'],
+        },
+        {
+          fixture: 'literal',
+          sample: 'We calculate **``W`~`` once** and use `<mark>safe</mark> & **literal**`.',
+          visible: 'We calculate W`~ once and use <mark>safe</mark> & **literal**.',
+          codes: ['W`~', '<mark>safe</mark> & **literal**'],
+        },
+        {
+          fixture: 'multiline',
+          sample: 'We calculate `W~\nW^UK` once.',
+          visible: 'We calculate W~ W^UK once.',
+          codes: ['W~ W^UK'],
+        },
+        {
+          fixture: 'boundary',
+          sample: '`W^UK` gets reused for the next projection.',
+          visible: 'W^UK gets reused for the next projection.',
+          codes: ['W^UK'],
+        },
+      ])
+        await step(`inline-code [${mode}/${theme}/${fixture}]`, async () => {
+          const original = await ev(
+            `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+          );
+          const probe = `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')});`;
+          try {
+            await closeModals();
+            await resetThreads();
+            await ev(
+              `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+            );
+            await openMode(mode);
+            if (mode === 'reading') {
+              await ev(
+                `const root=app.workspace.activeLeaf.view.previewMode.containerEl;const r=document.createRange();r.selectNodeContents(root.querySelector('p'));getSelection().removeAllRanges();getSelection().addRange(r)`,
+              );
+            } else await select(mode, sample);
+            await until(`${P}return !!p.selectedNote()`, 'passage with inline code selected');
+            await ev(`app.commands.executeCommandById('annotate:highlight-selection')`);
+            await until(
+              `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-highlight'))`,
+              'inline code highlight saved',
+            );
+            await openMode('live');
+            await ev(
+              `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+            );
+            await openMode(mode);
+            if (mode !== 'source')
+              await until(
+                probe +
+                  `return [...root.querySelectorAll('code')].some(el=>el.textContent===${JSON.stringify(codes[0])})`,
+                'highlighted inline code renders',
+              );
+            const rendered = await ev(
+              probe +
+                `return {html:root.innerHTML,text:root.textContent,code:[...root.querySelectorAll('code')].map(el=>({text:el.textContent,background:getComputedStyle(el).backgroundColor,highlight:!!el.closest('[data-annotate-highlight]')})),source:app.workspace.activeLeaf.view.editor.getValue()}`,
+            );
+            writeFileSync(
+              join(evidence, `inline-code-${mode}-${theme}-${fixture}.json`),
+              JSON.stringify(rendered, null, 2),
+            );
+            assert(
+              rendered.source.includes('data-annotate-highlight'),
+              'selection was highlighted',
+            );
+            if (mode !== 'source') {
+              assert(
+                rendered.text.includes(visible),
+                'Markdown renders without extra syntax: ' + JSON.stringify(rendered),
+              );
+              for (const code of codes)
+                assert(
+                  rendered.code.some(
+                    (el) =>
+                      el.text === code && el.highlight && el.background === 'rgba(0, 0, 0, 0)',
+                  ),
+                  'code retains its literal text on the shared highlight: ' +
+                    JSON.stringify(rendered),
+                );
+            }
+            if (fixture === 'passage') {
+              await openMode('live');
+              await select('live', 'W~');
+              await ev(
+                `${P}p.data.highlights.textRecent='blue';app.commands.executeCommandById('annotate:color-selection-text')`,
+              );
+              await until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes('data-annotate-color="blue"'))`,
+                'inline code text color saved',
+              );
+              await ev(
+                `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setCursor(e.lastLine(),0);e.focus()`,
+              );
+              await openMode(mode);
+              if (mode !== 'source')
+                await until(
+                  probe +
+                    `return [...root.querySelectorAll('[data-annotate-color="blue"] code')].some(el=>el.textContent==='W~'&&el.closest('[data-annotate-highlight]'))`,
+                  'colored inline code retains its highlight',
+                );
+            }
+            if (fixture === 'passage' && mode !== 'source') {
+              await createComment(mode, 'Comment on highlighted inline code', 'W~');
+              await ev(
+                `${P}p.closePopup();p.hideSelectionTools();const v=app.workspace.activeLeaf.view;if(v.getMode()!=='preview'){v.editor.setCursor(v.editor.lastLine(),0);v.editor.focus()}`,
+              );
+              await ev(
+                `${P}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate');app.workspace.activeLeaf.view.previewMode?.rerender?.(true)`,
+              );
+              await until(
+                probe +
+                  `return [...root.querySelectorAll('[data-annotate-highlight] code')].some(el=>(el.querySelector('.annotate-reading-mark')?.textContent??el.textContent)==='W~')`,
+                'inline code survives plugin reload',
+              );
+              await until(
+                probe +
+                  `return [...root.querySelectorAll('.annotate-count')].some(el=>el.textContent==='1'&&el.getBoundingClientRect().width>0)`,
+                'comment badge on inline code survives reload',
+              );
+              const withComment = await ev(
+                probe +
+                  `${P}return {html:root.innerHTML,quote:p.data.threads[0]?.anchor.quote,orphaned:p.data.threads[0]?.anchor.orphaned}`,
+              );
+              assert(
+                withComment.quote === 'W~' && withComment.orphaned === false,
+                'comment remains attached to inline code',
+              );
+              writeFileSync(
+                join(evidence, `inline-code-comment-${mode}-${theme}.json`),
+                JSON.stringify(withComment, null, 2),
+              );
+            }
+            await ev(`document.querySelectorAll('.notice').forEach(el=>el.remove())`);
+            await shot(`inline-code-${mode}-${theme}-${fixture}`);
+          } finally {
+            await ev(
+              `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+            );
+          }
+        });
+
 if (only.includes('highlight-seams'))
   for (const mode of modes)
     for (const theme of themes)

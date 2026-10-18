@@ -79,7 +79,7 @@ void test('existing comments survive wrapper insertions and recoloring', () => {
   assert.equal(mapAnchor(mapped, next.changes, next.result).quote, 'text');
 });
 void test('code, tag fragments and invalid selections do not alter note syntax', () => {
-  for (const source of ['`<mark>code</mark>`', '```js\nhello\n```'])
+  for (const source of ['```js\nhello\n```', '    indented code'])
     assert.equal(highlightEdit(source, 0, source.length, yellow, 'rounded'), null);
   assert.equal(highlightEdit('<mark>text</mark>', 2, 9, yellow, 'rounded'), null);
 });
@@ -137,7 +137,7 @@ void test('text color keeps comment anchors and refuses foreign or broken spans'
   assert.equal(mapAnchor(anchor, changes, result).quote, 'text');
   const foreign = '<span class="x">keep me</span>';
   assert.equal(textColorEdit(foreign, 16, 20, red), null);
-  assert.equal(textColorEdit('`code`', 0, 6, red), null);
+  assert.ok(textColorEdit('`code`', 0, 6, red));
   assert.ok(textColorEdit(foreign + ' other', foreign.length + 1, foreign.length + 6, red));
 });
 void test('older saved data gets the default palette and settings reject CSS injection', () => {
@@ -237,4 +237,36 @@ void test('comment badges escape enclosing highlight and color widgets without c
       assert.equal(outsideInlineTags(end, ranges), end);
     }
   }
+});
+
+void test('a passage with inline code can be highlighted without changing its Markdown', () => {
+  const source = 'We calculate `W~` once and reuse it. We multiply it with the compressed matrix.';
+  const result = apply(source, 0, source.length).result;
+  assert.equal(result.replace(/<mark\b[^>]*>|<\/mark>/g, ''), source);
+});
+
+void test('inline code keeps literal tags, delimiters, comments and recolor/removal round trips', () => {
+  for (const source of [
+    'prefix `W^UK` suffix',
+    'prefix ``x ` y`` suffix',
+    'prefix `<mark>code</mark> & **literal**` suffix',
+    'prefix `multiple\nlines` suffix',
+    'prefix `<span data-annotate-color="red">literal</span>` suffix',
+  ]) {
+    const first = apply(source, 0, source.length);
+    const next = apply(first.result, 0, first.result.length, pink);
+    const removed = apply(next.result, 0, next.result.length, null);
+    assert.equal(removed.result, source);
+    assert.equal(first.result.replace(/^<mark[^>]*>|<\/mark>$/g, ''), source);
+    const colored = color(source, 0, source.length).result;
+    const recolored = color(colored, 0, colored.length, blue).result;
+    assert.equal(color(recolored, 0, recolored.length, null).result, source);
+  }
+  const source = 'prefix `W^UK` suffix';
+  const from = source.indexOf('W^UK');
+  const { result, changes } = apply(source, from, source.length);
+  assert.ok(result.startsWith('prefix <mark'));
+  assert.equal(result.replace(/<mark[^>]*>|<\/mark>/g, ''), source);
+  assert.equal(mapAnchor(makeAnchor(source, from, from + 4), changes, result).quote, 'W^UK');
+  assert.equal(highlightEdit(source, from + 1, from + 3, yellow, 'rounded'), null);
 });

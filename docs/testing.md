@@ -56,19 +56,19 @@ It never drives the user's Obsidian window or sends host keyboard and mouse inpu
 
 Choose scopes for the change:
 
-| Change                                | Scope                                                 |
-| ------------------------------------- | ----------------------------------------------------- |
-| Composer, menus, layout               | Default scopes, `--modes live,source,reading --shots` |
-| Shortcuts                             | `shortcuts`, across all modes                         |
-| Highlight and text color              | `highlight,highlight-seams,palette,formatting,combo`  |
-| Markdown and math                     | `markdown,math`, across all modes                     |
-| Copy and quoted replies               | `copy,quote`                                          |
-| Resource loading                      | `resources`                                           |
-| Consent, tools, approvals, undo       | `access`                                              |
-| Assistant question and rendered reply | `providers`                                           |
-| External data changes and conflicts   | `storage`                                             |
-| Distribution settings                 | `distribution`                                        |
-| Development updates and rollback      | `--dev-build --only smoke,sync,auto-update`           |
+| Change                                | Scope                                                            |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| Composer, menus, layout               | Default scopes, `--modes live,source,reading --shots`            |
+| Shortcuts                             | `shortcuts`, across all modes                                    |
+| Highlight and text color              | `highlight,highlight-seams,inline-code,palette,formatting,combo` |
+| Markdown and math                     | `markdown,math`, across all modes                                |
+| Copy and quoted replies               | `copy,quote`                                                     |
+| Resource loading                      | `resources`                                                      |
+| Consent, tools, approvals, undo       | `access`                                                         |
+| Assistant question and rendered reply | `providers`                                                      |
+| External data changes and conflicts   | `storage`                                                        |
+| Distribution settings                 | `distribution`                                                   |
+| Development updates and rollback      | `--dev-build --only smoke,sync,auto-update`                      |
 
 For example:
 
@@ -132,6 +132,8 @@ measurements and requested screenshots under `e2e/evidence/<timestamp>/`.
 the adjacent `../test-vault` when present, otherwise the included vault.
 `highlight-seams` checks painted spaces, joined corners, fragment heights and gaps
 across bold text and punctuation, including wrapped highlights.
+`inline-code` covers passages containing code spans, literal HTML in code, multiline
+code, selections starting at a code span, and plugin reloads.
 Inspect screenshots for visual changes. Report scopes, modes, themes and pending
 checks. Do not treat a build or unit-test pass as real-app validation.
 

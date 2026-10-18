@@ -1,5 +1,6 @@
 import './dom';
 import { highlightFormatting } from './highlight-formatting';
+import { inlineCodeHighlights } from './inline-code-highlights';
 import { readImage, imagePreview, type ImageAttachment } from './images';
 import {
   highlightEdit,
@@ -980,6 +981,12 @@ export default class Annotate extends Plugin {
     const plugin = this;
     this.registerEditorExtension(highlightFormatting);
     this.registerEditorExtension(
+      inlineCodeHighlights(
+        this.app,
+        (state) => state.field(editorInfoField, false)?.file?.path ?? '',
+      ),
+    );
+    this.registerEditorExtension(
       ViewPlugin.fromClass(
         class {
           decorations: DecorationSet;
@@ -1702,7 +1709,9 @@ export default class Annotate extends Plugin {
         const editor = view.editor;
         const edit = transform(editor.getValue());
         if (!edit) {
-          new Notice(`Select note text outside code and HTML tags to ${action}.`);
+          new Notice(
+            `Select note text or complete inline code spans outside code blocks and HTML tags to ${action}.`,
+          );
           return;
         }
         const changes = highlightChanges(editor.getValue(), edit, tag);
@@ -1743,7 +1752,9 @@ export default class Annotate extends Plugin {
           return source.slice(0, edit.from) + edit.insert + source.slice(edit.to);
         });
         if (!applied) {
-          new Notice('The selection changed or includes code. Select note text again.');
+          new Notice(
+            'Select the passage again, including complete inline code spans and excluding code blocks or tag fragments.',
+          );
           return;
         }
         view.containerEl.ownerDocument.getSelection()?.removeAllRanges();
