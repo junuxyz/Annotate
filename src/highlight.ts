@@ -49,6 +49,8 @@ export function highlightPaletteStyles(
 [data-annotate-highlight][data-annotate-fragment="middle"] { --annotate-highlight-radius: 0; }
 [data-annotate-highlight][data-annotate-fragment="end"] { --annotate-highlight-radius: 0 0.2em 0.2em 0; }
 [data-annotate-highlight] { padding: 0 !important; margin: 0 !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+[data-annotate-highlight] code { color: inherit !important; background: transparent !important; padding: 0 !important; margin: 0 !important; border-radius: 0 !important; font-size: 1em; line-height: inherit; }
+[data-annotate-color] code { color: inherit !important; }
 `;
   return settings.colors
     .flatMap((color) => {
@@ -97,6 +99,33 @@ const markdown = parser.configure([GFM]);
 const opens = (tag: WrapTag) => new RegExp(`^<${tag}(?:\\s|>)`, 'i');
 const closes = (tag: WrapTag) => new RegExp(`^</${tag}\\s*>$`, 'i');
 
+export function inlineCodeRanges(source: string) {
+  if (!source.includes('`')) return [];
+  const ranges: { from: number; to: number }[] = [];
+  markdown.parse(source).iterate({
+    enter(node) {
+      if (['FencedCode', 'CodeBlock', 'HTMLBlock'].includes(node.name)) return false;
+      if (node.name !== 'InlineCode') return;
+      ranges.push({ from: node.from, to: node.to });
+      return false;
+    },
+  });
+  return ranges;
+}
+
+function highlightLines(text: string): string[] {
+  const codes = inlineCodeRanges(text);
+  const lines: string[] = [];
+  let from = 0;
+  for (const newline of text.matchAll(/\n/g)) {
+    if (codes.some((code) => code.from < newline.index && code.to > newline.index)) continue;
+    lines.push(text.slice(from, newline.index));
+    from = newline.index + 1;
+  }
+  lines.push(text.slice(from));
+  return lines;
+}
+
 /** One replacement keeps recoloring, partial removal, and undo atomic. */
 export function highlightEdit(
   source: string,
@@ -132,8 +161,21 @@ export function wrapEdit(
   let invalid = false;
   markdown.parse(source).iterate({
     enter(node) {
-      if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name)) {
+      if (['FencedCode', 'CodeBlock', 'HTMLBlock'].includes(node.name)) {
         if (node.from < to && node.to > from) invalid = true;
+        return false;
+      }
+      if (node.name === 'InlineCode') {
+        if (node.from < to && node.to > from) {
+          const delimiters = node.node.getChildren('CodeMark');
+          const first = delimiters[0],
+            last = delimiters.at(-1);
+          if (!first || !last || from > first.to || to < last.from) invalid = true;
+          else {
+            from = Math.min(from, node.from);
+            to = Math.max(to, node.to);
+          }
+        }
         return false;
       }
       const style =
@@ -265,13 +307,12 @@ export function wrapEdit(
       return `${styled}${text.slice(from, to)}${close}`;
     };
     let offset = 0;
-    return text
-      .split('\n')
+    return highlightLines(text)
       .map((line) => {
         const lineFrom = offset;
         offset += line.length + 1;
         // Keep block syntax outside inline HTML so headings and lists still render.
-        const match = /^(\s*(?:(?:>\s*)+)?(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?)(.*?)(\s*)$/.exec(line);
+        const match = /^(\s*(?:(?:>\s*)+)?(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?)(.*?)(\s*)$/s.exec(line);
         if (!match) return line;
         // Rewrapping a saved tag must retain its painted boundary spaces.
         const rewrapping = overlaps.some((mark) => mark.from === from && mark.to === to);
@@ -325,21 +366,28 @@ export function highlightChanges(
   edit: NonNullable<ReturnType<typeof wrapEdit>>,
   tag: WrapTag = 'mark',
 ): ChangeSet {
-  const pattern = new RegExp(`</?${tag}\\b[^>]*>`, 'gi');
+  const pattern = new RegExp(`^</?${tag}\\b[^>]*>$`, 'i');
   const tokens = (text: string) => {
     const tags = new Map<number, { from: number; to: number; text: string }>();
     let plain = '',
       cursor = 0;
-    for (const tag of text.matchAll(pattern)) {
-      plain += text.slice(cursor, tag.index);
-      const previous = tags.get(plain.length);
-      tags.set(plain.length, {
-        from: previous?.from ?? tag.index,
-        to: tag.index + tag[0].length,
-        text: (previous?.text ?? '') + tag[0],
-      });
-      cursor = tag.index + tag[0].length;
-    }
+    markdown.parse(text).iterate({
+      enter(node) {
+        if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name))
+          return false;
+        if (node.name !== 'HTMLTag') return;
+        const value = text.slice(node.from, node.to);
+        if (!pattern.test(value)) return;
+        plain += text.slice(cursor, node.from);
+        const previous = tags.get(plain.length);
+        tags.set(plain.length, {
+          from: previous?.from ?? node.from,
+          to: node.to,
+          text: (previous?.text ?? '') + value,
+        });
+        cursor = node.to;
+      },
+    });
     plain += text.slice(cursor);
     return { plain, tags };
   };

@@ -49,6 +49,7 @@ const suites = full
       ['--only', 'smoke,ui,list,polish,settings-layout,fullscreen'],
       ['--only', 'highlight,palette,comment-formatting'],
       ['--only', 'highlight-seams,formatting,combo,logos'],
+      ['--only', 'inline-code'],
       ['--only', 'scroll,markdown,math'],
       ['--only', 'quote,copy,preview'],
       ['--only', 'memory,resources,storage,distribution'],
