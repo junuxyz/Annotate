@@ -1029,12 +1029,17 @@ if (only.includes('inline-code'))
           }
         });
 
-if (only.includes('highlight-seams'))
-  for (const mode of modes)
+for (const scope of ['highlight-seams', 'highlight-saved-seams'].filter((scope) =>
+  only.includes(scope),
+))
+  for (const mode of modes.filter((mode) => scope !== 'highlight-saved-seams' || mode !== 'source'))
     for (const theme of themes)
-      await step(`highlight-seams [${mode}/${theme}]`, async () => {
+      await step(`${scope} [${mode}/${theme}]`, async () => {
+        const saved = scope === 'highlight-saved-seams';
         const sample =
           'The cache needs to load **each time we do a forward pass**. More synthetic text follows to wrap the same highlight across several lines. ';
+        const savedSample =
+          '<mark data-annotate-highlight="yellow">합성 문장에서 강조 앞부분은 </mark>**<mark data-annotate-highlight="yellow">테스트강조</mark>**<mark data-annotate-highlight="yellow">이며 뒤의 합성 문장도 같은 색으로 이어집니다. 이것은 줄바꿈과 글꼴 경계를 확인하기 위한 테스트 데이터입니다. 실제 노트의 내용을 포함하지 않습니다.</mark>';
         const original = await ev(
           `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
         );
@@ -1042,21 +1047,28 @@ if (only.includes('highlight-seams'))
           await closeModals();
           await resetThreads();
           await ev(
-            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(saved ? savedSample + '\n\noutside' : sample)})`,
           );
           await openMode('live');
-          await select('live', sample);
-          await ev(`app.commands.executeCommandById('annotate:highlight-selection')`);
+          if (!saved) {
+            await select('live', sample);
+            await ev(`app.commands.executeCommandById('annotate:highlight-selection')`);
+          }
           await ev(
-            `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+            `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;if (!${saved}) e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
           );
+          const stored = await ev('return app.workspace.activeLeaf.view.editor.getValue()');
           await openMode(mode);
           await sleep(250);
+          assert(
+            (await ev('return app.workspace.activeLeaf.view.editor.getValue()')) === stored,
+            'rendering preserves saved note source',
+          );
           const geometry = await ev(
             `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')});return {html:root.innerHTML,marks:[...root.querySelectorAll('[data-annotate-highlight]')].map(el=>{const s=getComputedStyle(el);return {text:el.textContent,padding:s.padding,margin:s.margin,radius:s.borderRadius,fragment:el.dataset.annotateFragment,rects:[...el.getClientRects()].map(r=>({x:r.x,y:r.y,width:r.width,height:r.height}))}})}`,
           );
           writeFileSync(
-            join(evidence, `highlight-seams-${mode}-${theme}.json`),
+            join(evidence, `${scope}-${mode}-${theme}.json`),
             JSON.stringify(geometry, null, 2),
           );
           assert(geometry.marks.length === 3, JSON.stringify(geometry));
@@ -1096,7 +1108,7 @@ if (only.includes('highlight-seams'))
             assert(joins > 0, 'at least one formatting boundary is on the same visual line');
           }
           await ev(`document.querySelectorAll('.notice').forEach(el=>el.remove())`);
-          await shot(`highlight-seams-${mode}-${theme}`);
+          await shot(`${scope}-${mode}-${theme}`);
         } finally {
           await ev(
             `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,

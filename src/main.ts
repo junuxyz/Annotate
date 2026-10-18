@@ -2,6 +2,7 @@ import './dom';
 import { highlightFormatting } from './highlight-formatting';
 import {
   highlightRendering,
+  joinHighlightEdges,
   outsideHighlightRendering,
   renderStyledSelection,
 } from './highlight-rendering';
@@ -1060,6 +1061,7 @@ export default class Annotate extends Plugin {
       ),
     );
     this.registerMarkdownPostProcessor(async (root, context) => {
+      joinHighlightEdges(root);
       this.watchSelections(root.ownerDocument);
       const source = await this.noteText(context.sourcePath);
       if (this.disposed || source === null || !context.getSectionInfo(root)) return;
