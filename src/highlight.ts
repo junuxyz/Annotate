@@ -228,8 +228,8 @@ export function wrapEdit(
       if (style) {
         const attribute = /\sstyle\s*=\s*(["'])(.*?)\1/i.exec(opener);
         if (attribute) {
-          const current = attribute[2] ?? '';
-          if (!current.includes(style))
+          const current = (attribute[2] ?? '').trim().replace(/;+$/, '');
+          if (!(attribute[2] ?? '').includes(style))
             styled = opener.replace(
               attribute[0],
               ` style=${attribute[1]}${current}; ${style}${attribute[1]}`,

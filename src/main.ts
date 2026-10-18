@@ -1,4 +1,5 @@
 import './dom';
+import { highlightFormatting } from './highlight-formatting';
 import { readImage, imagePreview, type ImageAttachment } from './images';
 import {
   highlightEdit,
@@ -976,6 +977,7 @@ export default class Annotate extends Plugin {
     // The nested CodeMirror class has its own `this`.
     // eslint-disable-next-line @typescript-eslint/no-this-alias -- CodeMirror classes need the enclosing plugin instance.
     const plugin = this;
+    this.registerEditorExtension(highlightFormatting);
     this.registerEditorExtension(
       ViewPlugin.fromClass(
         class {
