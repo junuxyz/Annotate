@@ -1,6 +1,6 @@
 import './dom';
 import { decodeHTMLStrict } from 'entities';
-import { parser, GFM } from '@lezer/markdown';
+import { highlightSyntax } from './highlight';
 import type { Anchor } from './model';
 import { mathParts } from './math';
 
@@ -8,7 +8,6 @@ export type SourcePoint = { from: number; to: number };
 export type DomPoint = { node: Text; offset: number };
 type Projection<T> = { text: string; points: T[] };
 type ProjectionBuilder<T> = { chars: string[]; points: T[] };
-const markdown = parser.configure([GFM]);
 
 function append<T>(projection: ProjectionBuilder<T>, char: string, point: T): void {
   if (/\s/.test(char)) {
@@ -37,8 +36,12 @@ export function projectSource(source: string, _doc?: Document): Projection<Sourc
     mathOffset += part.text.length;
   }
 
-  markdown.parse(source).iterate({
+  const syntax = highlightSyntax(source);
+  for (const tag of syntax.tags) hide(tag.from, tag.to);
+  syntax.tree.iterate({
     enter(node) {
+      const from = syntax.from(node.from),
+        to = syntax.to(node.to);
       if (
         [
           'EmphasisMark',
@@ -57,19 +60,19 @@ export function projectSource(source: string, _doc?: Document): Projection<Sourc
           'HTMLTag',
         ].includes(node.name)
       ) {
-        hide(node.from, node.to);
+        hide(from, to);
         return false;
       }
       if (
         ['URL', 'LinkTitle', 'LinkLabel'].includes(node.name) &&
         node.node.parent?.name === 'Link'
       )
-        hide(node.from, node.to);
-      if (node.name === 'Escape') hide(node.from, node.from + 1);
+        hide(from, to);
+      if (node.name === 'Escape') hide(from, from + 1);
       if (node.name === 'Entity') {
-        replacements.set(node.from, {
-          end: node.to,
-          text: decodeHTMLStrict(source.slice(node.from, node.to)),
+        replacements.set(from, {
+          end: to,
+          text: decodeHTMLStrict(source.slice(from, to)),
         });
       }
     },

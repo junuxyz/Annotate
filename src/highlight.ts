@@ -521,6 +521,47 @@ export function noteHighlights(
   return ranges;
 }
 
+/** Styling tags must not change which Markdown delimiters belong to the original text. */
+export function highlightSyntax(
+  source: string,
+  highlights: ReturnType<typeof noteHighlights> = source.includes('data-annotate-')
+    ? [...noteHighlights(source), ...noteHighlights(source, 'span')]
+    : [],
+) {
+  const tags = highlights
+    .flatMap((range) => [
+      { from: range.tagFrom, to: range.from },
+      { from: range.to, to: range.tagTo },
+    ])
+    .sort((a, b) => a.from - b.from);
+  if (!tags.length)
+    return {
+      tree: markdown.parse(source),
+      tags,
+      from: (position: number) => position,
+      to: (position: number) => position,
+    };
+  const characters: string[] = [],
+    offsets: number[] = [];
+  let tagIndex = 0;
+  for (let index = 0; index < source.length; ) {
+    const tag = tags[tagIndex];
+    if (tag && tag.from === index) {
+      index = tag.to;
+      tagIndex++;
+    } else {
+      characters.push(source.charAt(index));
+      offsets.push(index++);
+    }
+  }
+  return {
+    tree: markdown.parse(characters.join('')),
+    tags,
+    from: (position: number) => offsets[position] ?? source.length,
+    to: (position: number) => (offsets[position - 1] ?? -1) + 1,
+  };
+}
+
 /** Inline HTML widgets hide decorations inside them, including comment count widgets. */
 export function outsideInlineTags(
   position: number,

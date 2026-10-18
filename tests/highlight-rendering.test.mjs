@@ -231,3 +231,40 @@ test('separate highlights keep corners at unpainted content, color changes and b
     );
   }
 });
+
+test('emphasis context survives styling tags beside attached Korean and Latin suffixes', () => {
+  for (const tag of ['mark data-annotate-highlight="yellow"', 'span data-annotate-color="red"']) {
+    const name = tag.split(' ')[0];
+    for (const delimiter of ['**', '*', '~~']) {
+      for (const [prefix, suffix] of [
+        ['앞', '뒤'],
+        ['before', 'after'],
+        ['😀앞', '뒤😀'],
+      ]) {
+        for (const selected of ['강조', '강<' + tag + '>조</' + name + '>']) {
+          const inner = selected.includes('<') ? selected : `<${tag}>${selected}</${name}>`;
+          const styled = `${delimiter}${inner}${delimiter}`;
+          const rendered = widgets(state({}, true, prefix + styled + suffix + '\n\noutside'));
+          assert.equal(rendered.length, 1);
+          assert.equal(rendered[0].text, styled, prefix + styled + suffix);
+        }
+      }
+    }
+  }
+});
+
+test('context recovery retains nested styles and does not reinterpret literal intraword underscores', () => {
+  const styled =
+    '**<mark data-annotate-highlight="yellow"><span data-annotate-color="red">강조</span></mark>**';
+  const rendered = state({}, true, '앞' + styled + '뒤\n\noutside');
+  assert.equal(widgets(rendered)[0].text, styled);
+  assert.equal(
+    outsideHighlightRendering(rendered, 1 + styled.indexOf('</mark>') + '</mark>'.length),
+    1 + styled.length,
+  );
+  const literal = '<mark data-annotate-highlight="yellow">literal</mark>';
+  assert.equal(
+    widgets(state({}, true, 'before__' + literal + '__after\n\noutside'))[0].text,
+    literal,
+  );
+});

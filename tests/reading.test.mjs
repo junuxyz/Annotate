@@ -174,3 +174,29 @@ test('math projection keeps literal code and escaped dollars and hides math enti
   const source = 'Before `$literal$` and \\$escaped\\$ and $a &amp; b$ after.';
   assert.equal(projectSource(source).text, 'Before $literal$ and $escaped$ and after.');
 });
+
+test('styled emphasis next to suffixes retains Reading selections and comment positions', () => {
+  for (const [tag, attribute] of [
+    ['mark', 'data-annotate-highlight="yellow"'],
+    ['span', 'data-annotate-color="red"'],
+  ]) {
+    const source = `합성 **<${tag} ${attribute}>강조표현</${tag}>**뒤 문장`;
+    assert.equal(projectSource(source, doc).text, '합성 강조표현뒤 문장');
+    const el = root(`<p>합성 <strong><${tag} ${attribute}>강조표현</${tag}></strong>뒤 문장</p>`);
+    const range = doc.createRange();
+    range.selectNodeContents(el.querySelector('p'));
+    const bounds = { from: 0, to: source.length };
+    assert.deepEqual(selectedSourceRange(el, source, bounds, range), bounds);
+    const from = source.indexOf('강조표현');
+    const marks = markReadingAnchor(
+      el,
+      source,
+      bounds,
+      makeAnchor(source, from, from + 4),
+      'annotate-highlight',
+    );
+    assert.equal(marks.map((mark) => mark.textContent).join(''), '강조표현');
+    clearReadingMarks(el);
+    el.remove();
+  }
+});

@@ -880,6 +880,118 @@ if (only.includes('inline-ui'))
             }
           });
 
+if (only.includes('emphasis-edges'))
+  for (const mode of modes.filter((mode) => mode !== 'source'))
+    for (const theme of themes)
+      for (const command of ['highlight-selection', 'color-selection-text'])
+        for (const { fixture, sample, selected, visible, bold } of [
+          {
+            fixture: 'passage-end',
+            sample: '합성 문장의 **강조표현**뒤에 설명이 이어집니다.',
+            selected: '합성 문장의 **강조표현**',
+            visible: '합성 문장의 강조표현뒤에 설명이 이어집니다.',
+            bold: '강조표현',
+          },
+          {
+            fixture: 'whole-word',
+            sample: '앞**강조표현**뒤',
+            selected: '강조표현',
+            visible: '앞강조표현뒤',
+            bold: '강조표현',
+          },
+          {
+            fixture: 'partial-end',
+            sample: '앞**강조표현**뒤',
+            selected: '조표현',
+            visible: '앞강조표현뒤',
+            bold: '강조표현',
+          },
+          {
+            fixture: 'partial-start',
+            sample: '앞**강조표현**뒤',
+            selected: '강조',
+            visible: '앞강조표현뒤',
+            bold: '강조표현',
+          },
+          {
+            fixture: 'latin',
+            sample: 'before**bold**after',
+            selected: 'bold',
+            visible: 'beforeboldafter',
+            bold: 'bold',
+          },
+        ])
+          await step(`emphasis-edges [${mode}/${theme}/${command}/${fixture}]`, async () => {
+            const original = await ev(
+              `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+            );
+            const probe = `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')});`;
+            try {
+              await closeModals();
+              await resetThreads();
+              await ev(
+                `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample + '\n\noutside')})`,
+              );
+              await openMode('live');
+              await select('live', selected);
+              await ev(`app.commands.executeCommandById('annotate:${command}')`);
+              const attribute =
+                command === 'highlight-selection'
+                  ? 'data-annotate-highlight'
+                  : 'data-annotate-color';
+              await until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes(${JSON.stringify(attribute)}))`,
+                'style saved',
+              );
+              await until(
+                `const root=app.workspace.activeLeaf.view.editor.cm.contentDOM;return !root.textContent.includes('**')&&[...root.querySelectorAll('strong')].some(el=>el.textContent===${JSON.stringify(bold)})`,
+                'emphasis survives while the styled text remains selected',
+              );
+              await ev(
+                `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setCursor(e.lastLine(),0);e.focus()`,
+              );
+              const stored = await ev('return app.workspace.activeLeaf.view.editor.getValue()');
+              await openMode(mode);
+              await until(
+                probe + 'return !!root.querySelector("[' + attribute + ']")',
+                'styled emphasis renders',
+              );
+              const rendered = await ev(
+                probe +
+                  `return {text:root.textContent,html:root.innerHTML,strong:[...root.querySelectorAll('strong')].map(el=>el.textContent),styled:[...root.querySelectorAll('['+${JSON.stringify(attribute)}+']')].map(el=>el.textContent),source:app.workspace.activeLeaf.view.editor.getValue()}`,
+              );
+              writeFileSync(
+                join(evidence, `emphasis-edges-${mode}-${theme}-${command}-${fixture}.json`),
+                JSON.stringify(rendered, null, 2),
+              );
+              assert(
+                rendered.text.includes(visible) && !rendered.text.includes('**'),
+                'no literal emphasis delimiters: ' + JSON.stringify(rendered),
+              );
+              assert(
+                rendered.strong.includes(bold),
+                'native bold scope is preserved: ' + JSON.stringify(rendered),
+              );
+              assert(
+                rendered.styled.join('') === selected.replaceAll('**', ''),
+                'styling does not expand beyond the selected text: ' + JSON.stringify(rendered),
+              );
+              assert(rendered.source === stored, 'rendering preserves stored Markdown');
+              if (mode === 'reading') {
+                await until(
+                  `${P}document.activeElement?.blur();const root=app.workspace.activeLeaf.view.previewMode.containerEl;const paragraph=[...root.querySelectorAll('p')].find(el=>el.textContent===${JSON.stringify(visible)});if(!paragraph)return false;const range=document.createRange();range.selectNodeContents(paragraph);getSelection().removeAllRanges();getSelection().addRange(range);const selected=p.selectedNote();return selected?.target.anchor.quote.replace(/<[^>]*>|\\*\\*/g,'')===${JSON.stringify(visible)}`,
+                  'styled Reading passage can be selected again',
+                );
+                await ev(`${P}getSelection().removeAllRanges();p.hideSelectionTools()`);
+              }
+              await shot(`emphasis-edges-${mode}-${theme}-${command}-${fixture}`);
+            } finally {
+              await ev(
+                `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+              );
+            }
+          });
+
 if (only.includes('inline-code'))
   for (const mode of modes)
     for (const theme of themes)

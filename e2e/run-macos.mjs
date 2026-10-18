@@ -51,6 +51,7 @@ const suites = full
       ['--only', 'highlight-seams,highlight-saved-seams,formatting,combo,logos'],
       ['--only', 'inline-code'],
       ['--only', 'inline-ui'],
+      ['--only', 'emphasis-edges'],
       ['--only', 'scroll,markdown,math'],
       ['--only', 'quote,copy,preview'],
       ['--only', 'memory,resources,storage,distribution'],
