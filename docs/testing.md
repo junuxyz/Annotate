@@ -132,6 +132,8 @@ measurements and requested screenshots under `e2e/evidence/<timestamp>/`.
 the adjacent `../test-vault` when present, otherwise the included vault.
 `highlight-seams` checks painted spaces, joined corners, fragment heights and gaps
 across bold text and punctuation, including wrapped highlights.
+`highlight-saved-seams` checks existing Korean notes whose highlight fragments
+lack joined-edge metadata, in Live Preview and Reading mode.
 `inline-code` covers passages containing code spans, literal HTML in code, multiline
 code, selections starting at a code span, and plugin reloads.
 `inline-ui` compares styled content with native links, code pills, inline math and

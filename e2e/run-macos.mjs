@@ -48,7 +48,7 @@ const suites = full
   ? [
       ['--only', 'smoke,ui,list,polish,settings-layout,fullscreen'],
       ['--only', 'highlight,palette,comment-formatting'],
-      ['--only', 'highlight-seams,formatting,combo,logos'],
+      ['--only', 'highlight-seams,highlight-saved-seams,formatting,combo,logos'],
       ['--only', 'inline-code'],
       ['--only', 'inline-ui'],
       ['--only', 'scroll,markdown,math'],

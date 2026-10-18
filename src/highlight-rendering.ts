@@ -9,6 +9,59 @@ const renders = new WeakMap<HTMLElement, Component>();
 const markdown = parser.configure([GFM]);
 export const renderStyledSelection = StateEffect.define<null>();
 
+const savedFragments = new WeakMap<HTMLElement, string | null>();
+
+/** Older notes have separate marks around emphasis without joined-edge metadata. */
+export function joinHighlightEdges(root: HTMLElement): void {
+  const selector = '[data-annotate-highlight]';
+  const marks = [...root.querySelectorAll<HTMLElement>(selector)].filter(
+    (mark) => !mark.parentElement?.closest(selector),
+  );
+  const edges = marks.map((mark) => {
+    if (!savedFragments.has(mark))
+      savedFragments.set(mark, mark.getAttribute('data-annotate-fragment'));
+    const fragment = savedFragments.get(mark);
+    return {
+      start: fragment !== 'middle' && fragment !== 'end',
+      end: fragment !== 'middle' && fragment !== 'start',
+    };
+  });
+  const block = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, .cm-line';
+  for (let index = 1; index < marks.length; index++) {
+    const left = marks[index - 1],
+      right = marks[index];
+    const leftEdge = edges[index - 1],
+      rightEdge = edges[index];
+    if (
+      !left ||
+      !right ||
+      !leftEdge ||
+      !rightEdge ||
+      left.dataset.annotateHighlight !== right.dataset.annotateHighlight ||
+      left.closest(block) !== right.closest(block)
+    )
+      continue;
+    const gap = root.ownerDocument.createRange();
+    gap.setStartAfter(left);
+    gap.setEndBefore(right);
+    const contents = gap.cloneContents();
+    // Empty formatting containers are safe to join; unpainted content is a boundary.
+    if (
+      contents.textContent ||
+      contents.querySelector('br, img, svg, math, input, video, audio, iframe, canvas')
+    )
+      continue;
+    leftEdge.end = false;
+    rightEdge.start = false;
+  }
+  marks.forEach((mark, index) => {
+    const edge = edges[index];
+    if (!edge) return;
+    if (edge.start && edge.end) mark.removeAttribute('data-annotate-fragment');
+    else mark.dataset.annotateFragment = edge.start ? 'start' : edge.end ? 'end' : 'middle';
+  });
+}
+
 /** Render styling with its surrounding Markdown so native links and inline UI survive. */
 class HighlightedMarkdown extends WidgetType {
   constructor(
@@ -37,6 +90,7 @@ class HighlightedMarkdown extends WidgetType {
         for (const paragraph of content.querySelectorAll('p'))
           paragraph.replaceWith(...paragraph.childNodes);
         dom.replaceChildren(content);
+        joinHighlightEdges(content);
         view.requestMeasure();
       })
       .catch(() => {

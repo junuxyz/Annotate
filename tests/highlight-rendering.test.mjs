@@ -10,7 +10,7 @@ const output = new URL('./.highlight-rendering.mjs', import.meta.url);
 await build({
   stdin: {
     contents:
-      "export { highlightRendering, outsideHighlightRendering, renderStyledSelection } from './src/highlight-rendering.ts'; export { editorLivePreviewField } from 'obsidian';",
+      "export { highlightRendering, joinHighlightEdges, outsideHighlightRendering, renderStyledSelection } from './src/highlight-rendering.ts'; export { editorLivePreviewField } from 'obsidian';",
     resolveDir: process.cwd(),
   },
   bundle: true,
@@ -22,6 +22,7 @@ await build({
 });
 const {
   highlightRendering,
+  joinHighlightEdges,
   outsideHighlightRendering,
   renderStyledSelection,
   editorLivePreviewField,
@@ -166,4 +167,67 @@ test('applying style retains native UI for the current selection, then yields to
   assert.equal(styled.selection.main.to, position + 2);
   const editing = styled.update({ selection: { anchor: position + 1 } }).state;
   assert.equal(widgets(editing).length, 0);
+});
+
+test('saved highlight fragments join across emphasis without replacing native UI', () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  const mark = (text) => `<mark data-annotate-highlight="yellow">${text}</mark>`;
+  root.innerHTML = `<p>${mark('합성 문장 앞부분은 ')}<strong>${mark('테스트강조')}</strong>${mark('와 이어짐.')}</p>`;
+  const strong = root.querySelector('strong');
+  joinHighlightEdges(root);
+  assert.deepEqual(
+    [...root.querySelectorAll('mark')].map((el) => el.dataset.annotateFragment),
+    ['start', 'middle', 'end'],
+  );
+  assert.equal(root.querySelector('strong'), strong, 'retain native elements and event handlers');
+  const html = root.innerHTML;
+  joinHighlightEdges(root);
+  assert.equal(root.innerHTML, html, 'repeated postprocessing is stable');
+  strong.remove();
+  joinHighlightEdges(root);
+  assert.deepEqual(
+    [...root.querySelectorAll('mark')].map((el) => el.dataset.annotateFragment),
+    ['start', 'end'],
+  );
+  root.querySelector('mark').remove();
+  joinHighlightEdges(root);
+  assert.equal(
+    root.querySelector('mark').hasAttribute('data-annotate-fragment'),
+    false,
+    'reused widgets recover their original corners when separated',
+  );
+});
+
+test('separate highlights keep corners at unpainted content, color changes and block boundaries', () => {
+  const win = new Window();
+  const root = win.document.createElement('div');
+  const mark = (id = 'yellow') => `<mark data-annotate-highlight="${id}">text</mark>`;
+  for (const gap of [
+    ' ',
+    'plain',
+    '<br>',
+    '<img src="synthetic.svg">',
+    '<span><svg></svg></span>',
+    '<input>',
+  ]) {
+    root.innerHTML = `<p>${mark()}${gap}${mark()}</p>`;
+    joinHighlightEdges(root);
+    assert.ok(
+      [...root.querySelectorAll('mark')].every((el) => !el.hasAttribute('data-annotate-fragment')),
+      gap,
+    );
+  }
+  for (const html of [
+    `<p>${mark()}${mark('pink')}</p>`,
+    `<p>${mark()}</p><p>${mark()}</p>`,
+    `<ul><li>${mark()}</li><li>${mark()}</li></ul>`,
+  ]) {
+    root.innerHTML = html;
+    joinHighlightEdges(root);
+    assert.ok(
+      [...root.querySelectorAll('mark')].every((el) => !el.hasAttribute('data-annotate-fragment')),
+      html,
+    );
+  }
 });
