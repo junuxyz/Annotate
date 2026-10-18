@@ -366,3 +366,15 @@ export function noteHighlights(
   });
   return ranges;
 }
+
+/** Inline HTML widgets hide decorations inside them, including comment count widgets. */
+export function outsideInlineTags(
+  position: number,
+  ranges: ReturnType<typeof noteHighlights>,
+): number {
+  return ranges.reduce(
+    (end, range) =>
+      range.tagFrom < position && position < range.tagTo ? Math.max(end, range.tagTo) : end,
+    position,
+  );
+}

@@ -8,6 +8,7 @@ import {
   highlightChanges,
   highlightSettingsSchema,
   noteHighlights,
+  outsideInlineTags,
   textColorEdit,
   textColors,
   type TextColor,
@@ -215,5 +216,25 @@ void test('saved highlights inherit text color and retain their light-mode palet
     assert.ok(!light.includes('color-mix'));
     assert.ok(dark.includes('color-mix'), `${shape} uses a dimmer dark highlight`);
     if (shape === 'underline') assert.match(dark, /background: transparent;/);
+  }
+});
+
+void test('comment badges escape enclosing highlight and color widgets without crossing adjacent text', () => {
+  for (const first of ['mark', 'span'] as const) {
+    const plain = '앞 한글 passage 뒤';
+    const styled = first === 'mark' ? apply(plain, 2, 12).result : color(plain, 2, 12).result;
+    for (const source of [
+      styled,
+      first === 'mark'
+        ? color(styled, styled.indexOf('한글'), styled.indexOf('passage') + 7).result
+        : apply(styled, styled.indexOf('한글'), styled.indexOf('passage') + 7).result,
+    ]) {
+      const ranges = [...noteHighlights(source), ...noteHighlights(source, 'span')];
+      const end = source.indexOf(' 뒤');
+      assert.equal(outsideInlineTags(source.indexOf('한글') + 2, ranges), end);
+      assert.equal(outsideInlineTags(source.indexOf('passage') + 7, ranges), end);
+      assert.equal(outsideInlineTags(1, ranges), 1);
+      assert.equal(outsideInlineTags(end, ranges), end);
+    }
   }
 });
