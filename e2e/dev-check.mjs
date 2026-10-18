@@ -720,6 +720,166 @@ if (only.includes('palette')) {
       );
 }
 
+if (only.includes('inline-ui'))
+  for (const mode of modes.filter((mode) => mode !== 'source'))
+    for (const theme of themes)
+      for (const command of ['highlight-selection', 'color-selection-text'])
+        for (const selection of ['passage', 'label'])
+          await step(`inline-ui [${mode}/${theme}/${command}/${selection}]`, async () => {
+            const sample =
+              'Using [Native Sparse Attention](https://example.test/paper), [linked note](Fixtures/Mentions.md), [[Fixtures/Mentions|wiki note]], `W~`, **bold**, *italic*, ~~deleted~~ and $x^2$. Image: ![token](Inline-ui.svg).';
+            const original = await ev(
+              `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+            );
+            const imagePath = 'Fixtures/Inline-ui.svg';
+            const snapshot = `return {links:[...root.querySelectorAll('a')].map(a=>({text:a.textContent,href:a.getAttribute('href'),target:a.getAttribute('data-href'),external:a.classList.contains('external-link'),internal:a.classList.contains('internal-link'),decoration:getComputedStyle(a).textDecorationLine,icon:getComputedStyle(a).backgroundImage,color:getComputedStyle(a).color,labelColor:getComputedStyle(a.querySelector('[data-annotate-color]')??a).color})),code:[...root.querySelectorAll('code')].map(el=>({text:el.textContent,font:getComputedStyle(el).fontFamily,padding:getComputedStyle(el).padding,background:getComputedStyle(el).backgroundColor,radius:getComputedStyle(el).borderRadius})),bold:!!root.querySelector('strong'),italic:!!root.querySelector('em'),deleted:!!root.querySelector('s,del'),math:!!root.querySelector('mjx-container'),images:[...root.querySelectorAll('img')].filter(el=>el.naturalWidth===16).map(el=>({src:el.getAttribute('src'),width:el.naturalWidth,height:el.naturalHeight})),html:root.innerHTML}`;
+            try {
+              await closeModals();
+              await resetThreads();
+              await ev(
+                `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});if(!app.vault.getAbstractFileByPath(${JSON.stringify(imagePath)}))await app.vault.create(${JSON.stringify(imagePath)},'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16" fill="#37a"/></svg>');await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+              );
+              await openMode('reading');
+              await until(
+                `const root=app.workspace.activeLeaf.view.previewMode.containerEl;return root.querySelector('mjx-container')&&[...root.querySelectorAll('img')].some(el=>el.naturalWidth===16)`,
+                'native inline UI baseline renders',
+              );
+              const before = await ev(
+                `const root=app.workspace.activeLeaf.view.previewMode.containerEl;` + snapshot,
+              );
+              await openMode(mode);
+              if (selection === 'label') await select(mode, 'Sparse');
+              else if (mode === 'reading')
+                await ev(
+                  `const root=app.workspace.activeLeaf.view.previewMode.containerEl;const r=document.createRange();r.selectNodeContents(root.querySelector('p'));getSelection().removeAllRanges();getSelection().addRange(r)`,
+                );
+              else await select(mode, sample);
+              await until(`${P}return !!p.selectedNote()`, 'inline UI selected');
+              await ev(
+                `${P}p.data.highlights.textRecent='red';app.commands.executeCommandById(${JSON.stringify('annotate:' + command)})`,
+              );
+              if (mode === 'live') {
+                await sleep(250);
+                await until(
+                  `const root=app.workspace.activeLeaf.view.editor.cm.contentDOM;return root.querySelector('a.external-link')?.getAttribute('href')==='https://example.test/paper'`,
+                  'link UI survives while the newly styled text is still selected',
+                );
+              }
+              const attribute =
+                command === 'highlight-selection'
+                  ? 'data-annotate-highlight'
+                  : 'data-annotate-color';
+              await until(
+                `return app.vault.cachedRead(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)})).then(s=>s.includes(${JSON.stringify(attribute)}))`,
+                'inline UI formatting saved',
+              );
+              await openMode('live');
+              await ev(
+                `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+              );
+              await openMode(mode);
+              const probe = `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')});`;
+              await until(
+                probe +
+                  `return root.querySelector('mjx-container')&&root.querySelector('a.external-link')&&[...root.querySelectorAll('img')].some(el=>el.naturalWidth===16)`,
+                'styled native inline UI renders',
+              );
+              const after = await ev(probe + snapshot);
+              writeFileSync(
+                join(evidence, `inline-ui-${mode}-${theme}-${command}-${selection}.json`),
+                JSON.stringify({ before, after }, null, 2),
+              );
+              if (selection === 'passage')
+                assert(
+                  after.links.length === before.links.length,
+                  'all links remain anchors: ' + JSON.stringify(after),
+                );
+              for (let i = 0; i < (selection === 'passage' ? before.links.length : 1); i++) {
+                const a = after.links[i],
+                  b = before.links[i];
+                for (const key of [
+                  'text',
+                  'href',
+                  'target',
+                  'external',
+                  'internal',
+                  'decoration',
+                  'icon',
+                ])
+                  assert(
+                    a[key] === b[key],
+                    'link UI remains intact: ' + JSON.stringify({ key, b, a }),
+                  );
+                if (command === 'highlight-selection')
+                  assert(a.color === b.color, 'highlight preserves link color');
+                else {
+                  const red = await ev(
+                    `const probe=document.createElement('span');probe.style.color='var(--color-red, #e03e3e)';document.body.append(probe);const red=getComputedStyle(probe).color;probe.remove();return red`,
+                  );
+                  assert(
+                    a.labelColor === red,
+                    'text color changes the label and preserves its link UI: ' +
+                      JSON.stringify({ a, red }),
+                  );
+                }
+              }
+              if (selection === 'passage') {
+                assert(
+                  after.bold && after.italic && after.deleted && after.math,
+                  'native formatting and math survive',
+                );
+                assert(
+                  JSON.stringify(after.code) === JSON.stringify(before.code),
+                  'code keeps its native font and pill: ' +
+                    JSON.stringify({ before: before.code, after: after.code }),
+                );
+                assert(
+                  JSON.stringify(after.images) === JSON.stringify(before.images),
+                  'inline image is unchanged',
+                );
+                const clicked = await ev(
+                  probe +
+                    `const previous=app.workspace.openLinkText,calls=[];app.workspace.openLinkText=(...args)=>{calls.push(args);return Promise.resolve()};try{root.querySelector('a.internal-link').dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,metaKey:true}));await new Promise(r=>setTimeout(r,50));return calls}finally{app.workspace.openLinkText=previous}`,
+                );
+                assert(
+                  clicked.length > 0 &&
+                    clicked.some((args) => String(args[0]).includes('Mentions')),
+                  'native internal-link click handler still runs: ' + JSON.stringify(clicked),
+                );
+                await createComment(mode, 'Comment on a styled link', 'Native Sparse Attention');
+                await ev(
+                  `${P}p.closePopup();p.hideSelectionTools();const v=app.workspace.activeLeaf.view;if(v.getMode()!=='preview'){v.editor.setCursor(v.editor.lastLine(),0);v.editor.focus()}await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate');v.previewMode?.rerender?.(true)`,
+                );
+                await until(
+                  probe +
+                    `return root.querySelector('a.external-link')&&root.querySelector('mjx-container')`,
+                  'styled inline UI survives plugin reload',
+                );
+                await until(
+                  probe +
+                    `return [...root.querySelectorAll('.annotate-count')].some(el=>el.textContent==='1'&&el.getBoundingClientRect().width>0)`,
+                  'comment badge on the styled link survives reload',
+                );
+                await ev(probe + `root.querySelector('.annotate-count').click()`);
+                await until(
+                  `return document.querySelector('.annotate-message-body')?.textContent==='Comment on a styled link'`,
+                  'styled link comment opens from its visible badge',
+                );
+                await ev(`${P}p.closePopup()`);
+                await until(
+                  `return !document.querySelector('.annotate-popover')`,
+                  'comment closes before the UI screenshot',
+                );
+              }
+              await ev(`document.querySelectorAll('.notice').forEach(el=>el.remove())`);
+              await shot(`inline-ui-${mode}-${theme}-${command}-${selection}`);
+            } finally {
+              await ev(
+                `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)});const file=app.vault.getAbstractFileByPath(${JSON.stringify(imagePath)});if(file)await app.vault.delete(file)`,
+              );
+            }
+          });
+
 if (only.includes('inline-code'))
   for (const mode of modes)
     for (const theme of themes)
@@ -804,12 +964,8 @@ if (only.includes('inline-code'))
               );
               for (const code of codes)
                 assert(
-                  rendered.code.some(
-                    (el) =>
-                      el.text === code && el.highlight && el.background === 'rgba(0, 0, 0, 0)',
-                  ),
-                  'code retains its literal text on the shared highlight: ' +
-                    JSON.stringify(rendered),
+                  rendered.code.some((el) => el.text === code && el.highlight),
+                  'code retains its literal text and its highlight: ' + JSON.stringify(rendered),
                 );
             }
             if (fixture === 'passage') {

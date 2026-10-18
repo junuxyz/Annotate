@@ -155,3 +155,22 @@ test('reading marks and projections preserve a secondary window document', async
     await other.happyDOM.close();
   }
 });
+
+test('reading selections around native math map back to the note without replacing math UI', () => {
+  const source = 'Before [linked text](Target.md) and $x^2$ after.';
+  const el = root(
+    '<p>Before <a>linked text</a> and <span class="math math-inline"><mjx-container>x squared</mjx-container></span> after.</p>',
+  );
+  const bounds = sectionBounds(source, 0, 0);
+  assert.ok(sectionMapping(el, source, bounds));
+  const range = doc.createRange();
+  range.selectNodeContents(el.querySelector('a'));
+  const selected = selectedSourceRange(el, source, bounds, range);
+  assert.ok(selected);
+  assert.equal(source.slice(selected.from, selected.to), 'linked text');
+});
+
+test('math projection keeps literal code and escaped dollars and hides math entities', () => {
+  const source = 'Before `$literal$` and \\$escaped\\$ and $a &amp; b$ after.';
+  assert.equal(projectSource(source).text, 'Before $literal$ and $escaped$ and after.');
+});

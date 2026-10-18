@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { parser, GFM } from '@lezer/markdown';
 import { ChangeSet } from '@codemirror/state';
+import { mathParts } from './math';
 
 export const highlightShapes = { rounded: 'Rounded', flat: 'Flat', underline: 'Underline' };
 export const highlightSettingsSchema = z.object({
@@ -49,8 +50,13 @@ export function highlightPaletteStyles(
 [data-annotate-highlight][data-annotate-fragment="middle"] { --annotate-highlight-radius: 0; }
 [data-annotate-highlight][data-annotate-fragment="end"] { --annotate-highlight-radius: 0 0.2em 0.2em 0; }
 [data-annotate-highlight] { padding: 0 !important; margin: 0 !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-[data-annotate-highlight] code { color: inherit !important; background: transparent !important; padding: 0 !important; margin: 0 !important; border-radius: 0 !important; font-size: 1em; line-height: inherit; }
-[data-annotate-color] code { color: inherit !important; }
+[data-annotate-color] code, [data-annotate-color] a.internal-link, [data-annotate-color] a.external-link { color: inherit !important; }
+[data-annotate-highlight] a.internal-link:not([data-annotate-color] a) { color: var(--link-color) !important; }
+[data-annotate-highlight] a.internal-link.is-unresolved:not([data-annotate-color] a) { color: var(--link-unresolved-color) !important; }
+[data-annotate-highlight] a.internal-link:hover:not([data-annotate-color] a) { color: var(--link-color-hover) !important; }
+[data-annotate-highlight] a.external-link:not([data-annotate-color] a) { color: var(--link-external-color) !important; }
+[data-annotate-highlight] a.external-link:hover:not([data-annotate-color] a) { color: var(--link-external-color-hover) !important; }
+
 `;
   return settings.colors
     .flatMap((color) => {
@@ -113,8 +119,44 @@ export function inlineCodeRanges(source: string) {
   return ranges;
 }
 
+/** Keep native components intact when their source cannot contain formatting tags. */
+export function inlineComponents(source: string): { from: number; to: number }[] {
+  const ranges: { from: number; to: number }[] = [];
+  const excluded: { from: number; to: number }[] = [];
+  markdown.parse(source).iterate({
+    enter(node) {
+      if (['InlineCode', 'FencedCode', 'CodeBlock', 'HTMLBlock', 'HTMLTag'].includes(node.name)) {
+        excluded.push({ from: node.from, to: node.to });
+        return false;
+      }
+      if (
+        ['Image', 'Autolink'].includes(node.name) ||
+        (node.name === 'URL' && !['Link', 'Image'].includes(node.node.parent?.name ?? ''))
+      ) {
+        ranges.push({ from: node.from, to: node.to });
+        return false;
+      }
+    },
+  });
+  const available = (from: number) =>
+    !excluded.some((range) => range.from <= from && range.to > from);
+  for (const match of source.matchAll(/!?\[\[[^\]\n]+\]\]/g)) {
+    let slashes = 0;
+    for (let at = match.index - 1; at >= 0 && source[at] === '\\'; at--) slashes++;
+    if (available(match.index) && slashes % 2 === 0)
+      ranges.push({ from: match.index, to: match.index + match[0].length });
+  }
+  let offset = 0;
+  for (const part of mathParts(source)) {
+    if (part.kind === 'math' && available(offset))
+      ranges.push({ from: offset, to: offset + part.text.length });
+    offset += part.text.length;
+  }
+  return ranges.sort((a, b) => a.from - b.from || b.to - a.to);
+}
+
 function highlightLines(text: string): string[] {
-  const codes = inlineCodeRanges(text);
+  const codes = [...inlineCodeRanges(text), ...inlineComponents(text)];
   const lines: string[] = [];
   let from = 0;
   for (const newline of text.matchAll(/\n/g)) {
@@ -154,6 +196,13 @@ export function wrapEdit(
   tag: WrapTag,
 ): { from: number; to: number; insert: string; selectionFrom: number; selectionTo: number } | null {
   if (from < 0 || to > source.length || from >= to || !source.slice(from, to).trim()) return null;
+  const components = inlineComponents(source);
+  for (const component of components) {
+    if (component.from < to && component.to > from) {
+      from = Math.min(from, component.from);
+      to = Math.max(to, component.to);
+    }
+  }
   const marks: (Mark & { depth: number; owned: boolean })[] = [];
   const stack: Open[] = [];
   const syntax: { from: number; to: number }[] = [];
@@ -161,6 +210,7 @@ export function wrapEdit(
   let invalid = false;
   markdown.parse(source).iterate({
     enter(node) {
+      if (components.some((range) => range.from <= node.from && range.to >= node.to)) return false;
       if (['FencedCode', 'CodeBlock', 'HTMLBlock'].includes(node.name)) {
         if (node.from < to && node.to > from) invalid = true;
         return false;
@@ -371,8 +421,11 @@ export function highlightChanges(
     const tags = new Map<number, { from: number; to: number; text: string }>();
     let plain = '',
       cursor = 0;
+    const components = inlineComponents(text);
     markdown.parse(text).iterate({
       enter(node) {
+        if (components.some((range) => range.from <= node.from && range.to >= node.to))
+          return false;
         if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name))
           return false;
         if (node.name !== 'HTMLTag') return;
@@ -436,8 +489,10 @@ export function noteHighlights(
     fragment: string | null;
   }[] = [];
   const stack: { from: number; tagFrom: number; id: string; fragment: string | null }[] = [];
+  const components = inlineComponents(source);
   markdown.parse(source).iterate({
     enter(node) {
+      if (components.some((range) => range.from <= node.from && range.to >= node.to)) return false;
       if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name)) return false;
       if (node.name !== 'HTMLTag') return;
       const text = source.slice(node.from, node.to);

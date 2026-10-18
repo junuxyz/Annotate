@@ -50,6 +50,7 @@ const suites = full
       ['--only', 'highlight,palette,comment-formatting'],
       ['--only', 'highlight-seams,formatting,combo,logos'],
       ['--only', 'inline-code'],
+      ['--only', 'inline-ui'],
       ['--only', 'scroll,markdown,math'],
       ['--only', 'quote,copy,preview'],
       ['--only', 'memory,resources,storage,distribution'],
