@@ -134,6 +134,8 @@ the adjacent `../test-vault` when present, otherwise the included vault.
 across bold text and punctuation, including wrapped highlights.
 `highlight-saved-seams` checks existing Korean notes whose highlight fragments
 lack joined-edge metadata, in Live Preview and Reading mode.
+`emphasis-edges` checks highlights and text colors at bold boundaries next to
+Korean and Latin text, including partial words and the active selection.
 `inline-code` covers passages containing code spans, literal HTML in code, multiline
 code, selections starting at a code span, and plugin reloads.
 `inline-ui` compares styled content with native links, code pills, inline math and

@@ -2,11 +2,9 @@ import './dom';
 import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { Component, MarkdownRenderer, editorLivePreviewField, type App } from 'obsidian';
-import { noteHighlights } from './highlight';
-import { parser, GFM } from '@lezer/markdown';
+import { highlightSyntax, noteHighlights } from './highlight';
 
 const renders = new WeakMap<HTMLElement, Component>();
-const markdown = parser.configure([GFM]);
 export const renderStyledSelection = StateEffect.define<null>();
 
 const savedFragments = new WeakMap<HTMLElement, string | null>();
@@ -115,11 +113,15 @@ export function highlightRendering(app: App, path: (state: EditorState) => strin
     let wrappers = cache.get(state.doc);
     if (!wrappers) {
       const source = state.doc.toString();
-      const ranges = [...noteHighlights(source), ...noteHighlights(source, 'span')].map(
-        (range) => ({ from: range.tagFrom, to: range.tagTo }),
-      );
-      // Formatting tags inside a label must render with the complete anchor, not replace it.
-      markdown.parse(source).iterate({
+      const highlights = [...noteHighlights(source), ...noteHighlights(source, 'span')];
+      if (!highlights.length) {
+        cache.set(state.doc, []);
+        return Decoration.none;
+      }
+      const ranges = highlights.map((range) => ({ from: range.tagFrom, to: range.tagTo }));
+      const syntax = highlightSyntax(source, highlights);
+      // Render complete native components, including formatting outside styling tags.
+      syntax.tree.iterate({
         enter(node) {
           if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name))
             return false;
@@ -129,10 +131,12 @@ export function highlightRendering(app: App, path: (state: EditorState) => strin
             )
           )
             return;
+          const from = syntax.from(node.from),
+            to = syntax.to(node.to);
           for (const range of ranges) {
-            if (range.from < node.to && range.to > node.from) {
-              range.from = Math.min(range.from, node.from);
-              range.to = Math.max(range.to, node.to);
+            if (range.from < to && range.to > from) {
+              range.from = Math.min(range.from, from);
+              range.to = Math.max(range.to, to);
             }
           }
         },
