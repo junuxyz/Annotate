@@ -39,11 +39,17 @@ export function highlightStyle(
   const background = theme === 'dark' ? `color-mix(in srgb, ${value} 45%, transparent)` : value;
   if (shape === 'underline')
     return `color: inherit; background: transparent; box-shadow: inset 0 -0.2em ${background}; border-radius: 0;`;
-  return `color: inherit; background: ${background}; box-shadow: none; border-radius: ${shape === 'rounded' ? '0.2em' : '0'};`;
+  return `color: inherit; background: ${background}; box-shadow: none; border-radius: ${shape === 'rounded' ? 'var(--annotate-highlight-radius, 0.2em)' : '0'};`;
 }
 export function highlightPaletteStyles(
   settings: Pick<HighlightSettings, 'colors' | 'shape'>,
 ): string {
+  const fragments = `
+[data-annotate-highlight][data-annotate-fragment="start"] { --annotate-highlight-radius: 0.2em 0 0 0.2em; }
+[data-annotate-highlight][data-annotate-fragment="middle"] { --annotate-highlight-radius: 0; }
+[data-annotate-highlight][data-annotate-fragment="end"] { --annotate-highlight-radius: 0 0.2em 0.2em 0; }
+[data-annotate-highlight] { padding: 0 !important; margin: 0 !important; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+`;
   return settings.colors
     .flatMap((color) => {
       const selector = `[data-annotate-highlight="${color.id}"]`;
@@ -57,6 +63,7 @@ export function highlightPaletteStyles(
         (color) => `[data-annotate-color="${color.id}"] { color: ${color.value} !important; }`,
       ),
     )
+    .concat(fragments)
     .join('\n');
 }
 function opening(color: HighlightColor, shape: HighlightSettings['shape']): string {
@@ -218,7 +225,7 @@ export function wrapEdit(
   };
   const close = `</${tag}>`;
   const wrap = ({ text, protectedRanges, styles }: ReturnType<typeof strip>, opener: string) => {
-    const fragment = (from: number, to: number) => {
+    const fragment = (from: number, to: number, lineFrom: number, lineTo: number) => {
       // Live Preview renders inline HTML as a widget, outside Markdown's font styling.
       const style = styles
         .filter((range) => range.from <= from && range.to >= to)
@@ -236,6 +243,25 @@ export function wrapEdit(
             );
         } else styled = opener.slice(0, -1) + ` style="${style}">`;
       }
+      if (tag === 'mark') {
+        const inherited = /\sdata-annotate-fragment="(start|middle|end)"/.exec(styled)?.[1];
+        const hasText = (from: number, to: number) => {
+          let cursor = from;
+          for (const range of protectedRanges) {
+            if (range.to <= cursor || range.from >= to) continue;
+            if (range.from > cursor) return true;
+            cursor = range.to;
+          }
+          return cursor < to;
+        };
+        const start = !hasText(lineFrom, from) && inherited !== 'middle' && inherited !== 'end';
+        const end = !hasText(to, lineTo) && inherited !== 'middle' && inherited !== 'start';
+        styled = styled.replace(/\sdata-annotate-fragment="(?:start|middle|end)"/g, '');
+        if (!start || !end)
+          styled =
+            styled.slice(0, -1) +
+            ` data-annotate-fragment="${start ? 'start' : end ? 'end' : 'middle'}">`;
+      }
       return `${styled}${text.slice(from, to)}${close}`;
     };
     let offset = 0;
@@ -246,22 +272,27 @@ export function wrapEdit(
         offset += line.length + 1;
         // Keep block syntax outside inline HTML so headings and lists still render.
         const match = /^(\s*(?:(?:>\s*)+)?(?:(?:#{1,6}|[-+*]|\d+[.)])\s+)?)(.*?)(\s*)$/.exec(line);
-        if (!match?.[2]) return line;
-        const from = lineFrom + (match[1]?.length ?? 0),
-          to = from + match[2].length;
+        if (!match) return line;
+        // Rewrapping a saved tag must retain its painted boundary spaces.
+        const rewrapping = overlaps.some((mark) => mark.from === from && mark.to === to);
+        if (!match[2] && !rewrapping) return line;
+        const leading = rewrapping ? '' : (match[1] ?? '');
+        const trailing = rewrapping ? '' : (match[3] ?? '');
+        const fromOffset = lineFrom + leading.length,
+          toOffset = lineFrom + line.length - trailing.length;
         let body = '',
-          cursor = from;
+          cursor = fromOffset;
         // Formatting delimiters stay outside HTML, including when a selection crosses them.
         for (const range of protectedRanges) {
-          if (range.to <= cursor || range.from >= to) continue;
+          if (range.to <= cursor || range.from >= toOffset) continue;
           const start = Math.max(cursor, range.from),
-            end = Math.min(to, range.to);
-          if (cursor < start) body += fragment(cursor, start);
+            end = Math.min(toOffset, range.to);
+          if (cursor < start) body += fragment(cursor, start, fromOffset, toOffset);
           body += text.slice(start, end);
           cursor = end;
         }
-        if (cursor < to) body += fragment(cursor, to);
-        return `${match[1] ?? ''}${body}${match[3] ?? ''}`;
+        if (cursor < toOffset) body += fragment(cursor, toOffset, fromOffset, toOffset);
+        return `${leading}${body}${trailing}`;
       })
       .join('\n');
   };
@@ -274,7 +305,7 @@ export function wrapEdit(
   const middle = open ? wrap(selected, open) : selected.text;
   const insert = prefix + middle + suffix;
   const selectedOffset = middle.indexOf(selected.text);
-  const leading = open && middle.startsWith(open) ? open.length : 0,
+  const leading = open ? (/^<(?:mark|span)\b[^>]*>/.exec(middle)?.[0].length ?? 0) : 0,
     trailing = middle.endsWith(close) ? close.length : 0;
   return {
     from: start,
@@ -338,11 +369,25 @@ export function highlightChanges(
 export function noteHighlights(
   source: string,
   tag: WrapTag = 'mark',
-): { from: number; to: number; tagFrom: number; tagTo: number; id: string }[] {
+): {
+  from: number;
+  to: number;
+  tagFrom: number;
+  tagTo: number;
+  id: string;
+  fragment: string | null;
+}[] {
   const attribute = tag === 'mark' ? 'data-annotate-highlight' : 'data-annotate-color';
   const idPattern = new RegExp(`\\b${attribute}=["']([a-z][a-z0-9-]*)["']`, 'i');
-  const ranges: { from: number; to: number; tagFrom: number; tagTo: number; id: string }[] = [];
-  const stack: { from: number; tagFrom: number; id: string }[] = [];
+  const ranges: {
+    from: number;
+    to: number;
+    tagFrom: number;
+    tagTo: number;
+    id: string;
+    fragment: string | null;
+  }[] = [];
+  const stack: { from: number; tagFrom: number; id: string; fragment: string | null }[] = [];
   markdown.parse(source).iterate({
     enter(node) {
       if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name)) return false;
@@ -350,7 +395,12 @@ export function noteHighlights(
       const text = source.slice(node.from, node.to);
       if (opens(tag).test(text)) {
         const id = idPattern.exec(text)?.[1] ?? '';
-        stack.push({ from: node.to, tagFrom: node.from, id });
+        stack.push({
+          from: node.to,
+          tagFrom: node.from,
+          id,
+          fragment: /\bdata-annotate-fragment="(start|middle|end)"/.exec(text)?.[1] ?? null,
+        });
       } else if (closes(tag).test(text)) {
         const start = stack.pop();
         if (start?.id && node.from > start.from)
@@ -360,6 +410,7 @@ export function noteHighlights(
             tagFrom: start.tagFrom,
             tagTo: node.to,
             id: start.id,
+            fragment: start.fragment,
           });
       }
     },

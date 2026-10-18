@@ -1911,6 +1911,7 @@ export default class Annotate extends Plugin {
         Decoration.mark({
           attributes: {
             'data-annotate-highlight': color.id,
+            ...(highlight.fragment ? { 'data-annotate-fragment': highlight.fragment } : {}),
             style: highlightStyle(color.value, this.data.highlights.shape),
           },
         }).range(highlight.from, highlight.to),

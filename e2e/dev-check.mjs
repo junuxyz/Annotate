@@ -720,6 +720,81 @@ if (only.includes('palette')) {
       );
 }
 
+if (only.includes('highlight-seams'))
+  for (const mode of modes)
+    for (const theme of themes)
+      await step(`highlight-seams [${mode}/${theme}]`, async () => {
+        const sample =
+          'The cache needs to load **each time we do a forward pass**. More synthetic text follows to wrap the same highlight across several lines. ';
+        const original = await ev(
+          `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+        );
+        try {
+          await closeModals();
+          await resetThreads();
+          await ev(
+            `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+          );
+          await openMode('live');
+          await select('live', sample);
+          await ev(`app.commands.executeCommandById('annotate:highlight-selection')`);
+          await ev(
+            `${P}p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setValue(e.getValue()+'\\n\\noutside');e.setCursor(e.lastLine(),0);e.focus()`,
+          );
+          await openMode(mode);
+          await sleep(250);
+          const geometry = await ev(
+            `const root=app.workspace.activeLeaf.view.containerEl.querySelector(${JSON.stringify(mode === 'reading' ? '.markdown-preview-view' : '.cm-content')});return {html:root.innerHTML,marks:[...root.querySelectorAll('[data-annotate-highlight]')].map(el=>{const s=getComputedStyle(el);return {text:el.textContent,padding:s.padding,margin:s.margin,radius:s.borderRadius,fragment:el.dataset.annotateFragment,rects:[...el.getClientRects()].map(r=>({x:r.x,y:r.y,width:r.width,height:r.height}))}})}`,
+          );
+          writeFileSync(
+            join(evidence, `highlight-seams-${mode}-${theme}.json`),
+            JSON.stringify(geometry, null, 2),
+          );
+          assert(geometry.marks.length === 3, JSON.stringify(geometry));
+          assert(
+            geometry.marks.every((mark) => mark.padding === '0px' && mark.margin === '0px'),
+            JSON.stringify(geometry),
+          );
+          assert(
+            geometry.marks.map((mark) => mark.fragment).join(',') === 'start,middle,end',
+            JSON.stringify(geometry),
+          );
+          assert(
+            geometry.marks[1].radius === '0px',
+            'bold fragment has no internal rounded corners',
+          );
+          if (mode !== 'source') {
+            const [first, bold, last] = geometry.marks;
+            assert(first.text.endsWith(' '), 'space before bold remains painted');
+            let joins = 0;
+            for (const [left, right] of [
+              [first, bold],
+              [bold, last],
+            ]) {
+              const a = left.rects.at(-1),
+                b = right.rects[0];
+              if (Math.abs(a.y - b.y) > 1) continue;
+              assert(
+                Math.abs(a.x + a.width - b.x) < 1,
+                'fragments touch without a gap or overlap: ' + JSON.stringify({ a, b }),
+              );
+              assert(
+                Math.abs(a.height - b.height) < 1,
+                'bold and plain highlights have the same height',
+              );
+              joins++;
+            }
+            assert(joins > 0, 'at least one formatting boundary is on the same visual line');
+          }
+          await ev(`document.querySelectorAll('.notice').forEach(el=>el.remove())`);
+          await shot(`highlight-seams-${mode}-${theme}`);
+        } finally {
+          await ev(
+            `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+          );
+        }
+      });
+
 if (only.includes('formatting'))
   for (const mode of modes)
     for (const { sample, bold, fixture } of [
