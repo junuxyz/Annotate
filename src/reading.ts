@@ -2,6 +2,7 @@ import './dom';
 import { decodeHTMLStrict } from 'entities';
 import { parser, GFM } from '@lezer/markdown';
 import type { Anchor } from './model';
+import { mathParts } from './math';
 
 export type SourcePoint = { from: number; to: number };
 export type DomPoint = { node: Text; offset: number };
@@ -30,6 +31,12 @@ export function projectSource(source: string, _doc?: Document): Projection<Sourc
   const hidden = new Uint8Array(source.length);
   const replacements = new Map<number, { end: number; text: string }>();
   const hide = (from: number, to: number) => hidden.fill(1, from, to);
+  let mathOffset = 0;
+  for (const part of mathParts(source)) {
+    if (part.kind === 'math') hide(mathOffset, mathOffset + part.text.length);
+    mathOffset += part.text.length;
+  }
+
   markdown.parse(source).iterate({
     enter(node) {
       if (
@@ -82,7 +89,7 @@ export function projectSource(source: string, _doc?: Document): Projection<Sourc
   const projected: ProjectionBuilder<SourcePoint> = { chars: [], points: [] };
   for (let i = 0; i < source.length; i++) {
     const replacement = replacements.get(i);
-    if (replacement) {
+    if (replacement && !hidden[i]) {
       for (let j = 0; j < replacement.text.length; j++)
         append(projected, replacement.text.charAt(j), { from: i, to: replacement.end });
       i = replacement.end - 1;

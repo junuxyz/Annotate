@@ -270,3 +270,22 @@ void test('inline code keeps literal tags, delimiters, comments and recolor/remo
   assert.equal(mapAnchor(makeAnchor(source, from, from + 4), changes, result).quote, 'W^UK');
   assert.equal(highlightEdit(source, from + 1, from + 3, yellow, 'rounded'), null);
 });
+
+void test('native inline components keep their source intact through styling and removal', () => {
+  for (const atom of [
+    '[[Fixtures/Mentions|linked note]]',
+    '![[Fixtures/Mentions]]',
+    '![token](Inline-ui.svg)',
+    'https://example.test/paper',
+    '<https://example.test/paper>',
+    '$x^2 + \\text{<mark>literal</mark>}$',
+  ]) {
+    const source = 'before ' + atom + ' after';
+    const marked = apply(source, 0, source.length).result;
+    assert.ok(marked.includes(atom), 'formatting never splits a native component: ' + marked);
+    assert.equal(apply(marked, 0, marked.length, null).result, source);
+    const colored = color(source, 0, source.length).result;
+    assert.ok(colored.includes(atom));
+    assert.equal(color(colored, 0, colored.length, null).result, source);
+  }
+});

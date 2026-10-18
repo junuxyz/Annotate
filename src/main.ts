@@ -1,6 +1,10 @@
 import './dom';
 import { highlightFormatting } from './highlight-formatting';
-import { inlineCodeHighlights } from './inline-code-highlights';
+import {
+  highlightRendering,
+  outsideHighlightRendering,
+  renderStyledSelection,
+} from './highlight-rendering';
 import { readImage, imagePreview, type ImageAttachment } from './images';
 import {
   highlightEdit,
@@ -981,7 +985,7 @@ export default class Annotate extends Plugin {
     const plugin = this;
     this.registerEditorExtension(highlightFormatting);
     this.registerEditorExtension(
-      inlineCodeHighlights(
+      highlightRendering(
         this.app,
         (state) => state.field(editorInfoField, false)?.file?.path ?? '',
       ),
@@ -1733,6 +1737,8 @@ export default class Annotate extends Plugin {
           editor.offsetToPos(edit.selectionTo),
         );
         editor.focus();
+        const cm = [...this.views].find((cm) => view.containerEl.contains(cm.dom));
+        cm?.dispatch({ effects: [renderStyledSelection.of(null), refresh.of(null)] });
         // Keep the menu on the same text so color and highlight can be combined.
         if (reopen)
           view.containerEl.ownerDocument.defaultView?.requestAnimationFrame(() => {
@@ -1941,7 +1947,7 @@ export default class Annotate extends Plugin {
         }).range(a.from, a.to),
       );
       const badgePosition = view.state.field(editorLivePreviewField, false)
-        ? outsideInlineTags(a.to, [...highlights, ...colors])
+        ? outsideHighlightRendering(view.state, outsideInlineTags(a.to, [...highlights, ...colors]))
         : a.to;
       ranges.push(
         Decoration.widget({ widget: new CountWidget(this, thread), side: 1 }).range(badgePosition),
