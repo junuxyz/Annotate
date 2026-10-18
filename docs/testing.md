@@ -60,7 +60,7 @@ Choose scopes for the change:
 | ------------------------------------- | ----------------------------------------------------- |
 | Composer, menus, layout               | Default scopes, `--modes live,source,reading --shots` |
 | Shortcuts                             | `shortcuts`, across all modes                         |
-| Highlight and text color              | `highlight,palette,formatting,combo`                  |
+| Highlight and text color              | `highlight,highlight-seams,palette,formatting,combo`  |
 | Markdown and math                     | `markdown,math`, across all modes                     |
 | Copy and quoted replies               | `copy,quote`                                          |
 | Resource loading                      | `resources`                                           |
@@ -130,6 +130,8 @@ The runner saves hashes, results, startup logs, guard probes, isolation
 measurements and requested screenshots under `e2e/evidence/<timestamp>/`.
 `--record` appends generated reports to `test-vault/Validation results.md`, using
 the adjacent `../test-vault` when present, otherwise the included vault.
+`highlight-seams` checks painted spaces, joined corners, fragment heights and gaps
+across bold text and punctuation, including wrapped highlights.
 Inspect screenshots for visual changes. Report scopes, modes, themes and pending
 checks. Do not treat a build or unit-test pass as real-app validation.
 

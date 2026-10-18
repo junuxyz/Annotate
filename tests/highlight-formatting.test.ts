@@ -2,7 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorSelection, EditorState } from '@codemirror/state';
 import { highlightFormatting } from '../src/highlight-formatting';
-import { highlightChanges, highlightEdit, textColorEdit, textColors } from '../src/highlight';
+import {
+  highlightChanges,
+  highlightEdit,
+  noteHighlights,
+  textColorEdit,
+  textColors,
+} from '../src/highlight';
 import { makeAnchor, mapAnchor } from '../src/model';
 
 const text = '터널 시각';
@@ -141,4 +147,38 @@ void test('code, foreign HTML, untouched lines and selection-only transactions a
     transaction.newDoc.toString(),
     source.slice(0, code) + 'x' + source.slice(code, foreign) + 'y' + source.slice(foreign),
   );
+});
+
+void test('highlight fragments retain painted spaces and joined edges through normalization', () => {
+  for (const source of [
+    'The cache needs to load **each time we do a forward pass**.',
+    '한글 **굵게**와 *기울임* 및 ~~취소선~~ 끝.',
+    'plain **bold *nested* bold** end',
+    '**first** **second** *third*',
+  ]) {
+    const initial = EditorState.create({ doc: source, extensions: highlightFormatting });
+    const edit = highlightEdit(source, 0, source.length, yellow, 'rounded');
+    assert.ok(edit);
+    let state = initial.update({ changes: highlightChanges(source, edit) }).state;
+    assert.equal(state.doc.toString(), edit.insert, 'normalizing must not eject boundary spaces');
+    const ranges = noteHighlights(edit.insert);
+    assert.equal(ranges[0]?.fragment, 'start');
+    assert.equal(ranges.at(-1)?.fragment, 'end');
+    assert.ok(ranges.slice(1, -1).every((range) => range.fragment === 'middle'));
+    assert.ok(ranges.some((range) => edit.insert.slice(range.from, range.to).endsWith(' ')));
+    for (let i = 0; i < 3; i++) {
+      const before = state.doc.toString();
+      const transaction = state.update({ changes: { from: before.length, insert: '!' } });
+      assert.equal(
+        transaction.newDoc.toString(),
+        before + '!',
+        'edges and spaces stay stable on edits',
+      );
+      state = transaction.state;
+    }
+    const result = state.doc.toString();
+    const removal = highlightEdit(result, 0, result.length, null, 'rounded');
+    assert.ok(removal);
+    assert.equal(highlightChanges(result, removal).apply(state.doc).toString(), source + '!!!');
+  }
 });
