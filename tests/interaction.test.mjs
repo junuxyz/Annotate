@@ -5,7 +5,8 @@ import { build } from 'esbuild';
 import { Window } from './dom.mjs';
 import { EditorState } from '@codemirror/state';
 import { highlightEdit, textColorEdit, highlightChanges, textColors } from '../src/highlight.ts';
-import { EditorView } from '@codemirror/view';
+import { Decoration, EditorView } from '@codemirror/view';
+import { makeAnchor } from '../src/model.ts';
 import { unlink, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +14,11 @@ import { createRequire } from 'node:module';
 
 const output = new URL('./.integration-plugin.mjs', import.meta.url);
 await build({
-  entryPoints: ['src/main.ts'],
+  stdin: {
+    contents:
+      "export { default } from './src/main.ts'; export { editorLivePreviewField } from 'obsidian';",
+    resolveDir: process.cwd(),
+  },
   bundle: true,
   loader: { '.png': 'dataurl' },
   outfile: output.pathname,
@@ -22,7 +27,7 @@ await build({
   alias: { obsidian: new URL('./host.mjs', import.meta.url).pathname },
   external: ['@codemirror/state', '@codemirror/view'],
 });
-const { default: Plugin } = await import(output.href);
+const { default: Plugin, editorLivePreviewField } = await import(output.href);
 await unlink(output);
 const runtimeRoot = await mkdtemp(join(tmpdir(), 'annotate-ui-isolation-'));
 const authSource = join(runtimeRoot, 'auth.json');
@@ -2237,5 +2242,81 @@ test('note formatting works in every order of bold, highlight and text color', a
   } finally {
     plugin.onunload();
     await tick();
+  }
+});
+
+test('comment badges stay outside collapsed HTML widgets even when visibleRanges excludes their text', async () => {
+  for (const tag of ['mark', 'span']) {
+    const plugin = new Plugin();
+    await plugin.onload();
+    const text = '터널 시각';
+    const edit =
+      tag === 'mark'
+        ? highlightEdit(
+            `앞 ${text} 뒤`,
+            2,
+            2 + text.length,
+            plugin.data.highlights.colors[0],
+            'rounded',
+          )
+        : textColorEdit(`앞 ${text} 뒤`, 2, 2 + text.length, textColors[1]);
+    assert.ok(edit);
+    const source =
+      `앞 ${text} 뒤`.slice(0, edit.from) + edit.insert + `앞 ${text} 뒤`.slice(edit.to);
+    const from = source.indexOf(text),
+      end = source.indexOf(' 뒤');
+    plugin.data.threads.push({
+      id: 'styled-comment',
+      path: 'test.md',
+      anchor: makeAnchor(source, from, from + text.length),
+      comments: [
+        {
+          id: 'comment',
+          author: 'Test',
+          role: 'user',
+          body: 'Keep this visible',
+          createdAt: Date.now(),
+        },
+      ],
+      resolved: false,
+    });
+    const parent = document.createElement('div');
+    document.body.append(parent);
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: source,
+        extensions: [
+          plugin.extensions,
+          editorLivePreviewField.init(() => true),
+          EditorView.decorations.of(Decoration.set([Decoration.replace({}).range(2, end)])),
+        ],
+      }),
+    });
+    try {
+      await tick();
+      assert.ok(
+        !view.visibleRanges.some((range) => from < range.to && from + text.length > range.from),
+        'the real CodeMirror replacement excludes the commented text',
+      );
+      const widgets = [];
+      plugin.decorations(view, 'test.md').between(0, source.length, (from, _to, decoration) => {
+        if (decoration.spec.widget) widgets.push(from);
+      });
+      assert.deepEqual(widgets, [end], 'badge belongs after the HTML widget');
+      const badge = parent.querySelector('.annotate-count');
+      assert.ok(badge, 'a comment remains discoverable without opening the thread');
+      assert.equal(badge.textContent, '1');
+      click(badge);
+      assert.equal(
+        document.querySelector('.annotate-message-body').textContent,
+        'Keep this visible',
+      );
+    } finally {
+      plugin.onunload();
+      view.destroy();
+      parent.remove();
+      await tick();
+    }
   }
 });

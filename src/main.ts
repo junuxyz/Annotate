@@ -5,6 +5,7 @@ import {
   highlightEdit,
   highlightChanges,
   noteHighlights,
+  outsideInlineTags,
   highlightStyle,
   highlightPaletteStyles,
   highlightShapes,
@@ -1919,15 +1920,19 @@ export default class Annotate extends Plugin {
       const a = thread.anchor;
       if (thread.path !== path || thread.resolved || a.orphaned || a.to > view.state.doc.length)
         continue;
-      if (!view.visibleRanges.some((range) => a.from < range.to && a.to > range.from)) continue;
+      // Live Preview excludes HTML widgets from visibleRanges, even while they are onscreen.
+      if (a.from >= view.viewport.to || a.to <= view.viewport.from) continue;
       ranges.push(
         Decoration.mark({
           class: this.highlightClass(thread),
           attributes: { 'data-annotate-thread': thread.id },
         }).range(a.from, a.to),
       );
+      const badgePosition = view.state.field(editorLivePreviewField, false)
+        ? outsideInlineTags(a.to, [...highlights, ...colors])
+        : a.to;
       ranges.push(
-        Decoration.widget({ widget: new CountWidget(this, thread), side: 1 }).range(a.to),
+        Decoration.widget({ widget: new CountWidget(this, thread), side: 1 }).range(badgePosition),
       );
     }
     const draft = this.draft;

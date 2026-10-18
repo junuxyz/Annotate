@@ -47,7 +47,7 @@ const run = (command, values, env = process.env) =>
 const suites = full
   ? [
       ['--only', 'smoke,ui,list,polish,settings-layout,fullscreen'],
-      ['--only', 'highlight,palette'],
+      ['--only', 'highlight,palette,comment-formatting'],
       ['--only', 'formatting,combo,logos'],
       ['--only', 'scroll,markdown,math'],
       ['--only', 'quote,copy,preview'],

@@ -1120,6 +1120,79 @@ if (only.includes('logos'))
       );
     }
 
+if (only.includes('comment-formatting'))
+  for (const theme of themes)
+    for (const command of ['highlight-selection', 'color-selection-text'])
+      for (const commentFirst of [false, true])
+        await step(
+          `comment-formatting [${theme}/${command}/${commentFirst ? 'comment-first' : 'format-first'}]: persistent comment indicator`,
+          async () => {
+            const quote = '터널 시각',
+              sample = `앞 ${quote} 뒤\n\noutside`;
+            const original = await ev(
+              `return app.vault.read(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}))`,
+            );
+            try {
+              await resetThreads();
+              await ev(
+                `app.changeTheme(${JSON.stringify(theme === 'dark' ? 'obsidian' : 'moonstone')});await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(sample)})`,
+              );
+              await openMode('live');
+              const format = async () => {
+                await select('live', quote);
+                assert(
+                  await ev(
+                    `return app.commands.executeCommandById(${JSON.stringify(`annotate:${command}`)})`,
+                  ),
+                  'format command ran',
+                );
+              };
+              if (!commentFirst) await format();
+              await createComment('live', 'Visible comment on styled text', quote);
+              await ev(`${P}p.closePopup();p.hideSelectionTools()`);
+              if (commentFirst) await format();
+              await ev(
+                `${P}p.closePopup();p.hideSelectionTools();const e=app.workspace.activeLeaf.view.editor;e.setCursor(e.lastLine(),0);e.focus();await p.persist();await app.plugins.disablePlugin('annotate');await app.plugins.enablePlugin('annotate')`,
+              );
+              for (const mode of modes) {
+                await openMode(mode);
+                if (mode !== 'reading')
+                  await ev(
+                    `const e=app.workspace.activeLeaf.view.editor;e.setCursor(e.lastLine(),0);e.focus()`,
+                  );
+                try {
+                  await until(
+                    `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};const badges=[...root.querySelectorAll('.annotate-count')].filter(el=>el.getBoundingClientRect().width>0&&getComputedStyle(el).visibility!=='hidden');return badges.length===1&&badges[0].textContent==='1'`,
+                    `comment badge visible without clicking in ${mode}`,
+                  );
+                } catch (error) {
+                  console.error(
+                    'Comment indicator diagnostic',
+                    await ev(
+                      `${P}const v=app.workspace.activeLeaf.view,e=v.editor;const iter=p.decorations(e.cm,${JSON.stringify(NOTE)}).iter(),ranges=[];for(;iter.value;iter.next())if(iter.value.spec.widget)ranges.push(iter.from);return JSON.stringify({threads:p.data.threads,source:e.getValue(),tags:p.noteTags(e.cm),viewport:e.cm.viewport,visible:e.cm.visibleRanges,widgets:ranges,html:e.cm.contentDOM.innerHTML})`,
+                    ),
+                  );
+                  throw error;
+                }
+                await shot(`comment-formatting-${theme}-${command}-${commentFirst}-${mode}`);
+                await ev(
+                  `const root=app.workspace.activeLeaf.view.${mode === 'reading' ? 'previewMode.containerEl' : 'editor.cm.contentDOM'};root.querySelector('.annotate-count').click()`,
+                );
+                await until(
+                  `return document.querySelector('.annotate-message-body')?.textContent==='Visible comment on styled text'`,
+                  'visible badge opens its comment',
+                );
+                await ev(`${P}p.closePopup()`);
+              }
+            } finally {
+              await resetThreads();
+              await ev(
+                `await app.vault.modify(app.vault.getAbstractFileByPath(${JSON.stringify(NOTE)}),${JSON.stringify(original)})`,
+              );
+            }
+          },
+        );
+
 if (only.includes('highlight'))
   for (const theme of themes) {
     await step(`highlight [${theme}]: one wrapped highlight across inline formatting`, async () => {

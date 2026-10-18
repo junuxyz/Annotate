@@ -189,10 +189,10 @@ button.annotate-count {
   font-weight: 500;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--annotate-text-3);
-  border: 0;
+  color: var(--annotate-accent);
+  border: 1px solid color-mix(in srgb, var(--annotate-accent) 35%, transparent);
   border-radius: var(--annotate-radius-s);
-  background: transparent;
+  background: color-mix(in srgb, var(--annotate-accent) 10%, var(--background-primary));
   box-shadow: none;
   vertical-align: 1px;
   cursor: pointer;
