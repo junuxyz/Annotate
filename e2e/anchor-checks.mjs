@@ -5,7 +5,8 @@ const expectedCommands = await ev(
   `return Object.keys(app.commands.commands).filter(c=>c.startsWith('annotate:')).length`,
 );
 await h.mode('live');
-await ev(`${P}p.closePopup()`);
+// Fixture backlinks must not leave the owned rename check waiting for confirmation.
+await ev(`${P}p.closePopup();app.vault.setConfig('alwaysUpdateLinks',true)`);
 // create
 await h.selectEditor(Q);
 await key('m', CMD | SHIFT);
