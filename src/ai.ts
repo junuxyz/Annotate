@@ -116,7 +116,7 @@ export interface AssistantBackend {
   listSkills?(): Promise<CodexSkill[]>;
   enable(): Promise<void>;
   connect(): Promise<void>;
-  session(id?: string): Promise<string>;
+  session(id?: string, systemPrompt?: string): Promise<string>;
   ask(
     id: string,
     text: string,

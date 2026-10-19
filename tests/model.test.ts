@@ -103,3 +103,22 @@ void test('multiline and Korean selections use editor UTF-16 offsets', () => {
   const anchor = makeAnchor(text, from, to);
   assert.equal(locateAnchor(anchor, 'start ' + text).quote, '메모 😀');
 });
+
+void test('shared system prompt defaults safely for old data and preserves multiline instructions', () => {
+  const data = emptyData();
+  assert.equal(data.assistant.systemPrompt, '');
+  const { systemPrompt, ...legacyAssistant } = data.assistant;
+  assert.equal(
+    dataSchema.parse({ ...data, assistant: legacyAssistant }).assistant.systemPrompt,
+    '',
+  );
+  assert.equal(dataSchema.parse({ ...data, assistant: undefined }).assistant.systemPrompt, '');
+  const prompt = '한국어로 답하세요.\nUse concise explanations.\n';
+  data.assistant.systemPrompt = prompt;
+  assert.equal(dataSchema.parse(JSON.parse(JSON.stringify(data))).assistant.systemPrompt, prompt);
+  assert.equal(
+    dataSchema.safeParse({ ...data, assistant: { ...data.assistant, systemPrompt: 42 } }).success,
+    false,
+  );
+  assert.equal(systemPrompt, '');
+});

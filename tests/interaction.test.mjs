@@ -1350,7 +1350,9 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
   test(`${provider}: a local comment makes no model request and the next plain reply retains its context`, async () => {
     const plugin = new Plugin();
     await plugin.onload();
-    const asked = [];
+    const asked = [],
+      prompts = [];
+    const prompt = '한국어로 답하세요.\nKeep explanations concise.';
     plugin.createBackend = () => ({
       state: 'disabled',
       detail: '',
@@ -1362,8 +1364,9 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
       async connect() {
         this.state = 'ready';
       },
-      async session() {
-        return crypto.randomUUID();
+      async session(id, systemPrompt) {
+        prompts.push(systemPrompt);
+        return id ?? crypto.randomUUID();
       },
       async ask(id, text, delta, finish) {
         asked.push(JSON.parse(text));
@@ -1377,6 +1380,8 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
     });
     try {
       plugin.data.assistant.provider = provider;
+      plugin.data.assistant.systemPrompt = prompt;
+      plugin.source = 'passage';
       plugin.data.codex.enabled = true;
       plugin.data.agent.folders = ['.'];
       plugin.configureCodex();
@@ -1390,6 +1395,9 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
       const thread = plugin.data.threads[0];
       const threadId = thread.id;
       assert.equal(asked.length, 1);
+      assert.deepEqual(prompts, [prompt]);
+      assert.equal(asked[0].noteText, 'passage');
+      assert.equal(asked[0].systemPrompt, undefined);
       assert.equal(thread.comments.at(-1).provider, provider);
       await send('@co');
       assert.equal(document.querySelector('.annotate-composer textarea').value, '@comment ');
@@ -1405,7 +1413,10 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
       assert.equal(local.body, 'literal @claude @chatgpt');
       assert.equal(local.role, 'user');
       assert.equal(local.provider, undefined);
+      assert.deepEqual(prompts, [prompt], 'local comments send neither context nor instructions');
+      plugin.data.assistant.systemPrompt = 'Updated shared instructions';
       await send('follow up');
+      assert.deepEqual(prompts, [prompt, 'Updated shared instructions']);
       assert.equal(asked.length, 2);
       assert.equal(asked[1].question, 'follow up');
       assert.equal(asked[1].conversationHistory.at(-1).content, local.body);
@@ -1418,6 +1429,23 @@ for (const provider of ['chatgpt', 'claude', 'opencode'])
         document.querySelector('.annotate-message-ai .annotate-message-body').textContent,
         new RegExp(`${provider} answer`),
       );
+      plugin.closePopup();
+      plugin.source = 'another passage';
+      plugin.activeView.file.path = 'another.md';
+      plugin.compose({
+        kind: 'editor',
+        path: 'another.md',
+        anchor: makeAnchor(plugin.source, 0, plugin.source.length),
+        text: () => plugin.source,
+      });
+      await send('explain another note');
+      assert.equal(asked[2].noteText, 'another passage');
+      assert.equal(
+        prompts[2],
+        'Updated shared instructions',
+        'the same setting applies to every note',
+      );
+      assert.equal(plugin.saved.assistant.systemPrompt, 'Updated shared instructions');
     } finally {
       plugin.onunload();
     }
@@ -1809,6 +1837,7 @@ test('searchable settings preserve combined thread data, persistence and change 
       'Your name',
       'Ask AI in comments',
       'Default assistant',
+      'System prompt',
       'ChatGPT',
       'Claude',
       'OpenCode',
@@ -1831,6 +1860,14 @@ test('searchable settings preserve combined thread data, persistence and change 
     const original = structuredClone(plugin.saved);
     let handler;
     const component = {
+      inputEl: document.createElement('textarea'),
+      setClass() {
+        return this;
+      },
+      addTextArea(callback) {
+        callback(this);
+        return this;
+      },
       setPlaceholder() {
         return this;
       },
@@ -1873,6 +1910,13 @@ test('searchable settings preserve combined thread data, persistence and change 
       configured = 0;
     plugin.refreshHighlightStyles = () => refreshed++;
     plugin.configureCodex = () => configured++;
+    definitions.find((definition) => definition.name === 'System prompt').render(component);
+    assert.equal(Number(component.inputEl.rows), 6);
+    handler('한국어로 답하세요.\nUse short paragraphs.');
+    await plugin.persist();
+    assert.equal(plugin.saved.assistant.systemPrompt, '한국어로 답하세요.\nUse short paragraphs.');
+    assert.deepEqual(plugin.saved.threads, original.threads);
+    assert.equal(configured, 0, 'editing instructions must not interrupt an active assistant');
     definitions.find((definition) => definition.name === 'Highlight shape').render(component);
     handler('underline');
     assert.equal(refreshed, 1);
@@ -2318,5 +2362,52 @@ test('comment badges stay outside collapsed HTML widgets even when visibleRanges
       parent.remove();
       await tick();
     }
+  }
+});
+
+test('long conversations update existing and newly streamed messages with one message-list lookup', async () => {
+  const plugin = new Plugin();
+  await plugin.onload();
+  const thread = {
+    id: 'long-synthetic-thread',
+    path: 'test.md',
+    anchor: makeAnchor('selected text', 0, 8),
+    resolved: false,
+    comments: Array.from({ length: 100 }, (_, index) => ({
+      id: `message-${index}`,
+      author: 'Synthetic author',
+      body: `Synthetic comment ${index}`,
+      createdAt: index,
+    })),
+  };
+  plugin.data.threads.push(thread);
+  try {
+    plugin.openThread(thread, new win.DOMRect(100, 100, 120, 20), document);
+    await tick();
+    const list = document.querySelector('.annotate-messages');
+    const query = list.querySelectorAll.bind(list);
+    let lookups = 0;
+    list.querySelectorAll = (selector) => {
+      if (selector === '[data-message-id]') lookups++;
+      return query(selector);
+    };
+    thread.comments[0].body = 'Updated first comment';
+    thread.comments.push({
+      id: 'streamed-message',
+      author: 'ChatGPT',
+      body: 'Synthetic streamed response',
+      role: 'assistant',
+      status: 'streaming',
+      createdAt: 101,
+    });
+    plugin.paintCodex();
+    await tick();
+    assert.equal(lookups, 1);
+    assert.equal(list.querySelectorAll('[data-message-id]').length, 101);
+    assert.match(list.firstElementChild.textContent, /Updated first comment/);
+    assert.match(list.lastElementChild.textContent, /Synthetic streamed response/);
+  } finally {
+    plugin.onunload();
+    await tick();
   }
 });

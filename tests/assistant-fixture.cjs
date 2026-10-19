@@ -37,7 +37,11 @@ if (args[0] === 'auth') {
       return;
     }
     const answer = JSON.stringify(
-      payload.question === 'images' ? input.message.content.slice(0, -1) : payload,
+      payload.question === 'system-prompt'
+        ? { systemPrompt: args[args.indexOf('--system-prompt') + 1], context: payload }
+        : payload.question === 'images'
+          ? input.message.content.slice(0, -1)
+          : payload,
     );
     const delta = (text) =>
       emit({

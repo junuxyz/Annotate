@@ -18,6 +18,9 @@ npm run build
 Copy the generated `main.js`, `manifest.json`, and `styles.css` into
 `<vault>/.obsidian/plugins/annotate/`, then enable Annotate in
 **Settings → Community plugins**. Keep existing plugin data files when updating.
+Source builds require the same macOS Apple silicon and Obsidian 1.14.4 or later
+environment as the published release. Local working-tree changes are included
+only when you build that checkout.
 
 Run subsequent commands from the plugin repository root:
 

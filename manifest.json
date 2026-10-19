@@ -1,7 +1,7 @@
 {
   "id": "annotate",
   "name": "Annotate",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "minAppVersion": "1.14.4",
   "description": "Add threaded comments, highlights, and optional ChatGPT, Claude, or OpenCode replies to selected text.",
   "author": "junuxyz",

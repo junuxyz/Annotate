@@ -145,9 +145,15 @@ export function projectDom(root: HTMLElement): Projection<DomPoint | null> {
 }
 
 export function sectionBounds(source: string, lineStart: number, lineEnd: number): SourcePoint {
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source.charAt(i) === '\n') starts.push(i + 1);
-  return { from: starts[lineStart] ?? source.length, to: starts[lineEnd + 1] ?? source.length };
+  let from = lineStart === 0 ? 0 : source.length;
+  let offset = 0;
+  for (let line = 0; line <= lineEnd; line++) {
+    const newline = source.indexOf('\n', offset);
+    if (newline < 0) return { from, to: source.length };
+    offset = newline + 1;
+    if (line + 1 === lineStart) from = offset;
+  }
+  return { from, to: offset };
 }
 
 export function sectionMapping(root: HTMLElement, source: string, bounds: SourcePoint) {

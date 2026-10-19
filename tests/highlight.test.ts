@@ -8,6 +8,9 @@ import {
   highlightChanges,
   highlightSettingsSchema,
   noteHighlights,
+  noteStyles,
+  editorNoteStyles,
+  highlightSyntax,
   outsideInlineTags,
   textColorEdit,
   textColors,
@@ -287,5 +290,125 @@ void test('native inline components keep their source intact through styling and
     const colored = color(source, 0, source.length).result;
     assert.ok(colored.includes(atom));
     assert.equal(color(colored, 0, colored.length, null).result, source);
+  }
+});
+
+void test('shared styling discovery preserves nested tags, native components and uppercase attributes', () => {
+  const source = [
+    '<mark DATA-ANNOTATE-HIGHLIGHT="yellow">앞 <span data-annotate-color="red">한글😀</span> 뒤</mark>',
+    '`<mark data-annotate-highlight="pink">code</mark>`',
+    '$<span data-annotate-color="blue">math</span>$',
+    '```html\n<mark data-annotate-highlight="pink">fenced</mark>\n```',
+  ].join('\n\n');
+  const styles = noteStyles(source);
+  assert.deepEqual(styles.highlights, noteHighlights(source));
+  assert.deepEqual(styles.colors, noteHighlights(source, 'span'));
+  assert.equal(styles.highlights.length, 1);
+  assert.equal(styles.colors.length, 1);
+  const doc = Text.of(source.split('\n'));
+  const cached = editorNoteStyles(doc);
+  assert.strictEqual(editorNoteStyles(doc), cached);
+  const edited = doc.replace(0, doc.length, Text.of(['plain **note**']));
+  assert.deepEqual(editorNoteStyles(edited), { highlights: [], colors: [] });
+  assert.strictEqual(editorNoteStyles(doc), cached);
+});
+
+void test('stripped syntax maps every UTF-16 boundary back across nested styling tags', () => {
+  for (const source of [
+    '<mark data-annotate-highlight="yellow">**한글😀**</mark>',
+    '앞 <mark data-annotate-highlight="yellow">a <span data-annotate-color="red">😀</span> b</mark> 뒤',
+    '<mark data-annotate-highlight="yellow">a</mark><span data-annotate-color="red">b</span>',
+  ]) {
+    const syntax = highlightSyntax(source);
+    const positions = Array.from({ length: source.length }, (_, index) => index).filter(
+      (index) => !syntax.tags.some((tag) => tag.from <= index && index < tag.to),
+    );
+    assert.equal(syntax.tree.length, positions.length);
+    for (let index = 0; index <= positions.length; index++) {
+      assert.equal(syntax.from(index), positions[index] ?? source.length);
+      assert.equal(syntax.to(index), (positions[index - 1] ?? -1) + 1);
+    }
+  }
+});
+
+void test('direct style discovery agrees with Markdown parsing across block and inline contexts', () => {
+  const mark = '<mark data-annotate-highlight="yellow" style="color: inherit;">한글😀</mark>';
+  const span = '<span data-annotate-color="red">color</span>';
+  const contexts = [
+    ['', ''],
+    ['plain ', ' after'],
+    ['**', '**suffix'],
+    ['*', '*'],
+    ['~~', '~~'],
+    ['# ', '\n'],
+    ['> ', '\n'],
+    ['- ', '\n'],
+    ['1. ', '\n'],
+    ['    ', '\n'],
+    [' \t', '\n'],
+    ['~~~\n', '\n~~~'],
+    ['- ~~~\n  ', '\n  ~~~'],
+    ['1. ~~~\n   ', '\n   ~~~'],
+    ['```html\n', '\n```'],
+    ['`', '`'],
+    ['$', '$'],
+    ['$$\n', '\n$$'],
+    ['\\(', '\\)'],
+    ['[', '](https://example.com)'],
+    ['[label](https://example.com/', ')'],
+    ['![', '](image.png)'],
+    ['[[', ']]'],
+    ['<div>\n', '\n</div>'],
+    ['<!-- ', ' -->'],
+    ['\\', ''],
+    ['http://example.com/', ''],
+    ['person@example.com', ''],
+    ['| cell | ', ' |'],
+    ['[reference]: ', '\n'],
+    ['---\n\n', '\n'],
+    ['\r\n', '\r\n'],
+  ];
+  const bodies = [mark, span, mark + span, mark.replace('한글😀', span), mark.toUpperCase()];
+  for (const [prefix, suffix] of contexts)
+    for (const body of bodies) {
+      const source = prefix + body + suffix;
+      assert.deepEqual(
+        noteStyles(source),
+        { highlights: noteHighlights(source), colors: noteHighlights(source, 'span') },
+        source,
+      );
+    }
+  for (const source of [
+    '<mark data-annotate-highlight="yellow">\ntext\n</mark>',
+    '- <mark data-annotate-highlight="yellow">\n  text</mark>',
+    '<mark data-annotate-highlight="yellow">text\n\n- </mark>',
+    '- - <span data-annotate-color="red">\n    text</span>',
+    '<span data-annotate-color="red">\ntext\n</span>',
+    'prefix\n<mark data-annotate-highlight="yellow">\ntext\n</mark>',
+    '<mark data-annotate-highlight="yellow" title="foreign">text</mark>',
+    '<mark data-annotate-highlight="yellow">unclosed',
+    '<mark data-annotate-highlight="yellow"></mark>',
+    '<mark data-annotate-highlight="yellow">a<mark data-annotate-highlight="pink">b</mark>c</mark>',
+  ])
+    assert.deepEqual(noteStyles(source), {
+      highlights: noteHighlights(source),
+      colors: noteHighlights(source, 'span'),
+    });
+});
+
+void test('large mixed notes retain only real styles across sorted native components', () => {
+  const mark = '<mark data-annotate-highlight="yellow">real</mark>';
+  const fake = '<mark data-annotate-highlight="pink">literal</mark>';
+  const line = `${mark} [link](https://example.com) \`${fake}\` $${fake}$\n\n`;
+  const source = line.repeat(500);
+  const styles = noteStyles(source);
+  assert.equal(styles.highlights.length, 500);
+  assert.equal(styles.colors.length, 0);
+  for (let index = 0; index < styles.highlights.length; index++) {
+    const range = styles.highlights[index];
+    assert.ok(range);
+    assert.equal(range.id, 'yellow');
+    assert.equal(range.tagFrom, index * line.length);
+    assert.equal(source.slice(range.from, range.to), 'real');
   }
 });
