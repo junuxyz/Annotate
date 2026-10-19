@@ -1530,6 +1530,10 @@ if (only.includes('smoke')) {
       'saved comments after app reload',
       10000,
     );
+    await ev(
+      'await new Promise(resolve=>app.workspace.onLayoutReady(resolve))',
+      'workspace layout ready after app reload',
+    );
     assert(
       await ev(
         `return require('@electron/remote').BrowserWindow.getAllWindows().every(w=>w.webContents.isOffscreen()&&!w.isVisible()&&!w.isFocused())`,
