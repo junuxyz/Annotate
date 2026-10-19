@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parser, GFM } from '@lezer/markdown';
-import { ChangeSet } from '@codemirror/state';
+import { ChangeSet, type Text } from '@codemirror/state';
 import { mathParts } from './math';
 
 export const highlightShapes = { rounded: 'Rounded', flat: 'Flat', underline: 'Underline' };
@@ -102,8 +102,8 @@ const owners: Record<WrapTag, RegExp> = {
 type Mark = { from: number; start: number; end: number; to: number; open: string };
 type Open = { from: number; start: number; open: string; depth: number };
 const markdown = parser.configure([GFM]);
-const opens = (tag: WrapTag) => new RegExp(`^<${tag}(?:\\s|>)`, 'i');
-const closes = (tag: WrapTag) => new RegExp(`^</${tag}\\s*>$`, 'i');
+const openingTags = { mark: /^<mark(?:\s|>)/i, span: /^<span(?:\s|>)/i };
+const closingTags = { mark: /^<\/mark\s*>$/i, span: /^<\/span\s*>$/i };
 
 export function inlineCodeRanges(source: string) {
   if (!source.includes('`')) return [];
@@ -120,10 +120,13 @@ export function inlineCodeRanges(source: string) {
 }
 
 /** Keep native components intact when their source cannot contain formatting tags. */
-export function inlineComponents(source: string): { from: number; to: number }[] {
+export function inlineComponents(
+  source: string,
+  tree = markdown.parse(source),
+): { from: number; to: number }[] {
   const ranges: { from: number; to: number }[] = [];
   const excluded: { from: number; to: number }[] = [];
-  markdown.parse(source).iterate({
+  tree.iterate({
     enter(node) {
       if (['InlineCode', 'FencedCode', 'CodeBlock', 'HTMLBlock', 'HTMLTag'].includes(node.name)) {
         excluded.push({ from: node.from, to: node.to });
@@ -138,8 +141,16 @@ export function inlineComponents(source: string): { from: number; to: number }[]
       }
     },
   });
-  const available = (from: number) =>
-    !excluded.some((range) => range.from <= from && range.to > from);
+  const available = (from: number) => {
+    let low = 0;
+    let high = excluded.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((excluded[middle]?.from ?? 0) <= from) low = middle + 1;
+      else high = middle;
+    }
+    return (excluded[low - 1]?.to ?? 0) <= from;
+  };
   for (const match of source.matchAll(/!?\[\[[^\]\n]+\]\]/g)) {
     let slashes = 0;
     for (let at = match.index - 1; at >= 0 && source[at] === '\\'; at--) slashes++;
@@ -245,9 +256,9 @@ export function wrapEdit(
       if (node.name !== 'HTMLTag') return;
       const text = source.slice(node.from, node.to);
       if ((from > node.from && from < node.to) || (to > node.from && to < node.to)) invalid = true;
-      if (opens(tag).test(text))
+      if (openingTags[tag].test(text))
         stack.push({ from: node.from, start: node.to, open: text, depth: stack.length });
-      else if (closes(tag).test(text)) {
+      else if (closingTags[tag].test(text)) {
         const active = stack.pop();
         if (active)
           marks.push({
@@ -470,6 +481,8 @@ export function highlightChanges(
 export function noteHighlights(
   source: string,
   tag: WrapTag = 'mark',
+  tree?: ReturnType<typeof markdown.parse>,
+  components?: ReturnType<typeof inlineComponents>,
 ): {
   from: number;
   to: number;
@@ -489,14 +502,25 @@ export function noteHighlights(
     fragment: string | null;
   }[] = [];
   const stack: { from: number; tagFrom: number; id: string; fragment: string | null }[] = [];
-  const components = inlineComponents(source);
-  markdown.parse(source).iterate({
+  if (!(tag === 'mark' ? /data-annotate-highlight/i : /data-annotate-color/i).test(source))
+    return ranges;
+  tree ??= markdown.parse(source);
+  components ??= inlineComponents(source, tree);
+  let componentIndex = 0;
+  tree.iterate({
     enter(node) {
-      if (components.some((range) => range.from <= node.from && range.to >= node.to)) return false;
+      // Tree traversal visits source offsets in order; discard completed components once.
+      let component = components[componentIndex];
+      while (component && component.to <= node.from) component = components[++componentIndex];
+      for (let index = componentIndex; index < components.length; index++) {
+        const range = components[index];
+        if (!range || range.from > node.from) break;
+        if (range.to >= node.to) return false;
+      }
       if (['FencedCode', 'CodeBlock', 'InlineCode', 'HTMLBlock'].includes(node.name)) return false;
       if (node.name !== 'HTMLTag') return;
       const text = source.slice(node.from, node.to);
-      if (opens(tag).test(text)) {
+      if (openingTags[tag].test(text)) {
         const id = idPattern.exec(text)?.[1] ?? '';
         stack.push({
           from: node.to,
@@ -504,7 +528,7 @@ export function noteHighlights(
           id,
           fragment: /\bdata-annotate-fragment="(start|middle|end)"/.exec(text)?.[1] ?? null,
         });
-      } else if (closes(tag).test(text)) {
+      } else if (closingTags[tag].test(text)) {
         const start = stack.pop();
         if (start?.id && node.from > start.from)
           ranges.push({
@@ -521,13 +545,75 @@ export function noteHighlights(
   return ranges;
 }
 
+/** Canonical inline tags in ordinary paragraphs need no Markdown syntax tree. */
+function simpleNoteStyles(source: string): ReturnType<typeof parsedNoteStyles> | null {
+  if (
+    /\r|~{3}|^(?: {4}| {0,3}\t| {0,3}(?:[-+*]|\d+[.)])(?:[ \t]+|$))/m.test(source) ||
+    /(?:^|\n)[ \t]*<\/?(?:mark|span)\b[^<>\n]*>[ \t]*(?=\n|$)/.test(source)
+  )
+    return null;
+  const highlights: ReturnType<typeof noteHighlights> = [];
+  const colors: ReturnType<typeof noteHighlights> = [];
+  type Opening = { from: number; tagFrom: number; id: string; fragment: string | null };
+  const marks: Opening[] = [];
+  const spans: Opening[] = [];
+  const tokens =
+    /<(?:mark data-annotate-highlight="([a-z][a-z0-9-]*)"|span data-annotate-color="([a-z][a-z0-9-]*)")(?: style="[^"<>\n]*")?(?: data-annotate-fragment="(start|middle|end)")?>|<\/(mark|span)>|[\\`$[\]<>]/g;
+  for (const token of source.matchAll(tokens)) {
+    const [, mark, span, fragment, close] = token;
+    if (mark || span) {
+      (mark ? marks : spans).push({
+        from: token.index + token[0].length,
+        tagFrom: token.index,
+        id: mark ?? span ?? '',
+        fragment: fragment ?? null,
+      });
+    } else if (close) {
+      const start = (close === 'mark' ? marks : spans).pop();
+      if (start && token.index > start.from)
+        (close === 'mark' ? highlights : colors).push({
+          ...start,
+          to: token.index,
+          tagTo: token.index + token[0].length,
+        });
+    } else return null;
+  }
+  return { highlights, colors };
+}
+
+function parsedNoteStyles(source: string) {
+  const tree = markdown.parse(source);
+  const components = inlineComponents(source, tree);
+  return {
+    highlights: noteHighlights(source, 'mark', tree, components),
+    colors: noteHighlights(source, 'span', tree, components),
+  };
+}
+
+/** Share one parse between highlight and text-color discovery. */
+export function noteStyles(source: string) {
+  if (!/data-annotate-(?:highlight|color)/i.test(source)) return { highlights: [], colors: [] };
+  return simpleNoteStyles(source) ?? parsedNoteStyles(source);
+}
+
+const noteStyleCache = new WeakMap<Text, ReturnType<typeof noteStyles>>();
+
+/** Editor documents are immutable; old versions are released with their editor state. */
+export function editorNoteStyles(doc: Text) {
+  let styles = noteStyleCache.get(doc);
+  if (!styles) {
+    styles = noteStyles(doc.toString());
+    noteStyleCache.set(doc, styles);
+  }
+  return styles;
+}
+
 /** Styling tags must not change which Markdown delimiters belong to the original text. */
-export function highlightSyntax(
-  source: string,
-  highlights: ReturnType<typeof noteHighlights> = source.includes('data-annotate-')
-    ? [...noteHighlights(source), ...noteHighlights(source, 'span')]
-    : [],
-) {
+export function highlightSyntax(source: string, highlights?: ReturnType<typeof noteHighlights>) {
+  if (!highlights) {
+    const styles = noteStyles(source);
+    highlights = [...styles.highlights, ...styles.colors];
+  }
   const tags = highlights
     .flatMap((range) => [
       { from: range.tagFrom, to: range.from },
@@ -541,24 +627,36 @@ export function highlightSyntax(
       from: (position: number) => position,
       to: (position: number) => position,
     };
-  const characters: string[] = [],
-    offsets: number[] = [];
-  let tagIndex = 0;
-  for (let index = 0; index < source.length; ) {
-    const tag = tags[tagIndex];
-    if (tag && tag.from === index) {
-      index = tag.to;
-      tagIndex++;
-    } else {
-      characters.push(source.charAt(index));
-      offsets.push(index++);
-    }
+  const chunks: string[] = [];
+  const boundaries: number[] = [];
+  let cursor = 0;
+  let length = 0;
+  for (const tag of tags) {
+    chunks.push(source.slice(cursor, tag.from));
+    length += tag.from - cursor;
+    boundaries.push(length);
+    cursor = tag.to;
   }
+  chunks.push(source.slice(cursor));
+  length += source.length - cursor;
+  // Store one boundary per tag, rather than one source offset per UTF-16 character.
+  const from = (position: number): number => {
+    if (position < 0 || position >= length) return source.length;
+    let low = 0;
+    let high = boundaries.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((boundaries[middle] ?? 0) <= position) low = middle + 1;
+      else high = middle;
+    }
+    const tag = tags[low - 1];
+    return position + (tag ? tag.to - (boundaries[low - 1] ?? 0) : 0);
+  };
   return {
-    tree: markdown.parse(characters.join('')),
+    tree: markdown.parse(chunks.join('')),
     tags,
-    from: (position: number) => offsets[position] ?? source.length,
-    to: (position: number) => (offsets[position - 1] ?? -1) + 1,
+    from,
+    to: (position: number) => (position > 0 && position <= length ? from(position - 1) + 1 : 0),
   };
 }
 

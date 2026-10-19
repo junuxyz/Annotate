@@ -10,6 +10,7 @@ const escaped = (text: string, index: number): boolean => {
 };
 
 export function mathParts(text: string): Part[] {
+  if (!/\$|\\[([]/.test(text)) return text ? [{ kind: 'text', text }] : [];
   const parts: Part[] = [];
   const code: { from: number; to: number }[] = [];
   parser.parse(text).iterate({

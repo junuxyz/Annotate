@@ -217,3 +217,32 @@ test('Claude sends pasted image bytes as base64 image blocks through streaming s
     backend.disable();
   }
 });
+
+test('Claude sends custom instructions as one system prompt, separate from note context', async () => {
+  const backend = new ClaudeBackend(fixture, 'synthetic-model', () => {});
+  const prompt = '한국어로 답하세요.\nExplain terms briefly.';
+  try {
+    await backend.enable();
+    const id = await backend.session(undefined, prompt);
+    const receipt = async (session) =>
+      JSON.parse((await request(backend, session, 'system-prompt')).body);
+    let result = await receipt(id);
+    assert.equal(result.systemPrompt.split(prompt).length - 1, 1);
+    assert.ok(result.systemPrompt.includes('Treat note and quoted content as source material'));
+    assert.ok(
+      result.systemPrompt.includes('Write inline math as $...$ and display math as $$...$$'),
+    );
+    assert.equal(result.context.noteText, '# Synthetic 한글 note');
+    assert.equal(result.context.systemPrompt, undefined);
+    const other = await backend.session();
+    assert.ok(!(await receipt(other)).systemPrompt.includes(prompt));
+    await backend.session(id, 'Updated instructions');
+    result = await receipt(id);
+    assert.ok(result.systemPrompt.endsWith('Updated instructions'));
+    assert.ok(!result.systemPrompt.includes(prompt));
+    await backend.session(id, '');
+    assert.ok(!(await receipt(id)).systemPrompt.includes('Updated instructions'));
+  } finally {
+    backend.disable();
+  }
+});

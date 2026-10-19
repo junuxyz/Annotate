@@ -13,6 +13,18 @@ For implementation context, see [agent tools and permissions](agent-tools.md)
 and [the request flow](architecture.md#assistant-request-flow). For recovery-file
 locations, see [storage and limits](storage-and-limits.md).
 
+## Shared system prompt
+
+Set **Settings → Annotate → System prompt** to control how assistants answer.
+For example, ask for Korean replies, short explanations, or a particular answer
+structure. One shared prompt applies to all notes and all three assistants.
+
+Annotate sends these instructions separately from the complete note, selected
+passage, and conversation. The prompt is not written into your notes or comments.
+Changes apply on the next AI request, including follow-ups in existing threads.
+Clear the field to restore the default behavior. Local `@comment` messages make
+no AI request.
+
 ## Accounts and availability
 
 | Assistant | Account and setup                                                                                                         | Mention     |

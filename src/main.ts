@@ -10,7 +10,7 @@ import { readImage, imagePreview, type ImageAttachment } from './images';
 import {
   highlightEdit,
   highlightChanges,
-  noteHighlights,
+  editorNoteStyles,
   outsideInlineTags,
   highlightStyle,
   highlightPaletteStyles,
@@ -716,10 +716,14 @@ export default class Annotate extends Plugin {
     }
     const list = panel.querySelector<HTMLElement>('.annotate-messages');
     if (list) {
+      const items = new Map(
+        [...list.querySelectorAll<HTMLElement>('[data-message-id]')].map((item) => [
+          item.dataset.messageId,
+          item,
+        ]),
+      );
       for (const comment of thread.comments) {
-        let item = [...list.querySelectorAll<HTMLElement>('[data-message-id]')].find(
-          (el) => el.dataset.messageId === comment.id,
-        );
+        let item = items.get(comment.id);
         if (!item) {
           this.messageElement(list, thread, comment);
           item = list.lastElementChild?.instanceOf(HTMLElement) ? list.lastElementChild : undefined;
@@ -768,6 +772,7 @@ export default class Annotate extends Plugin {
 
     let response: Thread['comments'][number] | undefined;
     const provider = this.data.assistant.provider;
+    const systemPrompt = this.data.assistant.systemPrompt;
     if ((thread.codex?.provider ?? 'chatgpt') !== provider)
       thread.codex = { status: 'idle', provider };
     if (thread.codex?.historyDirty) {
@@ -777,7 +782,6 @@ export default class Annotate extends Plugin {
     thread.codex = { ...thread.codex, provider, status: 'pending', error: undefined };
     this.paintCodex();
     try {
-      const sessionId = await backend.session(thread.codex.sessionId);
       if (
         !(await this.agentAccess.ensureContext(
           thread.path,
@@ -786,6 +790,7 @@ export default class Annotate extends Plugin {
         ))
       )
         throw new Error('Note access was declined. No note context was sent.');
+      const sessionId = await backend.session(thread.codex.sessionId, systemPrompt);
       if (
         this.disposed ||
         this.backend !== backend ||
@@ -1343,19 +1348,6 @@ export default class Annotate extends Plugin {
   private selectionTools: { element: HTMLElement; target: Target } | null = null;
   private selectionDocuments = new Map<Document, () => void>();
   private highlightStyles = new Map<Document, CSSStyleSheet>();
-  private noteHighlightCache = new WeakMap<
-    EditorView['state']['doc'],
-    { highlights: ReturnType<typeof noteHighlights>; colors: ReturnType<typeof noteHighlights> }
-  >();
-  private noteTags(view: EditorView) {
-    let tags = this.noteHighlightCache.get(view.state.doc);
-    if (!tags) {
-      const source = view.state.doc.toString();
-      tags = { highlights: noteHighlights(source), colors: noteHighlights(source, 'span') };
-      this.noteHighlightCache.set(view.state.doc, tags);
-    }
-    return tags;
-  }
 
   recentTextColor(): TextColor {
     return (
@@ -1890,10 +1882,7 @@ export default class Annotate extends Plugin {
   }
   private highlightTagDecorations(view: EditorView): DecorationSet {
     if (!view.state.field(editorLivePreviewField, false)) return Decoration.none;
-    const { highlights, colors } = this.noteHighlightCache.get(view.state.doc) ?? {
-      highlights: [],
-      colors: [],
-    };
+    const { highlights, colors } = editorNoteStyles(view.state.doc);
     return Decoration.set(
       [...highlights, ...colors].flatMap((highlight) => [
         Decoration.replace({}).range(highlight.tagFrom, highlight.from),
@@ -1905,7 +1894,7 @@ export default class Annotate extends Plugin {
   decorations(view: EditorView, path: string | null): DecorationSet {
     if (!path) return Decoration.none;
     const ranges = [];
-    const { highlights, colors } = this.noteTags(view);
+    const { highlights, colors } = editorNoteStyles(view.state.doc);
     for (const span of colors) {
       const color = textColors.find((color) => color.id === span.id);
       if (
@@ -2314,18 +2303,12 @@ export default class Annotate extends Plugin {
     submit: (body: string, quote?: ReplyQuote, images?: ImageAttachment[]) => Promise<boolean>,
     allowQuote = false,
     draftKey?: string,
-    notePath?: string,
   ): void {
     const doc = panel.ownerDocument,
       form = doc.win.createEl('form'),
       input = doc.win.createEl('textarea'),
       button = doc.win.createEl('button');
     form.className = 'annotate-composer';
-    const context = doc.win.createEl('p');
-    context.className = 'annotate-context-preview';
-    context.textContent = `AI context: complete note ${notePath ?? ''}, selected passage, and earlier thread messages. @comment saves locally without starting a request; it can enter later AI context.`;
-    context.hidden = true;
-    panel.append(context);
     input.placeholder = label;
     const inputLabel = doc.win.createEl('label');
     input.id = `annotate-composer-${crypto.randomUUID()}`;
@@ -2366,7 +2349,6 @@ export default class Annotate extends Plugin {
         // Submission reports conflicting assistant mentions.
       }
       form.classList.toggle('annotate-asking-ai', asking !== null);
-      context.hidden = asking === null;
       button.setAttribute(
         'aria-label',
         asking ? `Ask ${providers[asking.provider].name}` : 'Send comment',
@@ -2598,7 +2580,6 @@ export default class Annotate extends Plugin {
       },
       false,
       `new:${target.path}:${target.anchor.from}:${target.anchor.to}`,
-      target.path,
     );
     this.position(panel, rect, panel.ownerDocument);
   }
@@ -2722,7 +2703,6 @@ export default class Annotate extends Plugin {
         },
         true,
         `thread:${thread.id}`,
-        thread.path,
       );
     this.paintCodex();
     list.scrollTop = list.scrollHeight;
@@ -2884,6 +2864,22 @@ class CommentsSettings extends PluginSettingTab {
               this.plugin.configureCodex();
             }),
           );
+      },
+    });
+    definitions.push({
+      name: 'System prompt',
+      desc: 'Shared instructions for AI replies in every note. Applies to all assistants on the next request. Leave empty to use the default behavior.',
+      render: (setting) => {
+        setting.setClass('annotate-settings-system-prompt').addTextArea((text) => {
+          text.inputEl.rows = 6;
+          text
+            .setPlaceholder('Use short paragraphs and explain unfamiliar terms.')
+            .setValue(this.plugin.data.assistant.systemPrompt)
+            .onChange((value) => {
+              this.plugin.data.assistant.systemPrompt = value;
+              this.plugin.changed();
+            });
+        });
       },
     });
     definitions.push({

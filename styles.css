@@ -1436,14 +1436,6 @@ button.annotate-count:hover {
     animation: none;
   }
 }
-/* Assistant context and approvals use the host theme and keep full arguments reviewable. */
-.annotate-context-preview {
-  margin: 0;
-  padding: var(--size-4-2);
-  color: var(--text-muted);
-  font-size: var(--font-smaller);
-}
-
 .annotate-access-preview {
   max-height: 50vh;
   overflow: auto;
@@ -1504,4 +1496,16 @@ button.annotate-count:hover {
   border-radius: 50%;
   background: var(--background-primary);
   box-shadow: 0 1px 4px #0003;
+}
+
+.annotate-settings-system-prompt {
+  flex-wrap: wrap;
+}
+.annotate-settings-system-prompt .setting-item-control {
+  width: 100%;
+}
+.annotate-settings-system-prompt textarea {
+  width: 100%;
+  min-height: 8em;
+  resize: vertical;
 }

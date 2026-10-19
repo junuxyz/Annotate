@@ -2,7 +2,7 @@ import './dom';
 import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { Component, MarkdownRenderer, editorLivePreviewField, type App } from 'obsidian';
-import { highlightSyntax, noteHighlights } from './highlight';
+import { editorNoteStyles, highlightSyntax } from './highlight';
 
 const renders = new WeakMap<HTMLElement, Component>();
 export const renderStyledSelection = StateEffect.define<null>();
@@ -112,14 +112,14 @@ export function highlightRendering(app: App, path: (state: EditorState) => strin
     if (!state.field(editorLivePreviewField, false)) return Decoration.none;
     let wrappers = cache.get(state.doc);
     if (!wrappers) {
-      const source = state.doc.toString();
-      const highlights = [...noteHighlights(source), ...noteHighlights(source, 'span')];
+      const styles = editorNoteStyles(state.doc);
+      const highlights = [...styles.highlights, ...styles.colors];
       if (!highlights.length) {
         cache.set(state.doc, []);
         return Decoration.none;
       }
       const ranges = highlights.map((range) => ({ from: range.tagFrom, to: range.tagTo }));
-      const syntax = highlightSyntax(source, highlights);
+      const syntax = highlightSyntax(state.doc.toString(), highlights);
       // Render complete native components, including formatting outside styling tags.
       syntax.tree.iterate({
         enter(node) {

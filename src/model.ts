@@ -80,6 +80,7 @@ export const dataSchema = z.object({
   assistant: z
     .object({
       provider: providerSchema.default('chatgpt'),
+      systemPrompt: z.string().default(''),
       opencode: z
         .object({ executable: z.string(), model: z.string() })
         .default({ executable: 'opencode', model: '' }),
@@ -92,6 +93,7 @@ export const dataSchema = z.object({
     })
     .default({
       provider: 'chatgpt',
+      systemPrompt: '',
       opencode: { executable: 'opencode', model: '' },
       claude: { executable: 'claude', model: 'claude-sonnet-5-5' },
     }),
@@ -115,6 +117,7 @@ export const emptyData = (): PluginData => ({
   codex: { enabled: false, executable: 'codex', model: '' },
   assistant: {
     provider: 'chatgpt',
+    systemPrompt: '',
     opencode: { executable: 'opencode', model: '' },
     claude: { executable: 'claude', model: 'claude-sonnet-5-5' },
   },

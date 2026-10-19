@@ -428,3 +428,32 @@ test('Codex sends pasted image bytes as native image inputs', async () => {
     backend.disable();
   }
 });
+
+test('custom system prompt is sent once per session and replaced on change or clearing', async () => {
+  const backend = new CodexBackend(fixture, () => {}, runtime());
+  const prompt = '한국어로 답하세요.\nExplain terms briefly.';
+  try {
+    await backend.enable();
+    const id = await backend.session(undefined, prompt);
+    const receipt = async (session) =>
+      JSON.parse((await response(backend, session, 'system-prompt')).chunks);
+    assert.deepEqual(await receipt(id), { systemPrompt: prompt, updates: 1 });
+    assert.equal(await backend.session(id, prompt), id);
+    assert.deepEqual(await receipt(id), { systemPrompt: prompt, updates: 1 });
+    const other = await backend.session(undefined, 'Another note');
+    assert.deepEqual(await receipt(other), { systemPrompt: 'Another note', updates: 1 });
+    assert.equal(await backend.session(id, 'Updated response instructions'), id);
+    assert.deepEqual(await receipt(id), {
+      systemPrompt: 'Updated response instructions',
+      updates: 2,
+    });
+    await backend.session(id, '');
+    assert.deepEqual(await receipt(id), { systemPrompt: '', updates: 3 });
+    backend.disable();
+    await backend.enable();
+    await backend.session(id, prompt);
+    assert.deepEqual(await receipt(id), { systemPrompt: prompt, updates: 1 });
+  } finally {
+    backend.disable();
+  }
+});

@@ -10,6 +10,7 @@
 | OpenCode free-tier debugging                      | [Investigation](opencode-debugging.md)                                |
 | Tool contracts and permission enforcement         | [Agent tools and permissions](agent-tools.md)                         |
 | Build, development updates, and releases          | [Development](development.md)                                         |
+| Synthetic rendering benchmarks                    | [Performance](performance.md)                                         |
 | Automated suites and real-app scopes              | [Testing](testing.md)                                                 |
 | Contributions and security reports                | [Contributing](../CONTRIBUTING.md), [security policy](../SECURITY.md) |
 

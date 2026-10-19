@@ -14,6 +14,7 @@ const timers = new Map();
 const approvals = new Map();
 const toolCalls = new Map();
 const sessionTools = new Map();
+const sessionInstructions = new Map();
 const send = (x) => process.stdout.write(JSON.stringify(x) + '\n');
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   const m = JSON.parse(line);
@@ -103,18 +104,25 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       throw new Error('Unsafe thread');
     const id = 'session-' + ++session;
     sessionTools.set(id, m.params.dynamicTools);
+    sessionInstructions.set(id, { systemPrompt: m.params.developerInstructions, updates: 1 });
     reply({
       thread: { id },
       activePermissionProfile: { id: modelConfig.wrongProfile ? ':workspace' : 'annotate' },
     });
-  } else if (m.method === 'thread/resume')
-    m.params.threadId === 'missing'
-      ? send({ id: m.id, error: { message: 'not found' } })
-      : reply({
-          thread: { id: m.params.threadId },
-          activePermissionProfile: { id: modelConfig.wrongProfile ? ':workspace' : 'annotate' },
-        });
-  else if (
+  } else if (m.method === 'thread/resume') {
+    if (m.params.threadId === 'missing') send({ id: m.id, error: { message: 'not found' } });
+    else {
+      const previous = sessionInstructions.get(m.params.threadId);
+      sessionInstructions.set(m.params.threadId, {
+        systemPrompt: m.params.developerInstructions,
+        updates: (previous?.updates ?? 0) + 1,
+      });
+      reply({
+        thread: { id: m.params.threadId },
+        activePermissionProfile: { id: modelConfig.wrongProfile ? ':workspace' : 'annotate' },
+      });
+    }
+  } else if (
     m.method === 'turn/start' &&
     (m.params.permissions !== 'annotate' ||
       m.params.sandboxPolicy ||
@@ -243,6 +251,22 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     }
     if (JSON.parse(m.params.input[0].text).question === 'crash') {
       setTimeout(() => process.exit(1), 20);
+      return;
+    }
+    if (JSON.parse(m.params.input[0].text).question === 'system-prompt') {
+      send({
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: id,
+          turnId,
+          itemId: 'answer',
+          delta: JSON.stringify(sessionInstructions.get(id)),
+        },
+      });
+      send({
+        method: 'turn/completed',
+        params: { threadId: id, turn: { id: turnId, status: 'completed' } },
+      });
       return;
     }
     let i = 0;

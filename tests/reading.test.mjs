@@ -200,3 +200,17 @@ test('styled emphasis next to suffixes retains Reading selections and comment po
     el.remove();
   }
 });
+
+test('section bounds retain empty, trailing and out-of-range line behavior', () => {
+  for (const source of ['', 'one', '한글\n😀\nlast', 'one\n\n']) {
+    const starts = [0];
+    for (let index = 0; index < source.length; index++)
+      if (source[index] === '\n') starts.push(index + 1);
+    for (let from = 0; from <= starts.length + 1; from++)
+      for (let to = from; to <= starts.length + 1; to++)
+        assert.deepEqual(sectionBounds(source, from, to), {
+          from: starts[from] ?? source.length,
+          to: starts[to + 1] ?? source.length,
+        });
+  }
+});

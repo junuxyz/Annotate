@@ -54,6 +54,9 @@ test('native renderer gets source path and Markdown, latest stream wins, cleanup
     'Fixtures/Annotations.md',
   );
   assert.equal(calls[2].text, '$x$ and $$y$$ and `$literal$`');
+  renderer.paint(app, body, 'Inline $x^2$ and display $$\\frac{a}{b}$$', 'Fixtures/Annotations.md');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(calls[3].text, 'Inline $x^2$ and display $$\\frac{a}{b}$$');
   renderer.clear();
   assert.equal(calls[2].component.loaded, false);
   calls[2].el.textContent = 'closed';
