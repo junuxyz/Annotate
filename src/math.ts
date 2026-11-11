@@ -1,8 +1,7 @@
 import { parser } from '@lezer/markdown';
 
 type Part =
-  | { kind: 'text'; text: string }
-  | { kind: 'math'; text: string; source: string; display: boolean };
+  { kind: 'text'; text: string } | { kind: 'math'; text: string; source: string; display: boolean };
 const escaped = (text: string, index: number): boolean => {
   let slashes = 0;
   while (index > 0 && text[--index] === '\\') slashes++;

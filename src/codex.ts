@@ -11,12 +11,7 @@ import type { ReplyQuote } from './model';
 
 export type ConnectionState = 'disabled' | 'connecting' | 'ready' | 'reconnecting' | 'error';
 export type ResponseState =
-  | 'pending'
-  | 'streaming'
-  | 'completed'
-  | 'cancelled'
-  | 'failed'
-  | 'unknown';
+  'pending' | 'streaming' | 'completed' | 'cancelled' | 'failed' | 'unknown';
 const envelope = z.object({
   id: z.union([z.number(), z.string()]).optional(),
   method: z.string().optional(),
